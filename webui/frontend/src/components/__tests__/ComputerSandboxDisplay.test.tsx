@@ -107,11 +107,119 @@ describe('#720 sandbox display in the computer pane', () => {
     await waitFor(() => expect(displayHits).toBeGreaterThan(before))
   })
 
-  it('explains an inactive daytona sandbox instead of pretending', async () => {
+  it('D5: sandboxes the preview iframe with allow-scripts only', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'daytona',
+      display: { kind: 'iframe', url: 'https://sandbox.daytona.example.invalid/preview/' },
+    }
+    await openPane()
+    const frame = await screen.findByTestId('sandbox-display-frame')
+    const attr = frame.getAttribute('sandbox') ?? ''
+    expect(attr).toContain('allow-scripts')
+    expect(attr).not.toContain('allow-same-origin')
+  })
+
+  it('D1: surfaces availability in the empty state, distinct from the reason', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'none',
+      display: null,
+      reason: 'provider_not_daytona',
+      available: false,
+    }
+    await openPane()
+    const indicator = await screen.findByTestId('sandbox-display-available')
+    expect(indicator).toHaveTextContent('Not available')
+    expect(indicator).toHaveAttribute('data-available', 'false')
+    expect(screen.getByTestId('sandbox-display-reason')).toHaveTextContent(
+      'No sandbox provider configured',
+    )
+  })
+
+  it('D1: surfaces availability alongside a live preview', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'daytona',
+      display: { kind: 'iframe', url: 'https://sandbox.example.invalid/preview/' },
+      available: true,
+      sandbox: { id: 'vm-available', status: 'started' },
+    }
+    await openPane()
+    await screen.findByTestId('sandbox-display-frame')
+    const indicator = screen.getByTestId('sandbox-display-available')
+    expect(indicator).toHaveTextContent('Available')
+    expect(indicator).toHaveAttribute('data-available', 'true')
+  })
+
+  it('D3: explains an inactive daytona sandbox with friendly copy, raw code in data-attr', async () => {
     displayPayload = { agent_id: 'codey', provider: 'daytona', display: null, reason: 'no_active_sandbox' }
     await openPane()
     const region = await screen.findByTestId('sandbox-display')
     expect(region).toHaveTextContent('Sandbox not active')
-    expect(region).toHaveTextContent('no_active_sandbox')
+    // The internal code never reads as user-facing text...
+    expect(region).not.toHaveTextContent('no_active_sandbox')
+    // ...but stays available for debugging via the tooltip/data-attr.
+    const reasonNode = screen.getByTestId('sandbox-display-reason')
+    expect(reasonNode).toHaveAttribute('data-reason', 'no_active_sandbox')
+    expect(reasonNode).toHaveAttribute('title', 'no_active_sandbox')
+  })
+
+  it('D2: renders the credential row in the live branch, never the value', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'daytona',
+      display: { kind: 'iframe', url: 'https://sandbox.example.invalid/preview/' },
+      available: true,
+      sandbox: { id: 'vm-live', status: 'started' },
+      credential: { env_var: 'DAYTONA_API_KEY', set: true },
+    }
+    await openPane()
+    await screen.findByTestId('sandbox-display-frame')
+    const credential = screen.getByTestId('sandbox-display-credential')
+    expect(credential).toHaveTextContent('DAYTONA_API_KEY')
+    expect(credential).toHaveTextContent('set')
+    expect(credential).not.toHaveTextContent('sk-')
+  })
+
+  it('names the credential env var and shows the operator hint when unreachable', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'daytona',
+      display: null,
+      reason: 'no_active_sandbox',
+      available: false,
+      sandbox: null,
+      credential: { env_var: 'DAYTONA_API_KEY', set: false },
+      probe: {
+        ok: false,
+        classification: 'env_name_unset',
+        detail: 'Environment variable DAYTONA_API_KEY is not set in the server environment.',
+        operator_hint: 'systemctl --user set-environment DAYTONA_API_KEY=<key>',
+      },
+    }
+    await openPane()
+    const region = await screen.findByTestId('sandbox-display')
+    expect(region).toHaveTextContent('Sandbox not active')
+    const credential = screen.getByTestId('sandbox-display-credential')
+    expect(credential).toHaveTextContent('DAYTONA_API_KEY')
+    expect(credential).toHaveTextContent('not set')
+    expect(screen.getByTestId('sandbox-display-hint')).toHaveTextContent('systemctl')
+    expect(screen.queryByTestId('sandbox-display-frame')).not.toBeInTheDocument()
+  })
+
+  it('shows the live sandbox id and status alongside the preview', async () => {
+    displayPayload = {
+      agent_id: 'codey',
+      provider: 'daytona',
+      display: { kind: 'iframe', url: 'https://sandbox.example.invalid/preview/' },
+      available: true,
+      sandbox: { id: 'vm-123', status: 'started' },
+    }
+    await openPane()
+    await screen.findByTestId('sandbox-display-frame')
+    const status = screen.getByTestId('sandbox-display-status')
+    expect(status).toHaveTextContent('vm-123')
+    expect(status).toHaveTextContent('started')
   })
 })

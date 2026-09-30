@@ -19,7 +19,7 @@
 > - No Neon. No secrets.
 > - One Cursor cloud. PR must say `Fixes` this issue.
 >
-> **Owner:** open-swarm engineer + Cursor cloud. CoS: Open Swarm. Skeptic after the PR (text-only PASS/FAIL).
+> **Owner:** open-swarm engineer + Cursor cloud. CoS: Operating Swarm. Skeptic after the PR (text-only PASS/FAIL).
 
 ## Intent
 

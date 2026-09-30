@@ -139,3 +139,49 @@ describe('#543 herdrChatHref — herdr seats are URL-addressable (unchanged)', (
     expect(chatHrefForRowId('herdr:p1')).toBe('/chat?remote=herdr&session=p1')
   })
 })
+
+describe('#1088 computeRailNavSequence — pinned ids win over their unpinned rows', () => {
+  // `orderedRows` still carries the pinned ids in their old section positions:
+  // the sequence must honour the pin-grid order and never revisit a pin below.
+  const pinnedRows: RailRow[] = [
+    { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
+    { kind: 'agent', id: 'agent-3', agent: { id: 'agent-3', name: 'Agent 3' } },
+    { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
+    { kind: 'agent', id: 'agent-4', agent: { id: 'agent-4', name: 'Agent 4' } },
+  ]
+  const pins = [
+    { id: 'agent-2', name: 'Agent 2' },
+    { id: 'agent-4', name: 'Agent 4' },
+  ]
+
+  it('emits pinned ids first, in pin-grid order', () => {
+    const seq = computeRailNavSequence({ visiblePins: pins, orderedRows: pinnedRows })
+    expect(seq.slice(0, 2).map((t) => t.id)).toEqual(['agent-2', 'agent-4'])
+    expect(seq.slice(0, 2).every((t) => t.kind === 'pin')).toBe(true)
+  })
+
+  it('does not visit a pinned row again in its unpinned section position', () => {
+    const seq = computeRailNavSequence({ visiblePins: pins, orderedRows: pinnedRows })
+    expect(seq.map((t) => t.id)).toEqual(['agent-2', 'agent-4', 'agent-1', 'agent-3'])
+    expect(seq.filter((t) => t.id === 'agent-2')).toHaveLength(1)
+    expect(seq.filter((t) => t.id === 'agent-4')).toHaveLength(1)
+  })
+
+  it('keeps unpinned rows in their rail/section order after the pin segment', () => {
+    const seq = computeRailNavSequence({ visiblePins: pins, orderedRows: pinnedRows })
+    expect(seq.slice(2).map((t) => t.id)).toEqual(['agent-1', 'agent-3'])
+    expect(seq.slice(2).every((t) => t.kind === 'agent')).toBe(true)
+  })
+
+  it('keeps target ids unique and stable even with duplicate rows', () => {
+    const dupes: RailRow[] = [
+      { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
+      { kind: 'agent', id: 'agent-1', agent: { id: 'agent-1', name: 'Agent 1' } },
+      { kind: 'agent', id: 'agent-2', agent: { id: 'agent-2', name: 'Agent 2' } },
+    ]
+    const seq = computeRailNavSequence({ visiblePins: pins, orderedRows: dupes })
+    const ids = seq.map((t) => t.id)
+    expect(ids).toEqual(['agent-2', 'agent-4', 'agent-1'])
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+})

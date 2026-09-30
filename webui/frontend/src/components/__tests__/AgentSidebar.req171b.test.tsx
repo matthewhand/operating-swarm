@@ -62,6 +62,26 @@ function mockRailFetch(catalog: ReturnType<typeof seat>[]) {
     if (url.includes('/v1/herdr-agents')) {
       return jsonOk({ object: 'list', data: [] })
     }
+    if (url.includes('/v1/companies')) {
+      return jsonOk({
+        object: 'list',
+        data: [
+          {
+            object: 'company',
+            id: 'acme-id',
+            name: 'Acme',
+            slug: 'acme',
+            model_policy: {
+              mode: 'allow_all',
+              allowed_models: [],
+              denied_models: [],
+              default_model: '',
+            },
+            default_model: '',
+          },
+        ],
+      })
+    }
     if (url.includes('/v1/blueprints/custom/') && method === 'POST') {
       const body = JSON.parse(String(init?.body || '{}')) as {
         name?: string
@@ -184,7 +204,11 @@ describe('AgentSidebar REQ-171B add-agent rail seats', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     expect(within(list).queryByRole('link', { name: /My CLI Tool/ })).not.toBeInTheDocument()
 
-    fireEvent.click(await screen.findByTestId('add-agent-button'))
+    // #1674: `+` opens the Add-bot menu; the wizard is its "Create new agent"
+    // action, so the same creation flow is still reachable from the rail.
+    fireEvent.click(await screen.findByTestId('add-bot-menu-trigger'))
+    const addMenu = await screen.findByTestId('os-add-bot-menu')
+    fireEvent.click(within(addMenu).getByTestId('os-add-bot-menu-create-bot'))
     expect(await screen.findByTestId('add-agent-wizard')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('kind-option-cli'))
     await screen.findByTestId('input-cli-name')

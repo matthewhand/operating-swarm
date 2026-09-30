@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Async Response State Machine · Operating Swarm</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">State Machine · Operating Swarm</p>
+    <h1>Async Response Lifecycle States</h1>
+
+    <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="state-title state-desc">
+      <title id="state-title">Async Response lifecycle state machine</title>
+      <desc id="state-desc">State machine for a stateful /v1/responses record: a request enters queued, moves to in_progress while the worker runs, then completes, fails, or is cancelled cooperatively. A completed record can be chained with previous_response_id; store false runs inline without a queued state.</desc>
+      <defs>
+        <pattern id="dots-state" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="state-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="state-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-state)" opacity="0.55"/>
+
+      <!-- Transitions drawn before boxes -->
+      <line x1="40" y1="180" x2="76" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#state-arrow-accent)"/>
+      <line x1="260" y1="180" x2="376" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#state-arrow-accent)"/>
+      <rect x="270" y="164" width="96" height="12" rx="2" fill="#2d3142"/>
+      <text x="318" y="174" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">worker picks up</text>
+
+      <line x1="560" y1="180" x2="696" y2="180" stroke="#f08a59" stroke-width="1.6" marker-end="url(#state-arrow-accent)"/>
+      <rect x="576" y="164" width="104" height="12" rx="2" fill="#2d3142"/>
+      <text x="628" y="174" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">final_text set</text>
+
+      <line x1="440" y1="212" x2="440" y2="298" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#state-arrow)"/>
+      <rect x="372" y="240" width="136" height="12" rx="2" fill="#2d3142"/>
+      <text x="440" y="250" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">POST /{id}/cancel</text>
+
+      <path d="M 500 212 L 500 260 L 790 260 L 790 298" fill="none" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#state-arrow)"/>
+      <rect x="556" y="244" width="128" height="12" rx="2" fill="#2d3142"/>
+      <text x="620" y="254" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">exception / timeout</text>
+
+      <!-- States -->
+      <g transform="translate(80,148)">
+        <rect width="180" height="64" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="90" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">queued</text>
+        <text x="90" y="50" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">202 handle returned</text>
+      </g>
+      <g transform="translate(380,148)">
+        <rect width="180" height="64" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="90" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">in_progress</text>
+        <text x="90" y="50" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">progress[] appended</text>
+      </g>
+      <g transform="translate(700,148)">
+        <rect width="180" height="64" rx="8" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="90" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">completed</text>
+        <text x="90" y="50" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">output_text · usage</text>
+      </g>
+      <g transform="translate(380,298)">
+        <rect width="180" height="64" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="90" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">cancelled</text>
+        <text x="90" y="50" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">cooperative · idempotent</text>
+      </g>
+      <g transform="translate(700,298)">
+        <rect width="180" height="64" rx="8" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="90" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">failed</text>
+        <text x="90" y="50" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">error object recorded</text>
+      </g>
+
+      <!-- Start dot -->
+      <circle cx="26" cy="180" r="8" fill="#f08a59"/>
+      <text x="0" y="210" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="start">POST /v1/responses</text>
+
+      <!-- Chaining note -->
+      <line x1="790" y1="212" x2="790" y2="252" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="790" y1="252" x2="500" y2="252" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#state-arrow)"/>
+      <rect x="560" y="238" width="168" height="12" rx="2" fill="#2d3142"/>
+      <text x="644" y="248" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">previous_response_id chain</text>
+
+      <!-- Legend -->
+      <line x1="24" y1="420" x2="976" y2="420" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="444" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <rect x="110" y="432" width="16" height="16" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+      <text x="134" y="445" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Live / focal state</text>
+      <rect x="330" y="432" width="16" height="16" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+      <text x="354" y="445" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Transient / terminal</text>
+      <line x1="560" y1="440" x2="596" y2="440" stroke="#f08a59" stroke-width="1.6" marker-end="url(#state-arrow-accent)"/>
+      <text x="608" y="445" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Primary path</text>
+      <line x1="760" y1="440" x2="796" y2="440" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#state-arrow)"/>
+      <text x="808" y="445" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Failure / chain</text>
+      <text x="24" y="486" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/views/responses_views.py · src/swarm/core/responses_store.py · docs/ASYNC_RESPONSES.md</text>
+      <text x="24" y="502" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">NOTE: store:false runs inline and returns completed directly — it never enters the queued state. queued / in_progress survive a restart and are re-hydrated by the poll path.</text>
+    </svg>
+  </div>
+</body>
+</html>

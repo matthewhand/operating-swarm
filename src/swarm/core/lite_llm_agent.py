@@ -177,7 +177,7 @@ class LiteLLMAPISeat:
             This agent represents a true inference seat that uses the local lite-llm
             service at {self.base_url} with model '{self.model_id}'.
             
-            You are part of Open Swarm's four-kind system (CLI | API | Blueprint | Remote)
+            You are part of Operating Swarm's four-kind system (CLI | API | Blueprint | Remote)
             and serve as the first-class "api" seat for true inference capabilities.
             
             Your model configuration:

@@ -12,7 +12,7 @@
 
 ```bash
 curl -sS -D- http://127.0.0.1:8001/ -o /tmp/spa.html | head
-grep -E 'id="root"|Open Swarm|/assets/' /tmp/spa.html
+grep -E 'id="root"|Operating Swarm|/assets/' /tmp/spa.html
 # asset URLs from index must return 200
 ```
 

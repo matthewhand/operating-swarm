@@ -78,3 +78,18 @@ def test_lookup_agent_folder_handles_import_error(monkeypatch):
     # Should not raise exception
     assert lookup_agent_folder("non_existent_agent") == ""
 
+
+def test_missing_auto_run_folder_falls_back_to_none():
+    """A cleaned-up per-run workspace must not block session resume."""
+    from swarm.core.workdir import get_workspaces_dir
+
+    missing = get_workspaces_dir() / "run-abcdef123456"
+    assert not missing.exists()
+    assert resolve_agent_folder(str(missing)) is None
+
+
+def test_missing_user_folder_still_errors(tmp_path):
+    missing = tmp_path / "run-abcdef123456"  # run-shaped but NOT under workspaces
+    with pytest.raises(AgentFolderError):
+        resolve_agent_folder(str(missing))
+

@@ -112,9 +112,9 @@ describe('#856 slice E: RailOverlays', () => {
     expect(screen.queryByTestId('notify-permission-hint')).toBeNull()
   })
 
-  it('renders the AddAgentWizard when open and not when closed', () => {
+  it('renders the AddAgentWizard when open and not when closed', async () => {
     renderOverlays(makeProps({ addWizardOpen: true }))
-    expect(screen.getByLabelText('Add agent wizard')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Add agent wizard')).toBeInTheDocument()
     renderOverlays(makeProps({ addWizardOpen: false }))
     // both mounts coexist in this test file; assert the second render mounted
     // a fresh closed instance without throwing

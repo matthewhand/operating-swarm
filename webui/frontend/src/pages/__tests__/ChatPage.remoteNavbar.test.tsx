@@ -39,6 +39,10 @@ function remotesCatalog() {
         title: 'AnythingLLM',
         source: 'config',
         base_url: 'http://127.0.0.1:3001',
+        // #1202: the real /v1/remotes/ row always carries `capabilities`
+        // (`remote_harness.capabilities_for(...)`); AnythingLLM declares
+        // resumable sessions, which the navbar Session picker gates on.
+        capabilities: { list: true, send: true, sessions: true },
       },
     ],
   }

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Async Responses Lifecycle · Sequence</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Operating Swarm</p>
+    <h1>Async Responses Lifecycle · /v1/responses</h1>
+
+    <svg viewBox="0 0 1000 692" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="async-title async-desc">
+      <title id="async-title">Async Responses API lifecycle</title>
+      <desc id="async-desc">Sequence diagram of the async-by-default Responses API: the edge stamps an owner, saves a queued record, returns 202, dispatches a background worker that marks in_progress and runs the blueprint turn, writes the completed record, and the client polls GET by id or cancels cooperatively.</desc>
+      <defs>
+        <pattern id="dots-async" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="async-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="async-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-async)" opacity="0.55"/>
+
+      <!-- Lifelines -->
+      <line x1="120" y1="112" x2="120" y2="592" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="400" y1="112" x2="400" y2="592" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="660" y1="112" x2="660" y2="592" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="890" y1="112" x2="890" y2="592" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Activation bars -->
+      <rect x="116" y="140" width="8" height="56" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="396" y="140" width="8" height="412" fill="rgba(240,138,89,0.12)" stroke="#f08a59" stroke-width="1"/>
+      <rect x="656" y="208" width="8" height="232" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="886" y="180" width="8" height="336" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+
+      <!-- 1 client -> edge -->
+      <line x1="124" y1="148" x2="396" y2="148" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="176" y="132" width="180" height="14" rx="2" fill="#2d3142"/>
+      <text x="266" y="143" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /v1/responses {background:true}</text>
+
+      <!-- 2 edge self -->
+      <path d="M 404 168 L 452 168 L 452 188 L 404 188" fill="none" stroke="#f08a59" stroke-width="1.2" marker-end="url(#async-arrow-accent)"/>
+      <rect x="460" y="170" width="216" height="14" rx="2" fill="#2d3142"/>
+      <text x="568" y="181" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">stamp owner · resolve model · dispatch</text>
+
+      <!-- 3 edge -> store -->
+      <line x1="404" y1="216" x2="886" y2="216" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="600" y="200" width="152" height="14" rx="2" fill="#2d3142"/>
+      <text x="676" y="211" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">save {status: queued, owner}</text>
+
+      <!-- 4 edge -> client 202 -->
+      <line x1="396" y1="252" x2="124" y2="252" stroke="#f08a59" stroke-width="1.6" marker-end="url(#async-arrow-accent)"/>
+      <rect x="168" y="236" width="188" height="14" rx="2" fill="#2d3142"/>
+      <text x="262" y="247" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">202 {id: resp_&lt;uuid&gt;, queued}</text>
+
+      <!-- 5 worker -> store run -->
+      <line x1="660" y1="296" x2="886" y2="296" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="678" y="280" width="176" height="14" rx="2" fill="#2d3142"/>
+      <text x="766" y="291" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">status in_progress · run turn</text>
+
+      <!-- 6 client -> edge poll -->
+      <line x1="124" y1="340" x2="396" y2="340" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="176" y="324" width="176" height="14" rx="2" fill="#2d3142"/>
+      <text x="264" y="335" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">GET /v1/responses/{id} · poll</text>
+
+      <!-- 7 edge -> store load -->
+      <line x1="404" y1="376" x2="886" y2="376" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="596" y="360" width="180" height="14" rx="2" fill="#2d3142"/>
+      <text x="686" y="371" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">load(id) · owner_allows()</text>
+
+      <!-- 8 store -> edge -->
+      <line x1="886" y1="412" x2="404" y2="412" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#async-arrow)"/>
+      <rect x="596" y="396" width="140" height="14" rx="2" fill="#2d3142"/>
+      <text x="666" y="407" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">record (same principal)</text>
+
+      <!-- 9 edge -> client status -->
+      <line x1="396" y1="448" x2="124" y2="448" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#async-arrow-accent)"/>
+      <rect x="176" y="432" width="180" height="14" rx="2" fill="#2d3142"/>
+      <text x="266" y="443" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">200/202 · progress[] · status</text>
+
+      <!-- 10 worker -> store complete -->
+      <line x1="660" y1="492" x2="886" y2="492" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="664" y="476" width="204" height="14" rx="2" fill="#2d3142"/>
+      <text x="766" y="487" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">save output_text · usage · completed</text>
+
+      <!-- 11 client -> edge cancel -->
+      <line x1="124" y1="536" x2="396" y2="536" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <rect x="164" y="520" width="196" height="14" rx="2" fill="#2d3142"/>
+      <text x="262" y="531" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /{id}/cancel (cooperative)</text>
+
+      <!-- 12 edge -> client cancelled -->
+      <line x1="396" y1="572" x2="124" y2="572" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#async-arrow-accent)"/>
+      <rect x="176" y="556" width="164" height="14" rx="2" fill="#2d3142"/>
+      <text x="258" y="567" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">status cancelled</text>
+
+      <!-- Actor boxes -->
+      <g transform="translate(40,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">API client</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">poll / cancel</text>
+      </g>
+      <g transform="translate(320,48)">
+        <rect width="160" height="52" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">ResponsesView</text>
+        <text x="80" y="40" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Django edge</text>
+      </g>
+      <g transform="translate(580,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Background worker</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">runs sealed seat turn</text>
+      </g>
+      <g transform="translate(810,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Responses store</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">JSON files · SWARM_RESPONSES_DIR</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="40" y1="628" x2="960" y2="628" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="40" y="648" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="126" y1="644" x2="162" y2="644" stroke="#f08a59" stroke-width="1.6" marker-end="url(#async-arrow-accent)"/>
+      <text x="174" y="648" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Response to caller</text>
+      <line x1="360" y1="644" x2="396" y2="644" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#async-arrow)"/>
+      <text x="408" y="648" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Internal call</text>
+      <line x1="580" y1="644" x2="616" y2="644" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#async-arrow)"/>
+      <text x="628" y="648" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Record read</text>
+      <text x="40" y="680" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/views/responses_views.py · src/swarm/core/responses_store.py · src/swarm/core/cancel_registry.py · docs/ASYNC_RESPONSES.md</text>
+    </svg>
+  </div>
+</body>
+</html>

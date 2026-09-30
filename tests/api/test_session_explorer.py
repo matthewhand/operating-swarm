@@ -31,6 +31,55 @@ def store(tmp_path, monkeypatch):
     return tmp_path
 
 
+def test_failed_session_preview_is_classified_as_error(store):
+    """#1441: a failed response with only ``error.message`` is an error preview."""
+    record = {
+        "id": "resp_fail",
+        "object": "response",
+        "response": {
+            "id": "resp_fail",
+            "model": "hybrid_team",
+            "status": "failed",
+            "created_at": 9,
+            "output_text": "",
+            "error": {"message": "execution timed out"},
+            "progress": [],
+        },
+        "messages": [],
+        "owner": "user:explorer",
+    }
+    responses_store.save(record)
+    rows = {row["id"]: row for row in responses_store.list_summaries()}
+    assert rows["resp_fail"]["output_preview"] == "execution timed out"
+    assert rows["resp_fail"]["preview_class"] == "error"
+    _save("resp_ok", created=8, output="all good", status="completed")
+    ok = {row["id"]: row for row in responses_store.list_summaries()}["resp_ok"]
+    assert ok["preview_class"] == "reply"
+
+
+@pytest.mark.django_db
+def test_session_explorer_marks_error_previews(auth_client, store):
+    responses_store.save({
+        "id": "resp_fail",
+        "object": "response",
+        "owner": "user:explorer",
+        "response": {
+            "id": "resp_fail",
+            "model": "hybrid_team",
+            "status": "failed",
+            "created_at": 3,
+            "output_text": "",
+            "error": {"message": "execution timed out"},
+        },
+        "messages": [],
+    })
+    resp = auth_client.get(reverse("session-explorer"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'data-preview="error"' in body
+    assert "execution timed out" in body
+
+
 def test_list_summaries_newest_first(store):
     _save("resp_a", created=1, output="first")
     _save("resp_b", created=5, output="second", progress=[{"role": "agent", "status": "completed"}])
@@ -61,6 +110,7 @@ def test_session_explorer_list_view(auth_client, store):
     assert resp.status_code == 200
     body = resp.content.decode()
     assert "Session Explorer" in body and "resp_x" in body and "explorer-marker" in body
+    assert 'data-preview="reply"' in body
 
 
 @pytest.mark.django_db

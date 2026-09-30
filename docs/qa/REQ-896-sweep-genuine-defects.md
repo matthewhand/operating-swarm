@@ -64,13 +64,13 @@ The #311 "Operating Swarm" rename updated the SPA copies of
 `manifest.json`, `favicon-minimal.svg`, and `webui-geometric.svg` but never
 touched the canonical `assets/brand/` versions — the files
 `{% static 'brand/…' %}` and `/manifest.json` actually serve. Result: the
-installed PWA still reported `"name": "Open Swarm"` while the whole UI said
+installed PWA still reported `"name": "Operating Swarm"` while the whole UI said
 "Operating Swarm" (REQ-862 identity). `test_spa_public_copies_match_brand`
 failed on the drift.
 
 Fix: canonical copies re-synced from the SPA copies (pure rename, no geometry
 change in the SVGs — verified by diff). The `/manifest.json` pin in
-`test_req106_brand_mark.py` moves from `"Open Swarm"` to `"Operating Swarm"`
+`test_req106_brand_mark.py` moves from `"Operating Swarm"` to `"Operating Swarm"`
 to match REQ-862; it only ever passed because of this drift.
 
 ## Deliberately not changed here

@@ -5,11 +5,21 @@ import App from './App.tsx'
 import { installDemoRuntime } from './lib/demo/demoMockInference'
 import { isDemoMode } from './lib/demo/mode'
 import { isThrottleError } from './lib/api'
+import { installPageTitle } from './lib/pageTitle'
+import { applyAvatarMotionPreference } from './lib/motionPreference'
 import './index.css'
 
 if (isDemoMode()) {
   installDemoRuntime()
 }
+
+// #1225: the tab title mirrors the server label (`Operating Swarm: <name>`)
+// and follows hostname edits live — no reload needed.
+installPageTitle()
+
+// #1244: mirror the stored avatar-motion opt-in onto <html> before first paint
+// so the reduced-motion CSS gate is correct on load, not one frame late.
+applyAvatarMotionPreference()
 
 const queryClient = new QueryClient({
   defaultOptions: {

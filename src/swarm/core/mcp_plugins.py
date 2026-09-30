@@ -1,7 +1,8 @@
 """Plugins manage path (#502 / #750): swarm as an MCP *client*.
 
 Server topology is global (``swarm_config.json`` ``mcpServers``). Tool On/Off
-is per-chat (#805 ``params.enabled_tools``). Distinct from
+is per-bot (#516 / #1313 persisted ``mcp_tool_grants``, plus a per-turn
+``params.enabled_tools`` list). Distinct from
 ``ENABLE_MCP_SERVER`` (exposing swarm *as* an MCP server).
 
 Local servers use stdio (command + args + env ``${VAR}``). Remote servers use
@@ -25,7 +26,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from swarm.core.chat_plugin_tools import PLUGIN_CATALOG_IDS, apply_chat_plugin_allowlist
-from swarm.core.cli_mcp import normalize_mcp_servers
+from swarm.core.cli_mcp import mcp_entry_disabled, normalize_mcp_servers
 from swarm.core.config_ownership import (
     ConfigOwnershipError,
     is_placeholder,
@@ -337,13 +338,12 @@ def normalize_plugin_spec(raw: Any, *, name: str = "") -> dict[str, Any]:
     key = _slug(str(raw.get("id") or raw.get("name") or name))
     kind = _kind_of(raw)
     source = _source_of(raw)
-    enabled = raw.get("enabled")
     entry: dict[str, Any] = {
         "name": key,
         "label": display or key,
         "kind": kind,
         "source": source,
-        "enabled": not (enabled is False or enabled == "false"),
+        "enabled": not mcp_entry_disabled(raw),
         "provides": _str_list(raw.get("provides")),
         "note": str(raw.get("note") or "").strip(),
     }
@@ -437,7 +437,7 @@ def public_server(name: str, spec: Mapping[str, Any] | None) -> dict[str, Any]:
         "label": str(raw.get("label") or name),
         "kind": kind,
         "source": _source_of(raw),
-        "enabled": raw.get("enabled") is not False,
+        "enabled": not mcp_entry_disabled(raw),
         "command": str(redacted.get("command") or ""),
         "args": list(redacted.get("args") or []),
         "url": str(redacted.get("url") or ""),
@@ -474,7 +474,7 @@ def plugin_catalog_ids(config: Mapping[str, Any] | None = None) -> frozenset[str
     """Fixture ids plus discovered / provides names from configured servers."""
     ids = set(PLUGIN_CATALOG_IDS)
     for spec in load_mcp_servers(config).values():
-        if spec.get("enabled") is False:
+        if mcp_entry_disabled(spec):
             continue
         for item in spec.get("discovered_tools") or []:
             if isinstance(item, dict) and item.get("name"):
@@ -504,6 +504,13 @@ def _missing_env(spec: Mapping[str, Any]) -> list[str]:
             if name and not os.environ.get(name, "").strip():
                 missing.append(name)
     return missing
+
+
+def missing_mcp_env_names(spec: Mapping[str, Any] | None) -> list[str]:
+    """Unset ``${VAR}`` names in env/headers. Names only — never values."""
+    if not isinstance(spec, Mapping):
+        return []
+    return _missing_env(spec)
 
 
 def _tool_rows(tools: Iterable[Any]) -> list[dict[str, str]]:
@@ -720,47 +727,149 @@ def call_plugin_mcp_tool(
     return _run_async(fn(**dict(arguments or {})))
 
 
+def _attach_tools_to_agent(agent: Any, tools: list[Any], server_name: str, attached: list[str]) -> None:
+    """Append ``tools`` to one materialized agent (#1263 shared helper)."""
+    names = getattr(agent, "mcp_servers", None)
+    if isinstance(names, list) and server_name not in names:
+        names.append(server_name)
+    elif names is None:
+        with suppress(Exception):
+            agent.mcp_servers = [server_name]
+    for attr in ("functions", "tools"):
+        current = getattr(agent, attr, None)
+        if not isinstance(current, list):
+            continue
+        have = {getattr(fn, "name", None) or getattr(fn, "__name__", None) for fn in current}
+        for tool in tools:
+            if tool.name not in have:
+                current.append(tool)
+                have.add(tool.name)
+                attached.append(tool.name)
+
+
 def attach_plugin_mcp_tools(blueprint: Any, config: Mapping[str, Any] | None) -> list[str]:
-    """Attach tools from enabled MCP servers. Disabled / missing servers add nothing."""
+    """Attach tools from enabled MCP servers. Disabled / missing servers add nothing.
+
+    #1263: a chat-time blueprint usually has **no materialized agents** — the
+    graph is built lazily by ``create_starting_agent`` (the same hook the
+    mailbox installer wraps). Attachment therefore registers the tools AND
+    wraps the factory so every agent the graph builder produces carries them;
+    the per-chat allowlist wraps the same chain afterwards.
+    """
     attached: list[str] = []
     servers = enabled_mcp_servers(config)
     extras = {name: load_mcp_servers(config).get(name, {}) for name in servers}
+    factory_wrapped = False
     for name, spec in servers.items():
         merged = {**extras.get(name, {}), **spec}
         tools = _tools_from_server(name, merged)
         if not tools:
             continue
+        attached.extend(tool.name for tool in tools)
+        factory = getattr(blueprint, "create_starting_agent", None)
+        if callable(factory) and not getattr(blueprint, "_plugin_tools_wrapped", False):
+            registry = getattr(blueprint, "_plugin_factory_tools", None)
+            if not isinstance(registry, list):
+                registry = []
+
+            def _wrapped_factory(*args: Any, _orig: Any = factory, _registry: list = registry, **kwargs: Any) -> Any:
+                agent = _orig(*args, **kwargs)
+                for _server, _tools, _sink in _registry:
+                    _attach_tools_to_agent(agent, _tools, _server, _sink)
+                return agent
+
+            registry.append((name, tools, attached))
+            blueprint._plugin_factory_tools = registry
+            blueprint.create_starting_agent = _wrapped_factory
+            blueprint._plugin_tools_wrapped = True
+            factory_wrapped = True
+        elif factory_wrapped or getattr(blueprint, "_plugin_tools_wrapped", False):
+            registry = getattr(blueprint, "_plugin_factory_tools", None)
+            if isinstance(registry, list):
+                registry.append((name, tools, attached))
         for agent in _iter_agents(blueprint):
-            names = getattr(agent, "mcp_servers", None)
-            if isinstance(names, list) and name not in names:
-                names.append(name)
-            elif names is None:
-                with suppress(Exception):
-                    agent.mcp_servers = [name]
-            for attr in ("functions", "tools"):
-                current = getattr(agent, attr, None)
-                if not isinstance(current, list):
-                    continue
-                have = {getattr(fn, "name", None) or getattr(fn, "__name__", None) for fn in current}
-                for tool in tools:
-                    if tool.name not in have:
-                        current.append(tool)
-                        have.add(tool.name)
-                        attached.append(tool.name)
+            _attach_tools_to_agent(agent, tools, name, attached)
+    logger.info(
+        "plugin tools attach: registered=%s materialized_agents=%s factory_wrapped=%s",
+        sorted(set(attached)),
+        len(_iter_agents(blueprint)),
+        factory_wrapped or bool(getattr(blueprint, "_plugin_tools_wrapped", False)),
+    )
     return attached
+
+
+def server_tool_index(config: Mapping[str, Any] | None = None) -> dict[str, list[str]]:
+    """Discovered tool names keyed by enabled MCP server."""
+    index: dict[str, list[str]] = {}
+    saved = load_mcp_servers(config)
+    for name, spec in enabled_mcp_servers(config).items():
+        merged = {**saved.get(name, {}), **spec}
+        names: list[str] = []
+        metas = merged.get("discovered_tools")
+        if isinstance(metas, list):
+            for item in metas:
+                if isinstance(item, dict):
+                    tool = str(item.get("name") or "").strip()
+                else:
+                    tool = str(item).strip()
+                if tool and tool not in names:
+                    names.append(tool)
+        for cap in _str_list(merged.get("provides")):
+            if cap not in names:
+                names.append(cap)
+        index[name] = names
+    return index
 
 
 def apply_plugin_mcp_runtime(
     blueprint: Any,
     config: Mapping[str, Any] | None,
     enabled_tools: Iterable[Any] | None,
+    *,
+    persistent_tools: Mapping[str, Any] | None = None,
 ) -> None:
-    """Attach enabled-server tools, then apply the per-chat allowlist (#805)."""
-    attach_plugin_mcp_tools(blueprint, config)
-    apply_chat_plugin_allowlist(
+    """Attach enabled-server tools, then apply the per-chat allowlist (#805).
+
+    ``persistent_tools`` is the bot's ``mcp_tools`` map. When that map is set
+    it is the grant, and a turn ``enabled_tools`` list cannot replace or
+    widen it. #1263: logs one honest per-turn line — attach counts, allowlist
+    removals, and whether the lazy factory path is wired — so a silent
+    zero-attach is visible in the server log.
+    """
+    registered = attach_plugin_mcp_tools(blueprint, config)
+    index = server_tool_index(config)
+    # A persistent mcp_tools map names connector tools. Filtering against the
+    # full plugin catalog would also drop fixture tools (web_search, …) that
+    # the map never mentioned.
+    catalog_ids: Iterable[str] = plugin_catalog_ids(config)
+    if (
+        enabled_tools is None
+        and isinstance(persistent_tools, Mapping)
+        and persistent_tools
+    ):
+        catalog_ids = [
+            name
+            for names in index.values()
+            for name in names
+            if str(name).strip()
+        ]
+    removed = apply_chat_plugin_allowlist(
         blueprint,
         enabled_tools,
-        catalog_ids=plugin_catalog_ids(config),
+        catalog_ids=catalog_ids,
+        persistent_tools=persistent_tools,
+        server_catalog=index,
+    )
+    from swarm.core.chat_plugin_tools import allowlist_from_persistent_tools
+
+    granted = allowlist_from_persistent_tools(persistent_tools, index)
+    shown = granted if granted is not None else list(enabled_tools or [])
+    logger.info(
+        "plugin runtime: enabled_tools=%s registered=%s filtered_out=%s factory_wired=%s",
+        shown,
+        sorted(set(registered)),
+        removed,
+        bool(getattr(blueprint, "_plugin_tools_wrapped", False)),
     )
 
 

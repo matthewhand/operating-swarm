@@ -9,6 +9,7 @@ import pytest
 
 from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
 from swarm.core import remotes as remotes_core
+from functools import partial
 
 WAVESHARE_ID = "79b5852c-9ae8-4972-a662-80054be9ea5f"
 _ACK = "accepted the turn"
@@ -58,15 +59,24 @@ class _Router(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
 @pytest.fixture
 def omb_http():
     _Router.routes = {}
     _Router.posted = []
     server = HTTPServer(("127.0.0.1", 0), _Router)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True).start()
     yield "127.0.0.1", server.server_address[1], _Router
     server.shutdown()
+    server.server_close()
     _Router.routes = {}
     _Router.posted = []
 

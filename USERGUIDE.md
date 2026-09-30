@@ -333,7 +333,7 @@ Point named LLM **profiles** at that host with env vars (no secrets in JSON).
 ```bash
 # .env or shell — endpoint only; use any non-empty placeholder if the gateway is keyless
 export LITELLM_BASE_URL=http://127.0.0.1:8000/v1   # LAN LiteLLM; stock LiteLLM docs often use :4000
-export LITELLM_API_KEY=sk-local-placeholder
+export LITELLM_API_KEY=sk-<token>
 # Leave LITELLM_MODEL unset: a global model override defeats per-profile routing.
 export DEFAULT_LLM=orchestration
 ```

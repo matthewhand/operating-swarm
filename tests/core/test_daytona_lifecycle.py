@@ -254,3 +254,77 @@ def test_attach_sandbox_tools_to_agent_daytona():
     )
     names = [getattr(t, "name", getattr(t, "__name__", "")) for t in agent.tools]
     assert "sandbox_run_python" in names
+
+
+def test_live_state_surface_reads_sandbox_without_creating():
+    """#720: id/status/preview are read-only — never trigger a VM create."""
+    backend = DaytonaSandbox()
+    assert backend.sandbox_id is None
+    assert backend.sandbox_status is None
+    assert backend.preview_url is None
+
+    sandbox = _FakeSandbox("sb-live")
+    sandbox.status = "started"
+    sandbox.get_preview_link = lambda port: SimpleNamespace(
+        url=f"https://preview.example/{port}/"
+    )
+    backend._sandbox = sandbox
+    assert backend.sandbox_id == "sb-live"
+    assert backend.sandbox_status == "started"
+    assert backend.preview_url == "https://preview.example/3000/"
+
+
+def test_live_sandbox_registry_roundtrip():
+    from swarm.core.sandbox.registry import (
+        clear_live_sandboxes,
+        get_live_sandbox,
+        register_live_sandbox,
+        unregister_live_sandbox,
+    )
+
+    clear_live_sandboxes()
+    backend = DaytonaSandbox()
+    register_live_sandbox(backend)
+    assert get_live_sandbox() is backend
+    unregister_live_sandbox()
+    assert get_live_sandbox() is None
+
+
+def test_cleanup_unregisters_live_sandbox():
+    from swarm.core.sandbox.registry import (
+        clear_live_sandboxes,
+        get_live_sandbox,
+        register_live_sandbox,
+    )
+
+    clear_live_sandboxes()
+    backend = DaytonaSandbox()
+    backend._client = SimpleNamespace()
+    backend._sandbox = _FakeSandbox()
+    register_live_sandbox(backend)
+    backend.cleanup()
+    assert get_live_sandbox() is None
+
+
+def test_exec_command_passes_shell_string_not_argv_list():
+    """daytona 0.214 ``Process.exec(command: str)`` rejects an argv list.
+
+    Pydantic raises ``ValidationError`` (a ``ValueError``), which the old
+    ``except TypeError`` fallback never caught — so every remote exec failed.
+    """
+    calls: list[str] = []
+
+    class _StrictProcess:
+        def exec(self, command, timeout=None):
+            if not isinstance(command, str):
+                raise ValueError("1 validation error: command must be a string")
+            calls.append(command)
+            return SimpleNamespace(exit_code=0, result="ok", stderr="")
+
+    backend = DaytonaSandbox()
+    sandbox = _FakeSandbox()
+    sandbox.process = _StrictProcess()
+    backend._sandbox = sandbox
+
+    assert backend.execute_bash("echo hi").success is True
+    assert calls == ["bash -lc 'echo hi'"]

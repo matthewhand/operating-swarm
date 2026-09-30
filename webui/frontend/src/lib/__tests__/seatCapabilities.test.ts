@@ -83,8 +83,13 @@ describe('rail menu agreement', () => {
   })
 
   it('the rail consumes the shared predicate, not an inline kind list (#551)', () => {
-    expect(sidebarSrc()).toContain('hasSelectSession: seatHasSessions(menu)')
-    expect(sidebarSrc()).toContain('hasNewSession: seatHasSessions(menu)')
+    // #1726: the predicate is asked about `seat` — the SEAT the menu row
+    // belongs to — not about `menu` directly. A chat row (#1726) is a session
+    // whose menu state carries the rail id `chat:<seat>:<session>`, so the
+    // session store it belongs to is the seat's. Still the one shared
+    // predicate, still no inline kind list; only the argument is projected.
+    expect(sidebarSrc()).toContain('hasSelectSession: seatHasSessions(seat)')
+    expect(sidebarSrc()).toContain('hasNewSession: seatHasSessions(seat)')
     // The drifted inline expression is gone.
     expect(sidebarSrc()).not.toContain(
       "menu.kind === 'api' || menu.kind === 'cli' || Boolean(menu.isCli)",

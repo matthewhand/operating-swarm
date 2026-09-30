@@ -5,12 +5,15 @@ import {
   GITHUB_REPO_FORMAT_ERROR,
   emptyWorkspaceFields,
   formatNavbarWorkspaceSubtitle,
+  formatNavbarWorkspaceSubtitleDisplay,
   isValidFolderPath,
   isValidGithubRepo,
   loadAgentWorkspace,
   navbarWorkspaceSubtitle,
+  navbarWorkspaceSubtitleParts,
   persistSessionWorkspace,
   saveAgentWorkspace,
+  truncatePathLeading,
 } from '../agentWorkspace'
 
 describe('agentWorkspace (REQ-166 Phase 0)', () => {
@@ -98,5 +101,37 @@ describe('navbar workspace subtitle (#65)', () => {
     })
     expect(loadAgentWorkspace('cli_agent').folder).toBe('/home/dev/tool')
     expect(navbarWorkspaceSubtitle('cli_agent')).toBe('/home/dev/tool — branch: feat/x')
+  })
+})
+
+describe('navbar leading-path truncation (#1257)', () => {
+  const longPath = '/home/dev/very/long/path/to/open-swarm-private'
+
+  it('returns short paths untouched and leads with an ellipsis past the cap', () => {
+    expect(truncatePathLeading('')).toBe('')
+    expect(truncatePathLeading('/tmp/proj')).toBe('/tmp/proj')
+    expect(truncatePathLeading('a'.repeat(32))).toBe('a'.repeat(32))
+    expect(truncatePathLeading('a'.repeat(33))).toBe('...' + 'a'.repeat(32))
+    expect(truncatePathLeading(longPath)).toBe('...' + longPath.slice(-32))
+    expect(truncatePathLeading(longPath, 10)).toBe('...' + longPath.slice(-10))
+  })
+
+  it('truncates only the path segment, leaving the branch suffix intact', () => {
+    expect(formatNavbarWorkspaceSubtitleDisplay({ folder: '/tmp/proj', branch: 'main' })).toBe(
+      '/tmp/proj — branch: main',
+    )
+    expect(
+      formatNavbarWorkspaceSubtitleDisplay({ folder: longPath, branch: 'main' }),
+    ).toBe(`...${longPath.slice(-32)} — branch: main`)
+    expect(formatNavbarWorkspaceSubtitleDisplay({ branch: 'main' })).toBe('branch: main')
+    expect(formatNavbarWorkspaceSubtitleDisplay({})).toBe('')
+  })
+
+  it('keeps the full path for the tooltip alongside the truncated display', () => {
+    saveAgentEdit('cli_agent', { folder: longPath, gitBranch: 'main' })
+    const parts = navbarWorkspaceSubtitleParts('cli_agent')
+    expect(parts.full).toBe(`${longPath} — branch: main`)
+    expect(parts.display).toBe(`...${longPath.slice(-32)} — branch: main`)
+    expect(navbarWorkspaceSubtitleParts('')).toEqual({ full: '', display: '' })
   })
 })

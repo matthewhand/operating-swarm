@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Startup &amp; Shutdown Lifecycle · Operating Swarm</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Operations · Operating Swarm</p>
+    <h1>Startup &amp; Shutdown Lifecycle</h1>
+
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="boot-title boot-desc">
+      <title id="boot-title">Startup and shutdown lifecycle</title>
+      <desc id="boot-desc">Two ordered columns: startup from host or Compose start through entrypoint migrations, database readiness gate, uvicorn ASGI start, application init of MCP servers and scheduler, to a green health probe; with a fail-fast exit 78 branch. Shutdown from SIGTERM through graceful ASGI lifespan teardown, durability flush, and restart-policy decision.</desc>
+      <defs>
+        <pattern id="dots-boot" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="boot-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-boot)" opacity="0.55"/>
+
+      <!-- Rails -->
+      <line x1="52" y1="76" x2="52" y2="452" stroke="#f08a59" stroke-width="2"/>
+      <line x1="548" y1="76" x2="548" y2="382" stroke="#bfc0c0" stroke-width="2"/>
+
+      <text x="24" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">STARTUP (ORDERED)</text>
+      <text x="520" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">SHUTDOWN (ORDERED)</text>
+
+      <!-- Startup steps -->
+      <g transform="translate(52,52)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">1</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Host / Compose start</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">env from .env · DOCKER_UID:GID · config volumes</text>
+      </g>
+      <g transform="translate(52,116)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">2</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Entrypoint: seed config + migrate</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">swarm_config.json seed · migrate --fake-initial</text>
+      </g>
+      <g transform="translate(52,180)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">3</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Database readiness gate</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">Postgres healthy (depends_on) · else fail fast</text>
+      </g>
+      <g transform="translate(52,244)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">4</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">uvicorn swarm.asgi:application</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">1 worker · Django init · http + ws ProtocolTypeRouter</text>
+      </g>
+      <g transform="translate(52,308)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">5</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Application init</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">MCP provider · schedule engine · blueprint discovery</text>
+      </g>
+      <g transform="translate(52,372)">
+        <circle cx="0" cy="24" r="10" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="0" y="28" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">6</text>
+        <rect x="24" y="0" width="420" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">/health green → ready</text>
+        <text x="40" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">compose healthcheck passes · traffic accepted</text>
+      </g>
+
+      <!-- Fail-fast callout -->
+      <line x1="76" y1="180" x2="76" y2="470" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="76" y1="470" x2="100" y2="470" stroke="#bfc0c0" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#boot-arrow-accent)"/>
+      <rect x="100" y="448" width="344" height="44" rx="6" fill="rgba(240,138,89,0.10)" stroke="#f08a59" stroke-width="1" stroke-dasharray="4,4"/>
+      <text x="116" y="468" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">DB unusable → exit 78 (EX_CONFIG)</text>
+      <text x="116" y="483" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">RestartPreventExitStatus=78 · no crash loop</text>
+
+      <!-- Shutdown steps -->
+      <g transform="translate(548,52)">
+        <circle cx="0" cy="24" r="10" fill="#353a4e" stroke="#bfc0c0" stroke-width="1.2"/>
+        <text x="0" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">1</text>
+        <rect x="24" y="0" width="404" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">SIGTERM</text>
+        <text x="40" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">docker stop · systemctl stop · redeploy</text>
+      </g>
+      <g transform="translate(548,116)">
+        <circle cx="0" cy="24" r="10" fill="#353a4e" stroke="#bfc0c0" stroke-width="1.2"/>
+        <text x="0" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">2</text>
+        <rect x="24" y="0" width="404" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Graceful ASGI shutdown</text>
+        <text x="40" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">uvicorn stops accepting · in-flight turn drains</text>
+      </g>
+      <g transform="translate(548,180)">
+        <circle cx="0" cy="24" r="10" fill="#353a4e" stroke="#bfc0c0" stroke-width="1.2"/>
+        <text x="0" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">3</text>
+        <rect x="24" y="0" width="404" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Teardown</text>
+        <text x="40" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">MCP servers stopped · scheduler halted · sockets closed</text>
+      </g>
+      <g transform="translate(548,244)">
+        <circle cx="0" cy="24" r="10" fill="#353a4e" stroke="#bfc0c0" stroke-width="1.2"/>
+        <text x="0" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">4</text>
+        <rect x="24" y="0" width="404" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Durability flush</text>
+        <text x="40" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">queued / in_progress responses persist on disk</text>
+      </g>
+      <g transform="translate(548,308)">
+        <circle cx="0" cy="24" r="10" fill="#353a4e" stroke="#bfc0c0" stroke-width="1.2"/>
+        <text x="0" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">5</text>
+        <rect x="24" y="0" width="404" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="40" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Process exit → restart policy</text>
+        <text x="40" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">on-failure:5 (base) · unless-stopped (dev) · no restart on manual stop</text>
+      </g>
+      <text x="572" y="392" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" opacity="0.8">Recovery: the poll path re-hydrates queued / in_progress records after restart.</text>
+
+      <!-- Legend -->
+      <line x1="24" y1="516" x2="976" y2="516" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="540" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="110" y1="536" x2="146" y2="536" stroke="#f08a59" stroke-width="2"/>
+      <text x="158" y="540" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Startup ordering</text>
+      <line x1="330" y1="536" x2="366" y2="536" stroke="#bfc0c0" stroke-width="2"/>
+      <text x="378" y="540" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Shutdown ordering</text>
+      <rect x="580" y="528" width="16" height="16" rx="6" fill="rgba(240,138,89,0.10)" stroke="#f08a59" stroke-width="1" stroke-dasharray="4,4"/>
+      <text x="604" y="540" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Fail-fast branch</text>
+      <text x="24" y="580" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/asgi.py · src/swarm/mcp/provider.py · Dockerfile · docker-compose.yml · deploy/systemd/open-swarm-dev.service · docs/DEPLOYMENT.md · docs/DATABASE.md</text>
+    </svg>
+  </div>
+</body>
+</html>

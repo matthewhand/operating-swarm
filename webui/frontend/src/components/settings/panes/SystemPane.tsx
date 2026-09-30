@@ -1,7 +1,7 @@
 /** #856 slice B — SystemPane (moved verbatim from SettingsSheet.tsx). */
 import { useId } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, HardDrive } from 'lucide-react'
+import { Activity, AlertCircle, HardDrive } from 'lucide-react'
 import { Alert } from '../.././DaisyUI'
 import EnvOverrideBadge from '../.././EnvOverrideBadge'
 import {
@@ -10,6 +10,7 @@ import {
   fetchLocalStore,
 } from '../../../lib/api'
 import { formatStoreSize } from '../../../lib/localStore'
+import { openGenerationsDiagnostics } from '../generationsEntry'
 
 export function SystemPane() {
   const headingId = useId()
@@ -87,6 +88,20 @@ export function SystemPane() {
         Stored on this machine. No remote host.
       </p>
 
+      {ownershipQuery.data?.config_root ? (
+        <div
+          className="rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+          data-testid="settings-config-root"
+        >
+          <p className="text-xs uppercase tracking-wide text-base-content/60">Config root</p>
+          <p className="mt-0.5 break-all font-mono text-xs">{ownershipQuery.data.config_root}</p>
+          <p className="mt-1 text-xs text-base-content/60">
+            Every config file is derived from this directory. Set{' '}
+            <code>{ownershipQuery.data.config_root_env || 'SWARM_CONFIG_DIR'}</code> to override it.
+          </p>
+        </div>
+      ) : null}
+
       {ownershipQuery.data?.object === 'config_ownership' ? (
         <div className="space-y-3 border-t border-base-200 pt-4" data-testid="config-coverage">
           <h5 className="text-sm font-semibold">Config coverage</h5>
@@ -124,6 +139,29 @@ export function SystemPane() {
           </ul>
         </div>
       ) : null}
+
+      {/* #1354: the agent generations diagnostics entry moved out of the prime
+          navbar into Settings → System. It opens the panel over the chat (the
+          settings sheet closes itself so the panel is not hidden behind it). */}
+      <div
+        className="space-y-3 border-t border-base-200 pt-4"
+        data-testid="about-diagnostics"
+      >
+        <h5 className="text-sm font-semibold">About &amp; diagnostics</h5>
+        <p className="text-xs text-base-content/70">
+          Inspect the active chat seat — its tool calls and the exact raw model
+          context (including spliced summaries) the backend would send.
+        </p>
+        <button
+          type="button"
+          className="btn btn-sm btn-outline gap-2"
+          data-testid="settings-open-generations"
+          onClick={() => openGenerationsDiagnostics()}
+        >
+          <Activity className="h-4 w-4" aria-hidden="true" />
+          Open agent generations
+        </button>
+      </div>
     </section>
   )
 }

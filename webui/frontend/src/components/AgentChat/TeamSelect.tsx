@@ -28,14 +28,14 @@ export function TeamSelect() {
   return (
     <div className="flex items-center gap-1 min-w-0">
       <label className="sr-only" htmlFor="agent-team-select">
-        Team
+        Group chat
       </label>
       <select
         id="agent-team-select"
         className="select select-bordered select-xs max-w-[10rem]"
         value={activeTeamId}
         onChange={(e) => loadTeam(e.target.value)}
-        aria-label="Team"
+        aria-label="Group chat"
       >
         {teams.map((team) => (
           <option key={team.id} value={team.id}>
@@ -50,8 +50,8 @@ export function TeamSelect() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Team name"
-            aria-label="New team name"
+            placeholder="Group chat name"
+            aria-label="New group chat name"
             autoFocus
           />
           <button type="submit" className="btn btn-primary btn-xs" disabled={!name.trim()}>
@@ -74,7 +74,7 @@ export function TeamSelect() {
           className="btn btn-ghost btn-xs"
           onClick={() => setNaming(true)}
         >
-          Save as team
+          Save as group chat
         </button>
       )}
     </div>

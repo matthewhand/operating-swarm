@@ -16,21 +16,26 @@ export function ChatTranscriptShell(props: Props): React.ReactNode {
     ChatMessageList,
     ConsumerPills,
     DefaultLlmTip,
+    HostCliTip,
     RoleAgentTip,
+    VanillaSetupTip,
     activeChatAgentId,
     agentKind,
     bubbleTheme,
     composerInsetCustomProperty,
     composerInsetPx,
     dismissDefaultLlmTip,
+    dismissHostCliTip,
     dismissRoleTip,
     getBubbleTheme,
     handleTranscriptScroll,
+    hostCliTipName,
     ircGutterDragging,
     ircGutterPx,
     isCliAgent,
     isRemoteAgent,
     messagesEditable,
+    neverShowHostCliTip,
     onIrcRailDoubleClick,
     onIrcRailPointerDown,
     onIrcRailPointerMove,
@@ -38,6 +43,7 @@ export function ChatTranscriptShell(props: Props): React.ReactNode {
     remoteFromUrl,
     scrollBoxRef,
     showDefaultLlmTip,
+    showHostCliTip,
     showRoleTip,
     statusLabel,
     themeUsesIrcGutter,
@@ -46,6 +52,24 @@ export function ChatTranscriptShell(props: Props): React.ReactNode {
   return (
     <>
       <ConsumerPills providerId={activeChatAgentId} />
+      {/* ONE first-run tip slot, topmost so it reads as a startup hint, above
+          the seat-contextual role tip. Two owners can want it — `HostCliTip`
+          (#1703: a CLI on PATH that is not wired up yet) and
+          `VanillaSetupTip` (#1700 (3): no inference configured at all) — so the
+          slot renders AT MOST ONE, via if/else rather than two conditionals.
+          Exclusivity is decided upstream in `firstVanillaTip`, which stands
+          down while a detected CLI owns the cheaper keyless fix; the `else` is
+          the belt on that pair, so a future owner cannot silently stack a
+          second explanation of the same "you cannot talk to anything yet". */}
+      {showHostCliTip && hostCliTipName ? (
+        <HostCliTip
+          cliName={hostCliTipName}
+          onDismiss={dismissHostCliTip}
+          onNeverShowAgain={neverShowHostCliTip}
+        />
+      ) : (
+        VanillaSetupTip || null
+      )}
       {showRoleTip ? <RoleAgentTip onDismiss={dismissRoleTip} /> : null}
       {showDefaultLlmTip ? <DefaultLlmTip onDismiss={dismissDefaultLlmTip} /> : null}
 

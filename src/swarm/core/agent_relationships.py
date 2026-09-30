@@ -161,6 +161,13 @@ def save_relationships(edges: Iterable[RelationshipEdge] | None = None) -> None:
     path = relationships_path()
     if path.name != "agent_relationships.json":
         raise RuntimeError("Refusing to persist relationships to a non-relationship path.")
+    # `global` is load-bearing, not decoration. Without it the `_store = ...`
+    # below makes `_store` a *local* for the whole function, so the read on the
+    # `edges is None` branch raised UnboundLocalError (a NameError subclass —
+    # `save_relationships()` with no argument always crashed) and the write
+    # landed in a discarded local, leaving the module cache stale. ruff F823
+    # ("local variable referenced before assignment") is the check that found it.
+    global _store
     with _lock:
         current = list(edges) if edges is not None else [normalize_edge(item) for item in (_store or [])]
         normalized = normalize_edges([edge.as_dict() if isinstance(edge, RelationshipEdge) else edge for edge in current])

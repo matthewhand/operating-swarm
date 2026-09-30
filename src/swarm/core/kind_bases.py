@@ -12,6 +12,7 @@ into CLI or remote sessions.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -54,8 +55,16 @@ def _cap(enabled: bool, reason: str = "") -> SeatCapability:
 
 def _capability_names() -> tuple[str, ...]:
     """The declared capability vocabulary (documented for #540; the
-    ``coordination`` axis arrives with #813's TeamKindBase)."""
-    return ("attach", "compact", "plugins", "routines", "coordination")
+    ``coordination`` axis arrives with #813's TeamKindBase; ``parallel_fan_out``
+    is #1374 — concurrent sibling turns / Cursor-like Running cards)."""
+    return (
+        "attach",
+        "compact",
+        "plugins",
+        "routines",
+        "coordination",
+        "parallel_fan_out",
+    )
 
 
 def seat_capability(base: type, name: str) -> SeatCapability:
@@ -124,12 +133,86 @@ class ApiKindBase(KindBase):
     kind: ClassVar[str] = KIND_API
 
     #: #551: API seats run swarm-side, so swarm capabilities are fully theirs.
+    #: #1374: graphs may fan out sibling turns (ADR-017), so Running cards
+    #: are offered on this kind.
     seat_capabilities: ClassVar[dict[str, SeatCapability]] = {
         "attach": _cap(True),
         "compact": _cap(True),
         "plugins": _cap(True),
         "routines": _cap(True),
+        "parallel_fan_out": _cap(True),
     }
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Install the turn-phase hooks on every API seat, at agent creation.
+
+        #1684/#1691 reachability. The `attach_turn_phase_hooks` call in
+        :meth:`run` below is NOT sufficient, and shipping only that was the
+        defect this hook exists to close. It sits in ``ApiKindBase.run``, but
+        only 6 of the 9 ``ApiKindBase`` subclasses inherit that method: the
+        three that build their own orchestrator shadow it —
+
+            ChatbotBlueprint        (`api_agent` / the DEFAULT chat seat)
+            AgentRouterBlueprint
+            HybridSwarmBlueprint
+
+        and ``ChatbotBlueprint`` is the one ``resolve_chat_blueprint_id``
+        returns for ``api_agent``, i.e. the seat a fresh install chats with.
+        Each of them calls ``Runner.run`` itself, so the chokepoint was never
+        reached and the SPA's "tool in flight" badge would have stayed hidden on
+        exactly the path it was written for. (Verified by walking the AST, not
+        by grepping: see ``tests/core/test_turn_phase_reachability.py``.)
+
+        So the hooks are attached where every API seat *converges* — the agent
+        factories — rather than where one of them runs. Both factories are
+        wrapped:
+
+        * ``create_starting_agent`` — the declared seam on
+          :class:`~swarm.core.blueprint_base.BlueprintBase` that a blueprint
+          overrides to produce the agent it runs. Wrapping the *override* is
+          what catches the three shadowing blueprints.
+        * ``make_agent`` — the shared factory on ``BlueprintBase`` itself, for
+          seats (and team sub-agents) that build agents through it instead.
+
+        Idempotency is the load-bearing property here, not a nicety: a seat that
+        uses BOTH factories would otherwise stack two ``ToolPhaseHooks`` and
+        double every frame. ``attach_turn_phase_hooks`` returns an agent that
+        already carries our hooks untouched, and the wrapper is marked so a
+        subclass inheriting an already-wrapped factory does not re-wrap it.
+
+        The wrapper is deliberately total: it never raises, and it never
+        replaces the agent (it sets ``Agent.hooks`` in place, which is an
+        ordinary dataclass field). Losing a status frame must never be able to
+        fail a turn.
+        """
+        super().__init_subclass__(**kwargs)
+        from swarm.core.turn_phase import attach_turn_phase_hooks
+
+        for factory in ("create_starting_agent", "make_agent"):
+            inherited = getattr(cls, factory, None)
+            if inherited is None or getattr(inherited, "_os_turn_phase_wrapped", False):
+                continue
+            if factory not in cls.__dict__ and factory != "create_starting_agent":
+                # `make_agent` is inherited from BlueprintBase for every seat;
+                # wrapping it on each subclass would re-wrap N times down a
+                # three-level hierarchy. Wrap it once, on BlueprintBase, where
+                # it is defined.
+                continue
+
+            @functools.wraps(inherited)
+            def wrapped(self, *args: Any, _fn: Any = inherited, **inner: Any) -> Any:
+                try:
+                    agent = _fn(self, *args, **inner)
+                except Exception:
+                    raise
+                try:
+                    attach_turn_phase_hooks(agent)
+                except Exception:
+                    logger.debug("turn-phase hook attach skipped", exc_info=True)
+                return agent
+
+            wrapped._os_turn_phase_wrapped = True  # type: ignore[attr-defined]
+            setattr(cls, factory, wrapped)
 
     def get_navbar_items(self=None) -> list[dict]:
         """Returns metadata for navbar items contributed by this blueprint."""
@@ -162,16 +245,28 @@ class ApiKindBase(KindBase):
             # #737: support-generated blueprints build bare Agent(...)s — pin
             # the framework model so non-OpenAI providers don't see gpt-4o.
             apply_agent_model_defaults(agent)
+            # #1323: Runner.run sees only the latest user turn. The About me
+            # card was prepended as a system message and would be dropped.
+            from swarm.core.operator_profile import apply_operator_profile_to_agent
+
+            apply_operator_profile_to_agent(agent, messages)
             try:
                 from swarm.core.sandbox import attach_sandbox_tools_to_agent
 
                 attach_sandbox_tools_to_agent(agent, config=getattr(self, "config", None))
             except Exception:
                 logger.debug("Sandbox tool attachment skipped", exc_info=True)
-            try:
-                timeout = float(os.getenv("SWARM_AGENT_RUN_TIMEOUT", "30"))
-            except (TypeError, ValueError):
-                timeout = 30.0
+            # #1684: emit the turn-phase `tool_status` frames the SPA already
+            # parses and renders. This is the belt; `__init_subclass__` above is
+            # the braces, because three of the nine API seats shadow `run` and
+            # never reach this line. Kept so a seat that constructs its agent
+            # some other way still gets the frames on the inherited path.
+            from swarm.core.turn_phase import attach_turn_phase_hooks
+
+            attach_turn_phase_hooks(agent)
+            from swarm.core.agent_run_timeout import agent_run_timeout
+
+            timeout = agent_run_timeout(getattr(self, "config", None))
 
             try:
                 result = await asyncio.wait_for(Runner.run(agent, instruction), timeout=timeout)
@@ -240,12 +335,16 @@ class CliKindBase(KindBase):
         ),
         "compact": _cap(
             False,
-            "Compact needs a default API profile or a provider cli_compact hook",
+            "Compact is API-only — a CLI keeps its transcript in the provider",
         ),
         "plugins": _cap(
             False, "Plugins are available on API and blueprint seats"
         ),
         "routines": _cap(False, "Routines drive swarm-side scheduling"),
+        "parallel_fan_out": _cap(
+            False,
+            "Parallel fan-out is an API/team capability — a CLI host is process-at-a-time",
+        ),
     }
 
     #: Provider-declared native slash commands, keyed by bare command name.
@@ -285,7 +384,7 @@ class RemoteKindBase(KindBase):
     Consult Hermes / OpenMousBot / Rakazo / Herdr / nested swarm as tools or
     team members. Those are implementations of one Remote harness
     (ADR-011 / REQ-203), not extra user-facing kinds. The remote stays native;
-    Open Swarm sits in front.
+    Operating Swarm sits in front.
     """
 
     kind: ClassVar[str] = KIND_REMOTE
@@ -306,6 +405,10 @@ class RemoteKindBase(KindBase):
         "routines": _cap(False, "Routines drive swarm-side scheduling"),
         "coordination": _cap(
             False, "Cross-agent coordination is a team-seat capability (#813)"
+        ),
+        "parallel_fan_out": _cap(
+            False,
+            "Parallel fan-out is not available for remote seats — the turn belongs to the remote provider",
         ),
     }
 
@@ -331,6 +434,7 @@ class TeamKindBase(KindBase):
         "plugins": _cap(True),
         "routines": _cap(True),
         "coordination": _cap(True),
+        "parallel_fan_out": _cap(True),
     }
 
     #: Coordination strategy: 'direct' (all members see the ask), 'pipeline'

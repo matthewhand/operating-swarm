@@ -1,7 +1,9 @@
-import { useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 import { History } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import SessionPicker, { type SessionPickerSession } from './SessionPicker'
+import type { SessionPickerSession } from './SessionPicker'
+
+const SessionPicker = lazy(() => import('./SessionPicker'))
 import { createAgentSession, loadPickerSessions } from '../lib/agentSessions'
 import { setConversationIdForAgent } from '../lib/agentChat'
 import { sessionHref } from '../lib/scaleOutSessions'
@@ -68,6 +70,8 @@ export default function ApiSessionSwitcher({ agentId, agentName }: ApiSessionSwi
       >
         <History className="h-4 w-4" aria-hidden="true" />
       </button>
+      {open ? (
+      <Suspense fallback={null}>
       <SessionPicker
         open={open}
         title={label}
@@ -82,6 +86,8 @@ export default function ApiSessionSwitcher({ agentId, agentName }: ApiSessionSwi
           setOpen(false)
         }}
       />
+      </Suspense>
+      ) : null}
     </>
   )
 }

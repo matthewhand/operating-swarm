@@ -94,13 +94,13 @@ describe('#508 Teams composer tiers', () => {
   it('opens roster-first with Roles as the default facet', async () => {
     renderComposer()
     await screen.findByTestId('team-drop-zone')
-    expect(screen.getByLabelText(/team name/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/group chat name/i)).toBeInTheDocument()
     expect(screen.getByTestId('team-cos-fieldset')).toBeInTheDocument()
     // #780: the roster is permanent chrome; the first facet (Roles) renders
     // below it; the other facets are absent, not hidden.
     expect(screen.getByTestId('team-roles-pane')).toBeInTheDocument()
     expect(screen.queryByTestId('team-tools-pane')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/get more teams/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/get more group chats/i)).not.toBeInTheDocument()
   })
 
   it('renders each tier only while selected, via a real tablist', async () => {
@@ -116,7 +116,7 @@ describe('#508 Teams composer tiers', () => {
     expect(screen.queryByTestId('team-roles-pane')).not.toBeInTheDocument()
 
     gotoPane('Catalog')
-    expect(screen.getByLabelText(/get more teams/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/get more group chats/i)).toBeInTheDocument()
     expect(screen.queryByTestId('team-tools-pane')).not.toBeInTheDocument()
 
     // #780: the roster stays mounted through every facet switch.
@@ -200,7 +200,7 @@ describe('#508 Teams composer tiers', () => {
         json: async () => ({ object: 'list', data: [] }),
       } as Response
     })
-    fireEvent.change(screen.getByLabelText(/team name/i), { target: { value: 'Cross' } })
+    fireEvent.change(screen.getByLabelText(/group chat name/i), { target: { value: 'Cross' } })
     fireEvent.click(screen.getByTestId('team-tool-handoff-to'))
     fireEvent.change(screen.getByTestId('team-tool-handoff-to'), { target: { value: 'jeeves' } })
     fireEvent.click(screen.getByRole('button', { name: /save roster/i }))

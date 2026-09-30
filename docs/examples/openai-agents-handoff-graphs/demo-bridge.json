@@ -22,7 +22,7 @@
       "name": "Hermes Remote",
       "kind": "remote",
       "role": "default",
-      "source": "placeholder:remote:hermes"
+      "source": "remote:hermes"
     }
   ],
   "wires": {"handoff": true, "as_tool": true},

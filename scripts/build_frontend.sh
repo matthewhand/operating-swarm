@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building Open Swarm MCP frontend..."
+echo "Building Operating Swarm MCP frontend..."
 
 # Check if we're in the right directory
 if [ ! -d "webui/frontend" ]; then

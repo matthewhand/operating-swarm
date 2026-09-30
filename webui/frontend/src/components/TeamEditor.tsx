@@ -5,21 +5,15 @@ import { fetchBlueprints, type Blueprint } from '../lib/api'
 import { catalogLabel } from '../lib/supportAgent'
 import { assignedTeamBlueprintId, saveTeamEdit } from '../lib/teamEdits'
 import { fetchTeamRosters, parseTeamRosters } from '../lib/teamRosters'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 import PersonaRoster from './PersonaRoster'
 import { declaredRosterForTeam } from '../lib/declaredRoster'
-
-/** Window event so the rail Edit Profile and tests can open the team editor. */
-export const OPEN_TEAM_EDITOR_EVENT = 'swarm:open-team-editor'
-
-export interface OpenTeamEditorDetail {
-  teamId: string
-  teamName?: string
-}
-
-export function openTeamEditor(detail: OpenTeamEditorDetail): void {
-  window.dispatchEvent(new CustomEvent<OpenTeamEditorDetail>(OPEN_TEAM_EDITOR_EVENT, { detail }))
-}
+export {
+  OPEN_TEAM_EDITOR_EVENT,
+  openTeamEditor,
+} from './teamEditorKernel'
+export type { OpenTeamEditorDetail } from './teamEditorKernel'
+import { LibraryScopeBar } from './LibraryScopeBar'
 
 const EMPTY_BLUEPRINTS: Blueprint[] = []
 
@@ -64,7 +58,13 @@ export default function TeamEditor({
     () => blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS,
     [blueprintsQuery.data],
   )
-  const rosterTeam = parseTeamRosters(teamsQuery.data ?? []).find((team) => team.id === id)
+  // `parseTeamRosters` builds fresh objects per call, so this is a new object
+  // every render — and the effect below depends on two of its fields. Memoized
+  // on the query data, which is the only thing that can change the answer.
+  const rosterTeam = useMemo(
+    () => parseTeamRosters(teamsQuery.data).find((team) => team.id === id),
+    [teamsQuery.data, id],
+  )
 
   useEffect(() => {
     if (!isOpen || !id) return
@@ -113,9 +113,15 @@ export default function TeamEditor({
         data-testid="team-editor"
       >
         <p className="text-sm text-base-content/70">
-          This pane is only about this team. Blueprint picks a catalog recipe
-          — it is not the Teams drop-zone and not Settings Remotes.
+          This pane is only about this rig. Blueprint picks a catalog recipe
+          — it is not the Rigs drop-zone and not Settings Remotes.
         </p>
+        <LibraryScopeBar
+          surface="team"
+          rosterId={id || undefined}
+          itemTitle={label}
+          teamId={id || undefined}
+        />
 
         <Select
           label="Blueprint"

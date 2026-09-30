@@ -1,0 +1,29 @@
+{
+  "asideW": 118,
+  "row": {
+    "x": 0,
+    "y": 0,
+    "w": 117,
+    "h": 56
+  },
+  "search": {
+    "x": 40.5,
+    "y": 5.5,
+    "w": 36,
+    "h": 36
+  },
+  "add": {
+    "x": 78.5,
+    "y": 5.5,
+    "w": 36,
+    "h": 36
+  },
+  "conceal": {
+    "x": 2.5,
+    "y": 5.5,
+    "w": 36,
+    "h": 36
+  },
+  "theme": "dark",
+  "font": "\"JetBrainsMono Nerd Font\", \"JetBrains Mono\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif"
+}

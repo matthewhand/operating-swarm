@@ -191,7 +191,7 @@ tag and is omitted. The README keeps one-liners; this table is the evidence.
 
 ```mermaid
 gantt
-    title Open Swarm git history
+    title Operating Swarm git history
     dateFormat YYYY-MM-DD
     axisFormat %Y-%m
     section Start
@@ -267,7 +267,7 @@ bind **8000** (LiteLLM / other host services).
 Prove:
 
 ```bash
-curl -sS http://127.0.0.1:8001/ | grep -E 'id="root"|Open Swarm|/assets/'
+curl -sS http://127.0.0.1:8001/ | grep -E 'id="root"|Operating Swarm|/assets/'
 ```
 
 Logs/PID default under `~/grok-logs/spa-preview-8001.{log,pid}`. Record the

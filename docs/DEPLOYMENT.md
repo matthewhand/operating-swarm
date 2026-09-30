@@ -1,6 +1,6 @@
 # Deploying a CLI-wrapping OpenAI-compatible server
 
-A runbook for standing up Open Swarm so it exposes an **OpenAI-compatible API**
+A runbook for standing up Operating Swarm so it exposes an **OpenAI-compatible API**
 (`/v1/chat/completions`, `/v1/responses`, `/v1/models`, OpenAPI at `/api/schema/`)
 that wraps your installed agentic CLIs (grok, claude, gemini, codex, opencode).
 
@@ -41,7 +41,7 @@ cp .env.example .env   # set DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, API_AUTH_T
 # proxy hostname), add that exact origin to DJANGO_CSRF_TRUSTED_ORIGINS —
 # scheme + host + port, comma-separated. Defaults are only
 # http://localhost:8000 and http://127.0.0.1:8000 (greenfield swarm-api).
-# When running Open Swarm on an alternate port (such as :8002), ensure trusted
+# When running Operating Swarm on an alternate port (such as :8002), ensure trusted
 # origins match that port, e.g.:
 #   DJANGO_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8002,https://swarm.example.com
 # Also include the host in DJANGO_ALLOWED_HOSTS (hostname only, no scheme).
@@ -115,7 +115,7 @@ and is not meant to face a network. If you *do* put nginx in front of the app,
 carries an equivalent `location /static/` alias. Prove:
 `uv run pytest tests/unit/test_issue423_production_static.py`.
 
-Point any OpenAI client at the **Open Swarm** base (`http://<host>:8000/v1`
+Point any OpenAI client at the **Operating Swarm** base (`http://<host>:8000/v1`
 greenfield, or `http://<host>:8002/v1` when LiteLLM already owns `:8000`) with
 `Authorization: Bearer $API_AUTH_TOKEN`. Do not confuse swarm `/v1` with LiteLLM
 `/v1` on the same host.

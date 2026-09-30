@@ -92,7 +92,7 @@ class StewieBlueprint(BlueprintBase):
         "title": "Stewie / ChaosCrew WP Manager",
         "description": "Manages WordPress content using Stewie (main agent) and other helpers as tools.",
         "version": "2.0.0", # Incremented version
-        "author": "Open Swarm Team (Refactored)",
+        "author": "Operating Swarm Team (Refactored)",
         "tags": ["wordpress", "cms", "multi-agent", "mcp"],
         "required_mcp_servers": ["server-wp-mcp"], # Brian needs this
         "env_vars": ["WP_SITES_PATH"] # Informational: MCP server needs this

@@ -35,18 +35,25 @@ dependencies = [
     "requests>=2.31.0",
     "pyyaml>=6.0",
     "uvicorn[standard]>=0.23.0",
-    "gunicorn>=21.0.0",
     "psycopg2-binary>=2.9.0",
     "dj-database-url>=2.1.0",
     "django-extensions>=3.2.0",
     "channels>=4.0",
-    "channels-redis>=4.0",
+    # Core, not a CLI/provider extra: `swarm.core.blueprint_base` imports
+    # `from agents import set_default_openai_client, set_tracing_disabled` at
+    # module scope, and kind_bases -> blueprint_base is on the import path for
+    # chat_views / model_views / utils. Dropping it does not degrade one
+    # blueprint, it breaks three view modules.
+    "openai-agents>=0.0.1",
+    # `daphne` is in INSTALLED_APPS (settings.py) so its ASGI-aware `runserver`
+    # works. It drags in Twisted/Autobahn/cryptography (~40MB) but is a hard
+    # startup requirement, so it cannot move to an extra. Conditionalising the
+    # INSTALLED_APPS entry would reclaim that, at the cost of `runserver`.
     "daphne>=4.0.0",
     "whitenoise>=6.6.0",  # #423: serve /static/ in production (DEBUG=false, no proxy)
     "tiktoken>=0.5.0",
     "platformdirs>=4.0.0",
     "typer>=0.9.0", # Changed from typer[all]
-    "pyinstaller>=5.13.0",
     # #890: the <0.26 pin blocked daytona>=0.5.0 (needs httpx>=0.28). Modern
     # httpx is backwards-compatible for our client usage (remotes, TUI, GitHub
     # services); unlocked so the sandbox extra installs cleanly.
@@ -54,19 +61,33 @@ dependencies = [
     "django-environ>=0.11.0",
     "django-model-utils>=4.3.0",
     "django-filter>=23.0",
-    "celery>=5.3.0",
-    "redis>=5.0.0",
-    "qdrant-client>=1.6.0",
-    "beautifulsoup4>=4.12.0",
-    "google-api-python-client>=2.100.0",
-    "google-auth-httplib2>=0.1.0",
-    "google-auth-oauthlib>=1.2.1", # Version from uv install
-    "openai-agents>=0.0.1",
     "jinja2>=3.1.6",
     "drf-spectacular>=0.28.0",
     "jmespath>=1.0.1",
     "filelock>=3.18.0",
+    # Was only ever satisfied by accident, via mem0ai (the `memory` extra)
+    # pulling it in transitively. blueprints/suggestion and blueprints/jeeves
+    # `import pytz` at module scope (and both call datetime.now(pytz.utc) at
+    # import time), and blueprint discovery imports every blueprint — so a
+    # barebones `pip install .` without the memory extra failed discovery.
+    # Declared directly so the import is guaranteed. (blueprints/rue_code only
+    # mentions pytz inside a Jinja template string, so it is not load-bearing.)
+    "pytz>=2024.1",
 ]
+# ---------------------------------------------------------------------------
+# Barebones core (above) is what a server deployment actually needs: Django +
+# DRF + ASGI (channels, served by uvicorn) + Postgres + OpenAI SDK.
+#
+# Everything below moved out of `dependencies` because nothing under
+# `src/swarm` imports it — it was paying ~220MB of image weight (and boot
+# import time) for features the process never touches. Each is now opt-in via
+# an extra, so a Fly/Docker deploy can `pip install .` and stay small.
+#
+# Measured on the base install (python3.12, linux): 393MB -> ~170MB of
+# site-packages. Re-run `tests/` after touching this list; the suites import
+# lazily, so a missed dependency shows up as a collection error, not a boot
+# failure.
+# ---------------------------------------------------------------------------
 
 [project.urls]
 Homepage = "https://github.com/matthewhand/operating-swarm"
@@ -83,6 +104,63 @@ codey = "swarm.blueprints.codey.codey_cli:main"
 suggestion = "swarm.blueprints.suggestion.suggestion_cli:main"
 
 [project.optional-dependencies]
+# --- moved out of `dependencies` (unused by src/swarm; see the note above) ---
+google = [
+    # No import under src/swarm. This tree is the single heaviest thing we
+    # shipped (~120MB incl. grpc) for a Google API surface nothing calls.
+    # Install only if you drive Google APIs from a custom blueprint.
+    "google-api-python-client>=2.100.0",
+    "google-auth-httplib2>=0.1.0",
+    "google-auth-oauthlib>=1.2.1",
+]
+vector = [
+    # Pulls numpy (~60MB). Only env-var names like QDRANT_URL are referenced in
+    # tree; the client itself is unused.
+    "qdrant-client>=1.6.0",
+]
+tasks = [
+    # No Celery app is wired and no CHANNEL_LAYERS/RedisChannelLayer config
+    # exists. Redis/channel-layer support arrives with this extra.
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    "channels-redis>=4.0.0",
+]
+wsgi = [
+    # The container CMD execs uvicorn; nothing in the repo starts gunicorn.
+    "gunicorn>=21.0.0",
+]
+oauth = [
+    # GitHub/Google sign-in for the web UI. Django-native, no opinionated user
+    # model, so it layers onto the existing `custom_login` + session auth in
+    # swarm/auth.py without replacing either. See docs/AUTH.md §8.
+    #
+    # REQUIRES an email allowlist in production: an open OAuth login on a
+    # public host is an open signup against our LLM keys. The knobs are the
+    # SWARM_OAUTH_* environment variables read by swarm/oauth_pipeline.py --
+    # NOT social-core's SOCIAL_AUTH_ALLOWED_DOMAINS, which this project
+    # deliberately does not use, so setting it is a silent no-op that refuses
+    # every login:
+    #   SWARM_OAUTH_ALLOWED_EMAILS   exact addresses, comma-separated
+    #   SWARM_OAUTH_ALLOWED_DOMAINS  email domains, comma-separated
+    #   SWARM_OAUTH_ALLOW_ANY=true   disable the check (dev only)
+    # With none set, every social login is refused (fail closed).
+    "social-auth-app-django>=5.4",
+]
+deploy = [
+    # What a container deployment wants: a WSGI option plus human sign-in.
+    # Mirrors the fly.toml/Dockerfile profile so `pip install '.[deploy]'` is
+    # the whole server story. Add new server-only deps here, not to the base
+    # list, so local checkouts stay light.
+    "gunicorn>=21.0.0",
+    "social-auth-app-django>=5.4",
+]
+scraping = [
+    "beautifulsoup4>=4.12.0",
+]
+build = [
+    # Only `swarm.core.swarm_cli` / `swarm.cli.launcher` (host packaging).
+    "pyinstaller>=5.13.0",
+]
 tui = [
     # REQ-111 Wave 1a: interactive Herdr-like TUI chrome. Kept optional so a
     # plain core install stays thin; `os-cli tui` explains how to add it.
@@ -147,8 +225,13 @@ test = [
     "respx>=0.20.0",
     "psutil>=5.9.0",
     "pytest-timeout>=2.1.0",
+]
+e2e = [
     # Browser automation for the opt-in golden-journey suite (tests/e2e_visual,
     # gated behind RUN_E2E_VISUAL=1; see .github/workflows/visual-regression.yml).
+    # Kept out of `test` deliberately: it drags a ~600MB driver, so anyone
+    # running the ordinary Python suite should not pay for it. CI uses
+    # `uv sync --all-extras`, so the visual workflow still gets it.
     "playwright>=1.49.0",
 ]
 docs = [
@@ -187,22 +270,14 @@ ignore_missing_imports = true
 # [tool.django-stubs]
 # django_settings_module = "swarm.settings"
 
-[tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "swarm.settings"
-python_files = ["tests.py", "test_*.py", "*_tests.py"]
-env = [
-    "DJANGO_ALLOW_ASYNC_UNSAFE=true",
-]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-filterwarnings = [
-    "ignore:pkg_resources is deprecated as an API:DeprecationWarning:docutils.*:",
-    "ignore:pkg_resources is deprecated as an API:DeprecationWarning:pkg_resources.*:",
-    "ignore:Deprecated call to `pkg_resources.declare_namespace.*:DeprecationWarning:pkg_resources.*:",
-    # Ignore the pytest-django fixture mark warning for now
-    "ignore:Marks applied to fixtures have no effect:pytest.PytestRemovedIn9Warning",
-]
+# Pytest config lives in `pytest.ini`, NOT here. This block used to exist
+# alongside it and pytest IGNORED it -- every run printed
+#   configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+# so every key below was dead: the #1335 `SWARM_SKIP_DOTENV` env guard, the
+# `DJANGO_ALLOW_ASYNC_UNSAFE` guard, and the pytest-9 fixture-mark filter.
+# All three were migrated into pytest.ini (debt ticket D-07). Do not re-add a
+# [tool.pytest.ini_options] block; tests/core/test_pytest_config_single_source.py
+# fails if a second pytest config source appears.
 
 [tool.coverage.run]
 source = ["src/swarm"]
@@ -210,7 +285,14 @@ omit = ["*/migrations/*", "*/tests/*", "src/swarm/settings.py", "src/swarm/wsgi.
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 70
+# #1730: `fail_under = 70` lived here and was dead config -- pytest.ini's
+# `--cov-fail-under=0` overrode it on every run. Both numbers are gone so there
+# is exactly one floor in the repo: scripts/coverage_ratchet.py, checked against
+# scripts/coverage-ratchet-baseline.txt over a full-suite report. A per-run
+# scalar is the wrong shape anyway: `fail_under` has no notion of "was this the
+# whole suite?", so it makes `pytest tests/utils` (5% today) a red exit for a
+# number that says nothing about the project. Do not add it back here or as a
+# CLI flag; tests/core/test_coverage_ratchet.py fails if either returns.
 
 [dependency-groups]
 dev = [

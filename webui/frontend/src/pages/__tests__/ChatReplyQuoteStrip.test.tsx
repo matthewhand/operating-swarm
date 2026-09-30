@@ -137,9 +137,9 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
     const dismissBtn = screen.getByTestId('dismiss-reply-button')
     fireEvent.click(dismissBtn)
 
-    // Reply strip is gone, placeholder restores to "Message …"
+    // Reply strip is gone, placeholder restores to Message <navbar name>
     expect(screen.queryByTestId('composer-reply-strip')).not.toBeInTheDocument()
-    expect(input).toHaveAttribute('placeholder', 'Message …')
+    expect(input).toHaveAttribute('placeholder', 'Message Support')
   })
 
   it('#846: right-click Reply quotes ONLY the highlighted snippet even when the browser collapses the selection', async () => {
@@ -260,7 +260,7 @@ describe('REQ-198: Chat right-click Reply — quote strip in composer, sent with
 
     // Reply strip should be disarmed after send
     expect(screen.queryByTestId('composer-reply-strip')).not.toBeInTheDocument()
-    expect(input).toHaveAttribute('placeholder', 'Message …')
+    expect(input).toHaveAttribute('placeholder', 'Message Support')
   })
 
   it('#565: the full multi-line quote goes on the wire, even though the bubble clamps it', async () => {

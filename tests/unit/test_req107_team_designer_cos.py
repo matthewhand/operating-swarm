@@ -15,36 +15,68 @@ TEAM_ROSTER_LIB = REPO / "webui" / "frontend" / "src" / "lib" / "teamRoster.ts"
 
 
 def test_designer_has_optional_cos_control_and_instructions():
-    src = COMPOSER.read_text(encoding="utf-8")
-    starter = TEAM_ROSTER_LIB.read_text(encoding="utf-8")
-    assert 'aria-label="Chief of Staff"' in src
-    # #979 renamed the optional-lead surface to "First agent (roster #1)"
-    # with an empty-value sentinel — the literal "No Chief of Staff" option
-    # is retired.
-    assert "NO_COS_VALUE" in src
-    assert "COS_EMPTY_ROSTER_HINT" in src
-    assert "team-cos-instructions" in src
-    assert "How to use this team" in src
-    assert "COS_INSTRUCTIONS_HELPER" in src
-    # The starter brief is the honest instruction set (lib/teamRoster.ts);
-    # an earlier "Do not auto-assign" copy was folded into it.
-    assert "Do not duplicate work" in starter
-    helpers = TEAM_ROSTER.read_text(encoding="utf-8")
-    assert "same agent can sit on multiple teams" in helpers
+    """The composer exposes the optional CoS picker and the brief it writes.
+
+    Read as the *structure* of the surfaces, not as prose. The previous form
+    asserted the literal ``"How to use this rig"`` inside ``TeamComposer.tsx``;
+    #1362 relabelled that field to "How to use this group chat" (it is a group
+    chat, not a rig) and the test went red on correct copy, with the control
+    fully intact.
+
+    What the old assertion could not catch: a CoS control that had been deleted
+    outright would still leave ``COS_INSTRUCTIONS_HELPER`` imported and
+    ``team-cos-instructions`` in the file, so only the one drifted string
+    distinguished "present" from "renamed".
+
+    The *behaviour* -- that the picker is optional, that selecting a CoS
+    enables the brief, that it seeds from the starter and saves what was typed
+    -- is asserted by rendering in
+    ``webui/frontend/src/components/__tests__/TeamComposer.test.tsx``
+    ("selects a CoS, saves team-scoped instructions, and can clear CoS",
+    "omits remotes from the CoS picker").
+    """
+    composer = COMPOSER.read_text(encoding="utf-8")
+    lib = TEAM_ROSTER_LIB.read_text(encoding="utf-8")
+
+    # The control: a labelled, addressable brief field on the composer.
+    assert 'data-testid="team-cos-instructions"' in composer, (
+        "the CoS brief field is gone from the composer"
+    )
+    assert 'aria-label="Chief of Staff instructions"' in composer
+    # Its hint text comes from the lib, not from a copy in the component.
+    assert "COS_INSTRUCTIONS_HELPER" in composer
+    # The empty-roster and sentinel copy the #979 retune introduced.
+    assert "COS_EMPTY_ROSTER_HINT" in composer
+    assert "NO_COS_VALUE" in lib and "FIRST_AGENT_VALUE" in lib
+
+    # The starter brief is the honest instruction set, and it still says the
+    # one thing a CoS must not do.
+    assert "Do not duplicate work" in lib
+    assert "The same agent can sit on multiple rigs" in lib
 
 
 def test_chat_stays_mounted_under_team_composer():
+    """The composer is an overlay: it must not unmount Chat.
+
+    #1676 made the composer ``lazy()``, so the previous ``"import TeamComposer"
+    in app`` needle rotted on a correct code-split. The property being pinned
+    is the *mount shape*, not the import spelling: the composer is rendered as
+    an element (overlay) and never as a route ``element={...}``, which is what
+    would unmount Chat.
+    """
     app = APP.read_text(encoding="utf-8")
     rail = SIDEBAR.read_text(encoding="utf-8")
-    assert "import TeamComposer" in app
+
+    # Loaded by any mechanism, mounted as an element.
+    assert "TeamComposer" in app, "App no longer mounts the team composer at all"
     assert "<TeamComposer" in app
-    assert "OPEN_TEAM_COMPOSER_EVENT" in app
-    # #182/#907: the Compose-team dispatch lives in the rail footer button.
-    assert "OPEN_TEAM_COMPOSER_EVENT" in rail
-    assert "os-teams-button" in rail
     # Overlay, never a route that unmounts Chat. (/teams/* is the deep-link
     # redirect into chat, not a composer route.)
     assert 'element={<TeamComposer' not in app
+    # #182/#907: the Compose-team dispatch lives in the rail footer button.
+    assert "OPEN_TEAM_COMPOSER_EVENT" in app
+    assert "OPEN_TEAM_COMPOSER_EVENT" in rail
+    assert "os-teams-button" in rail
 
 
 def test_daisyui5_react18_lock():

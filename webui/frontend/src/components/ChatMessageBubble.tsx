@@ -13,10 +13,14 @@ import { renderMarkdownSafe } from '../lib/markdownSafe'
 import { setupCodeFenceControls } from '../lib/codeFences'
 import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { parseSupportNlBlueprintFence } from '../lib/supportNlBlueprint'
+import { parseSupportNlRoutineFence } from '../lib/supportNlRoutine'
+import { parseSupportNlSeatingFence } from '../lib/supportNlSeating'
 import { parseProviderSetupFence } from '../lib/providerSetupCard'
 import { SystemPreloadPill } from './SystemPreloadPill'
 import { SkillChip } from './SkillChip'
 import SupportCreatedBlueprintCard from './SupportCreatedBlueprintCard'
+import SupportCreatedRoutineCard from './SupportCreatedRoutineCard'
+import SupportCreatedSeatingCard from './SupportCreatedSeatingCard'
 import ProviderSetupCard from './ProviderSetupCard'
 import { splitSkillRefs, type SkillInfo } from '../lib/skills'
 import { isFlagrantErrorText } from '../lib/flagrantErrors'
@@ -33,6 +37,7 @@ import { splitLeadingQuote } from '../lib/replyQuote'
 import { extractThinkingBlock } from '../lib/messageArtifacts'
 import { QuotedReply } from './QuotedReply'
 import { SpecialStatusCard } from './SpecialCards'
+import { stripVoiceNoteMarkdown, voiceNoteSources } from '../lib/voiceNotes'
 
 export interface ChatMessageBubbleProps {
   role: 'user' | 'assistant' | 'system' | 'status'
@@ -66,6 +71,8 @@ export interface ChatMessageBubbleProps {
   sendFailed?: boolean
   /** #1168: resend a lost send (same text, same row). */
   onResend?: () => void
+  /** #1411: this turn is only an emoji reaction — no text body. */
+  reactionOnly?: boolean
 }
 
 /**
@@ -97,6 +104,8 @@ export const ChatBubbleBody = memo(
     const mdRef = useRef<HTMLDivElement | null>(null)
     const expandedIndicesRef = useRef<Set<number>>(new Set())
     const [, setStreamEpoch] = useState(0)
+    // REQ-1320: click-to-expand lightbox for inline transcript images.
+    const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
     useEffect(() => {
       const onChange = () => setStreamEpoch((n) => n + 1)
       window.addEventListener(STREAM_REPLIES_CHANGED_EVENT, onChange)
@@ -113,12 +122,19 @@ export const ChatBubbleBody = memo(
     // #565: a reply is only markdown — the quote is the blockquote the send
     // path prepends. Split it off so it can be clamped/expanded on screen while
     // the bytes that went on the wire stay whole.
-    const quoted = splitLeadingQuote(displayText)
-    const contentText = quoted ? quoted.body : displayText
+    // #1322: audio-attachment messages render a real <audio controls>, not an
+    // image and not only a sanitized markdown string.
+    const audioSrcs = voiceNoteSources(displayText)
+    const transcriptText = stripVoiceNoteMarkdown(displayText)
+    const quoted = splitLeadingQuote(transcriptText)
+    const contentText = quoted ? quoted.body : transcriptText
     const { body: cleanedText, thinking } = extractThinkingBlock(contentText)
     const { prose, card } = parseSupportNlBlueprintFence(cleanedText)
+    const { prose: proseAfterRoutine, card: routineCard } = parseSupportNlRoutineFence(prose)
+    const { prose: proseAfterSeating, card: seatingCard } =
+      parseSupportNlSeatingFence(proseAfterRoutine)
     // #894: the bootstrap seat may attach an in-chat provider setup card.
-    const { prose: proseAfterSetup, card: setupCard } = parseProviderSetupFence(prose)
+    const { prose: proseAfterSetup, card: setupCard } = parseProviderSetupFence(proseAfterSeating)
     const segments = splitSkillRefs(proseAfterSetup)
 
     useEffect(() => {
@@ -127,13 +143,36 @@ export const ChatBubbleBody = memo(
       // Set up code-copy and collapsible code fence controls (REQ-127, REQ-117)
       setupCodeFenceControls(root, expandedIndicesRef.current)
       const onClick = (event: globalThis.MouseEvent) => {
+        // REQ-1320: clicking any inline transcript image opens the lightbox.
+        const target = event.target as HTMLElement | null
+        const img =
+          target && target.tagName === 'IMG'
+            ? (target as HTMLImageElement)
+            : (target?.closest?.('img.os-msg-image') as HTMLImageElement | null)
+        if (img?.getAttribute('src')) {
+          event.preventDefault()
+          setLightbox({ src: img.src, alt: img.alt || '' })
+          return
+        }
         handleSettingsLinkClick(event)
       }
       root.addEventListener('click', onClick)
       return () => root.removeEventListener('click', onClick)
     }, [displayText])
 
-    if (displayText.length === 0 || (prose.length === 0 && !thinking)) {
+    useEffect(() => {
+      if (!lightbox) return undefined
+      const onKeyDown = (event: globalThis.KeyboardEvent) => {
+        if (event.key === 'Escape') setLightbox(null)
+      }
+      document.addEventListener('keydown', onKeyDown)
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }, [lightbox])
+
+    if (
+      audioSrcs.length === 0 &&
+      (transcriptText.length === 0 || (prose.length === 0 && !thinking))
+    ) {
       return streaming ? (
         <LoadingDots size="sm" />
       ) : (
@@ -151,7 +190,7 @@ export const ChatBubbleBody = memo(
           data-testid="chat-md"
           data-streaming-partial={streaming && allowPartial ? 'true' : undefined}
           className={mdClass}
-          dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(prose) }}
+          dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(proseAfterSetup) }}
         />
       ) : (
         <div
@@ -206,10 +245,56 @@ export const ChatBubbleBody = memo(
       </details>
     ) : null
 
+    const lightboxEl = lightbox ? (
+      <div
+        className="os-msg-lightbox"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Image preview"
+        data-testid="chat-image-lightbox"
+        onClick={() => setLightbox(null)}
+      >
+        <button
+          type="button"
+          className="os-msg-lightbox__close"
+          aria-label="Close image preview"
+          data-testid="chat-image-lightbox-close"
+          onClick={() => setLightbox(null)}
+        >
+          ×
+        </button>
+        <img
+          className="os-msg-lightbox__img"
+          src={lightbox.src}
+          alt={lightbox.alt}
+          data-testid="chat-image-lightbox-img"
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
+    ) : null
+
+    const audioEl =
+      audioSrcs.length > 0 ? (
+        <div className="os-msg-audio-stack" data-testid="voice-note-bubbles">
+          {audioSrcs.map((src) => (
+            <audio
+              key={src}
+              className="os-msg-audio"
+              controls
+              preload="metadata"
+              playsInline
+              src={src}
+              data-testid="voice-note-player"
+            />
+          ))}
+        </div>
+      ) : null
+
     const body = (
       <>
         {quoted ? <QuotedReply quote={quoted.quote} /> : null}
         {thinkingEl}
+        {audioEl}
         {prose.length > 0 ? markdown : null}
         {affordanceClass ? (
           <span
@@ -221,15 +306,23 @@ export const ChatBubbleBody = memo(
       </>
     )
 
-    if (!card && !setupCard) {
-      return body
+    if (!card && !setupCard && !routineCard && !seatingCard) {
+      return (
+        <>
+          {body}
+          {lightboxEl}
+        </>
+      )
     }
 
     return (
       <div data-testid="chat-md-with-nl-card">
         {body}
         {card ? <SupportCreatedBlueprintCard card={card} /> : null}
+        {routineCard ? <SupportCreatedRoutineCard card={routineCard} /> : null}
+        {seatingCard ? <SupportCreatedSeatingCard card={seatingCard} /> : null}
         {setupCard ? <ProviderSetupCard spec={setupCard} /> : null}
+        {lightboxEl}
       </div>
     )
   },
@@ -268,6 +361,7 @@ export function ChatMessageBubble({
   isHerdr,
   sendFailed,
   onResend,
+  reactionOnly = false,
 }: ChatMessageBubbleProps) {
   const [draft, setDraft] = useState(text)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -409,8 +503,15 @@ export function ChatMessageBubble({
           ref={bubbleRef}
           className={`chat-bubble select-text ${
             role === 'user' ? 'bg-neutral text-neutral-content' : 'bg-base-200 text-base-content'
-          }`}
-          data-testid="chat-bubble"          >          {role === 'status' && isFlagrantErrorText(text) ? (
+          }${reactionOnly ? ' os-reaction-only-bubble' : ''}`}
+          data-testid="chat-bubble"
+          data-reaction-only={reactionOnly ? 'true' : undefined}
+        >
+          {reactionOnly ? (
+            <div className="os-reaction-only" data-testid="reaction-only-bubble" aria-label="Reaction only">
+              {children}
+            </div>
+          ) : role === 'status' && isFlagrantErrorText(text) ? (
             // #746: flagrant transport/runtime failures render out-of-band —
             // a dedicated error element, not a chat-card lookalike, so the
             // conversation history is never contaminated by a dead turn.
@@ -440,7 +541,7 @@ export function ChatMessageBubble({
               isHerdr={isHerdr}
             />
           )}
-          {children}
+          {reactionOnly ? null : children}
           {sendFailed && role === 'user' ? (
             <div
               className="os-send-failed mt-2 flex items-center justify-between gap-2.5 rounded-lg bg-base-100/95 px-2.5 py-1.5 text-xs text-base-content shadow-sm border border-error/40"

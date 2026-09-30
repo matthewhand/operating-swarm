@@ -32,7 +32,7 @@ def test_shipped_defaults_all_modes_on(monkeypatch):
     """#736 Step 2: gating fully retired — no product-modes key in starter
     configs, and the catalog payload no longer advertises ``modes`` at all
     (legacy clients treat a missing key as all-on)."""
-    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
     cfg = cli_catalog.build_starter_config()
     assert "product_modes" not in cfg.get("settings", {})
     payload = cli_catalog.cli_agents_catalog_payload({})
@@ -44,7 +44,7 @@ def test_shipped_defaults_all_modes_on(monkeypatch):
 
 
 def test_shipped_defaults_path_surfaces_only_discovered_clis(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
     cfg = cli_catalog.build_starter_config()
     assert set(cfg["cli_agents"]) == {"grok"}
     assert "pi" not in cfg["cli_agents"]
@@ -60,7 +60,7 @@ def test_shipped_defaults_path_surfaces_only_discovered_clis(monkeypatch):
 
 
 def test_absent_catalog_cli_is_not_invented(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: None)
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: None)
     cfg = cli_catalog.build_starter_config()
     assert cfg["cli_agents"] == {}
     payload = cli_catalog.cli_agents_catalog_payload({})
@@ -77,7 +77,7 @@ def test_absent_catalog_cli_is_not_invented(monkeypatch):
 
 
 def test_enabling_api_mode_adds_api_agent_rail_row(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
     cfg = {
         "settings": {
             "product_modes": {
@@ -100,7 +100,7 @@ def test_enabling_api_mode_adds_api_agent_rail_row(monkeypatch):
 
 
 def test_known_vs_discovered_vs_configured(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
     empty = cli_catalog.cli_agents_catalog_payload({})
     assert set(empty["known"]) == set(cli_catalog.catalog_names())
     assert empty["configured"] == []
@@ -116,7 +116,7 @@ def test_known_vs_discovered_vs_configured(monkeypatch):
 def test_catalog_and_discovered_exclude_fake_clis(monkeypatch):
     """Issue #147: starting set is discovered host CLIs — no fake/echo CLIs."""
     assert set(cli_catalog.catalog_names()).isdisjoint(FAKE_CLIS)
-    monkeypatch.setattr(cli_catalog.shutil, "which", _only_grok)
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
     payload = cli_catalog.cli_agents_catalog_payload({})
     surfaced = _start_set(payload)
     leaked = surfaced & set(FAKE_CLIS)
@@ -125,3 +125,81 @@ def test_catalog_and_discovered_exclude_fake_clis(monkeypatch):
     assert "pi" not in payload["discovered"]
     # known/clis/catalog may list real catalog names (docs, not the start set)
     assert "pi" in payload["known"]
+
+
+def test_cli_fusion_default_cli_honoured_when_configured(monkeypatch):
+    """Regression: cli_fusion.default_cli beats the alphabetical
+    configured-first fallback when the named CLI is configured."""
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
+    cfg = {
+        "cli_agents": {
+            "agy": cli_catalog.catalog_entry("agy"),
+            "opencode": cli_catalog.catalog_entry("opencode"),
+        },
+        "cli_fusion": {"default_cli": "opencode", "presets": {}},
+    }
+    payload = cli_catalog.cli_agents_catalog_payload(cfg)
+    assert payload["configured"] == ["agy", "opencode"]
+    assert payload["default_cli"] == "opencode"
+
+
+def test_cli_fusion_default_cli_honoured_when_discovered(monkeypatch):
+    """The configured default is honoured for a discovered-only CLI too."""
+
+    def fake_which(exe, path=None):
+        return f"/usr/bin/{exe}" if exe in {"agy", "opencode"} else None
+
+    monkeypatch.setattr(cli_catalog, "which_cli", fake_which)
+    payload = cli_catalog.cli_agents_catalog_payload(
+        {"cli_fusion": {"default_cli": "opencode"}}
+    )
+    assert payload["discovered"] == ["agy", "opencode"]
+    assert payload["default_cli"] == "opencode"
+
+
+def test_cli_fusion_default_cli_ignored_when_absent(monkeypatch):
+    """A default naming an absent CLI is ignored — never invented; falls back
+    to the configured-first/discovered default."""
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
+    cfg = {
+        "cli_agents": {
+            "agy": cli_catalog.catalog_entry("agy"),
+            "opencode": cli_catalog.catalog_entry("opencode"),
+        },
+        "cli_fusion": {"default_cli": "pi"},
+    }
+    payload = cli_catalog.cli_agents_catalog_payload(cfg)
+    assert "pi" not in payload["discovered"]
+    assert "pi" not in payload["configured"]
+    assert payload["default_cli"] == "agy"
+
+
+def test_cli_fusion_default_cli_unset_falls_back_unchanged(monkeypatch):
+    """No cli_fusion block: configured-first, then discovered — untouched."""
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
+    cfg = {
+        "cli_agents": {
+            "opencode": cli_catalog.catalog_entry("opencode"),
+            "agy": cli_catalog.catalog_entry("agy"),
+        }
+    }
+    payload = cli_catalog.cli_agents_catalog_payload(cfg)
+    assert payload["default_cli"] == "agy"
+    # Nothing configured: discovered fallback (SIDEBAR_CLIS order).
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: "/x")
+    empty = cli_catalog.cli_agents_catalog_payload({})
+    assert empty["default_cli"] == "grok"
+
+
+def test_rail_cli_rows_unaffected_by_cli_fusion_default(monkeypatch):
+    """The rail CLI seed stays the discovered default; cli_fusion only
+    retargets the payload's default_cli."""
+    monkeypatch.setattr(cli_catalog, "which_cli", _only_grok)
+    cfg = {
+        "cli_agents": {"opencode": cli_catalog.catalog_entry("opencode")},
+        "cli_fusion": {"default_cli": "opencode"},
+    }
+    payload = cli_catalog.cli_agents_catalog_payload(cfg)
+    assert payload["default_cli"] == "opencode"
+    rows = {row["id"]: row for row in payload["rail"]}
+    assert rows["cli_agent"]["cli"] == "grok"

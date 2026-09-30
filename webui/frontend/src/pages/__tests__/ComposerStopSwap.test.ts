@@ -16,6 +16,7 @@ import { join } from 'node:path'
 
 const dock = readFileSync(join(process.cwd(), 'src/features/chat/ChatBottomDock.tsx'), 'utf8')
 const list = readFileSync(join(process.cwd(), 'src/features/chat/ChatMessageList.tsx'), 'utf8')
+const runningStop = readFileSync(join(process.cwd(), 'src/components/RunningStopBadge.tsx'), 'utf8')
 const turnOps = readFileSync(join(process.cwd(), 'src/features/chat/useChatTurnOps.ts'), 'utf8')
 const chatWs = readFileSync(join(process.cwd(), 'src/lib/chatWs.ts'), 'utf8')
 const css = readFileSync(join(process.cwd(), 'src/index.css'), 'utf8')
@@ -38,8 +39,10 @@ describe('#1096: submit-only composer', () => {
 
 describe('#1096: stop lives on the generating agent row', () => {
   it('the working row carries an agent-scoped stop button', () => {
-    expect(list).toContain('data-testid="agent-row-stop"')
+    expect(list).toContain('RunningStopBadge')
     expect(list).toContain('interruptRunningTurn')
+    expect(runningStop).toContain('data-testid="agent-row-stop"')
+    expect(runningStop).toContain('data-testid="running-status-badge"')
   })
 
   it('the interrupt path carries turn/agent identity', () => {

@@ -51,6 +51,8 @@ def test_starting_agent_uses_as_tool_not_cli_seats():
     names = [getattr(t, "name", None) or getattr(t, "__name__", "") for t in (agent.tools or [])]
     joined = " ".join(str(n) for n in names)
     assert "create_blueprint_from_nl" in joined or any("create_blueprint" in str(n).lower() for n in names)
+    assert "create_routine_from_nl" in joined or any("routine" in str(n).lower() for n in names)
+    assert "seat_agents_on_team" in joined or any("seat" in str(n).lower() for n in names)
     assert "consult_product_guide" in joined or any("product" in str(n).lower() for n in names)
     assert "consult_blueprint_coder" in joined or any("blueprint" in str(n).lower() for n in names)
     assert "grok" not in joined.lower()
@@ -63,7 +65,7 @@ async def test_empty_run_is_action_chips_not_config_dump():
     chunks = await _collect(bp.run([]))
     text = _final_content(chunks)
     assert "[New team](/teams/launch/)" in text
-    assert "[Set inference](/settings/)" in text
+    assert "[Set inference](/chat?settings=llm-profiles)" in text
     assert "[Write blueprint](/agent-creator/)" in text
     assert "**Support**" not in text
     assert "**Agents**" not in text
@@ -81,6 +83,9 @@ def test_support_instructions_cover_the_journey():
     assert "wire a cli" in lowered
     assert "SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON" in text
     assert "create_blueprint_from_nl" in text
+    assert "create_routine_from_nl" in text
+    assert "seat_agents_on_team" in text
+    assert "SUPPORT_INTERACTIVE_CREATE_1373" in text
     assert "socratic" in lowered or "```question" in lowered
     assert "add as agent" in lowered
     assert "save as blueprint" in lowered
@@ -110,6 +115,18 @@ async def test_journey_prompts_include_honest_hints():
     cli_text = _final_content(cli)
     assert "list models" in cli_text.lower()
     assert "click-to-edit" in cli_text.lower() or "click the bubble" not in cli_text.lower()
+    routine = await _collect(
+        bp.run([{"role": "user", "content": "Create a daily standup routine for codey"}])
+    )
+    routine_text = _final_content(routine)
+    assert "```swarm-nl-routine" in routine_text
+    assert "Add routine" in routine_text
+    seating = await _collect(
+        bp.run([{"role": "user", "content": "Seat Ada on the office team"}])
+    )
+    seating_text = _final_content(seating)
+    assert "```swarm-nl-seating" in seating_text
+    assert "Seat on team" in seating_text
 
 
 async def test_ba_eng_tester_nl_create_hides_python():

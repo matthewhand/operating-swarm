@@ -1,5 +1,5 @@
 {
-  "_comment": "Example Open Swarm config for the cli_agent and cli_fusion blueprints. Copy the cli_agents / cli_fusion blocks into your ~/.config/swarm/swarm_config.json. Panelists run in FULL-CAPABILITY (non-interactive auto-approve) mode — they can read, write, and run commands. The non-negotiable flag per CLI is the one that skips approval prompts; without it the CLI blocks on a prompt and is killed on timeout. Flags and JSON-parse paths vary by CLI version — verify with each CLI's --help. See docs/CLI_FUSION.md.",
+  "_comment": "Example Operating Swarm config for the cli_agent and cli_fusion blueprints. Copy the cli_agents / cli_fusion blocks into your ~/.config/swarm/swarm_config.json. Panelists run in FULL-CAPABILITY (non-interactive auto-approve) mode — they can read, write, and run commands. The non-negotiable flag per CLI is the one that skips approval prompts; without it the CLI blocks on a prompt and is killed on timeout. Flags and JSON-parse paths vary by CLI version — verify with each CLI's --help. See docs/CLI_FUSION.md.",
 
   "llm": {
     "default": {

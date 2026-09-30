@@ -8,9 +8,11 @@ blueprints stay consistent.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from swarm.core.cli_adapter import CliAdapter, CliAdapterRegistry
+from swarm.utils.redact import SENSITIVE_PATTERNS, redact_uri_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -123,20 +125,24 @@ def render_prompt(messages: list[dict[str, Any]]) -> str:
 
 
 def apply_skills_to_prompt(
-    prompt: str, params: dict[str, Any] | None, workdir: str | None = None
+    prompt: str,
+    params: dict[str, Any] | None,
+    workdir: str | None = None,
+    agent_id: str | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """Apply ``params['skill']`` and/or ``params['skills']`` to ``prompt``.
 
     Returns ``(prompt, applied_names, missing_names)``. Unknown names leave the
     prompt unchanged for those entries (the caller can warn) — we never fail
     the run over a bad skill name. Skills load from ``<project>/skills/**/SKILL.md``.
+    Per-agent prose skills (#1392) overlay the library when ``agent_id`` is set.
 
     When ``workdir`` is given and a skill bundles assets (scripts/templates),
     they are copied into ``workdir`` so a write-mode CLI can read or execute them.
     """
     from swarm.core import skills  # lazy: only pay discovery cost when used
 
-    found, missing = skills.resolve_skills(params)
+    found, missing = skills.resolve_skills(params, agent_id=agent_id)
     if not found:
         return prompt, [], missing
     if workdir:
@@ -425,6 +431,219 @@ def requested_cli_model(params: dict[str, Any] | None) -> str | None:
     return None
 
 
+# CLI-proven ``opencode/*`` free ids that work with ``opencode run --auto``
+# on OpenRig/Docker dogfood (GAMINGPC #1747). Other ``opencode/*`` ids stay
+# app-gated.
+_OPENCODE_CLI_RUNNABLE_FREE_MODELS = frozenset(
+    {
+        "opencode/space-bunny-free",
+    }
+)
+
+
+def is_app_gated_cli_model(name: str, model: str) -> bool:
+    """True when ``model`` cannot run through CLI ``name`` (app-only provider).
+
+    Most of OpenCode's own ``opencode/*`` free tier answers
+    "OpenCode's free tier can only be used from within OpenCode" when invoked
+    as ``opencode run``. The subscription CLI-runnable provider is
+    ``opencode-go/*``. Exception: allowlisted free ids (notably
+    ``opencode/space-bunny-free``) are proven with ``opencode run --auto`` on
+    OpenRig dogfood (#1747) and must remain selectable.
+    """
+    if (name or "").strip().lower() != "opencode":
+        return False
+    text = (model or "").strip()
+    if not text:
+        return False
+    if text.lower() in _OPENCODE_CLI_RUNNABLE_FREE_MODELS:
+        return False
+    if "/" not in text:
+        # A bare id (no ``provider/`` prefix) resolves against opencode's own
+        # app-only default tier, so it is app-gated too. Runnable providers
+        # (``opencode-go/*``, ``litellm/*``, …) always carry a prefix.
+        return True
+    provider = text.split("/", 1)[0].strip().lower()
+    return provider == "opencode"
+
+
+# Provider prefixes produced by API / LLM-profile ids (``/v1/llm-profiles/``).
+# These live in a different namespace from a CLI's own model ids: a request
+# carrying one is honoured only when the CLI demonstrably exposes that provider
+# (it appears in the CLI's cached live list or its catalog presets).
+_API_MODEL_PROVIDERS = frozenset(
+    {
+        "anthropic",
+        "azure",
+        "azure-openai",
+        "bedrock",
+        "cohere",
+        "deepseek",
+        "fireworks",
+        "gemini",
+        "google",
+        "groq",
+        "litellm",
+        "litellm-fly",
+        "litellm-local",
+        "mistral",
+        "mistralai",
+        "ollama",
+        "openai",
+        "openrouter",
+        "perplexity",
+        "together",
+        "vertex",
+        "vertex-ai",
+        "xai",
+    }
+)
+
+
+def _model_provider(model: str) -> str | None:
+    """The lower-cased ``provider`` of a ``provider/model`` id, or None."""
+    text = (model or "").strip()
+    if "/" not in text:
+        return None
+    provider = text.split("/", 1)[0].strip().lower()
+    return provider or None
+
+
+def _cli_known_models(name: str) -> tuple[set[str], set[str]]:
+    """``(known ids, exposed provider prefixes)`` for CLI ``name``.
+
+    Union of the catalog ``CLI_MODELS`` presets and the live list-models cache
+    (``swarm.core.cli_models``, keyed per CLI, TTL-cached). Read-only — never
+    triggers a probe.
+    """
+    from swarm.core import cli_catalog, cli_models
+
+    known: set[str] = set()
+    for raw in cli_catalog.CLI_MODELS.get(name) or []:
+        text = str(raw).strip()
+        if text:
+            known.add(text)
+    for raw in cli_models.cached_models(name):
+        text = str(raw).strip()
+        if text:
+            known.add(text)
+    exposed = {provider for model in known if (provider := _model_provider(model))}
+    return known, exposed
+
+
+def _configured_cli_model(name: str, cmd: list[str] | None) -> str | None:
+    """The model already pinned in ``cmd``, or None.
+
+    Recognises both the CLI's ``MODEL_FLAG`` (``--model x`` / ``-m x``, also
+    the ``--model=x`` spelled form) and a model embedded in a config override
+    (codex: ``-c model=delegation``). The seat's own working model is the
+    escape hatch the namespace validator must accept, even when the CLI never
+    lists it (e.g. a private gateway slug).
+    """
+    from swarm.core import cli_catalog
+
+    if not cmd:
+        return None
+    flag = cli_catalog.MODEL_FLAG.get(name)
+    if flag:
+        value = _flag_model_value(cmd, flag)
+        if value:
+            return value
+    return _embedded_model_value(cmd)
+
+
+def _flag_model_value(cmd: list[str], flag: str) -> str | None:
+    """Value of ``flag`` in ``cmd`` for both ``flag value`` and ``flag=value``."""
+    for index, part in enumerate(cmd):
+        if not isinstance(part, str):
+            continue
+        if part == flag:
+            nxt = cmd[index + 1] if index + 1 < len(cmd) else None
+            if isinstance(nxt, str) and nxt.strip() and nxt != "--":
+                return nxt.strip()
+            return None
+        if part.startswith(f"{flag}="):
+            value = part[len(flag) + 1 :].strip()
+            if value:
+                return value
+    return None
+
+
+def _embedded_model_value(cmd: list[str]) -> str | None:
+    """A model embedded in a config override (``-c model=delegation``)."""
+    for index, part in enumerate(cmd):
+        if not isinstance(part, str):
+            continue
+        if part in ("-c", "--config"):
+            nxt = cmd[index + 1] if index + 1 < len(cmd) else None
+            value = _assignment_model_value(nxt)
+            if value:
+                return value
+            continue
+        for prefix in ("-c=", "--config="):
+            if part.startswith(prefix):
+                value = _assignment_model_value(part[len(prefix) :])
+                if value:
+                    return value
+        value = _assignment_model_value(part)
+        if value:
+            return value
+    return None
+
+
+def _assignment_model_value(token: object) -> str | None:
+    """The value of a ``model=<value>`` assignment, or None."""
+    if not isinstance(token, str) or "=" not in token:
+        return None
+    key, _, value = token.partition("=")
+    if key.strip().lower() != "model":
+        return None
+    cleaned = value.strip().strip("\"'").strip()
+    return cleaned or None
+
+
+def model_allowed_for_cli(
+    name: str, model: str, *, configured_model: str | None = None
+) -> bool:
+    """True when ``model`` is a model CLI ``name`` actually exposes.
+
+    API model ids and CLI model ids are **different namespaces**. A per-request
+    model may only be pinned onto a CLI adapter when this CLI's own list
+    contains it:
+
+    * the seat's currently configured/default model is always allowed;
+    * an id present in the cached live list-models result
+      (:mod:`swarm.core.cli_models`) or the CLI's ``cli_catalog.CLI_MODELS``
+      presets is allowed;
+    * a ``provider/id`` whose provider the CLI demonstrably exposes (it appears
+      in that known list) is allowed;
+    * otherwise the id is foreign and must be ignored — notably API /
+      LLM-profile ids such as ``litellm/orchestration`` requested against a CLI
+      that never listed ``litellm`` (e.g. ``agy``).
+
+    When the CLI has no known list at all (no presets, nothing cached) the
+    namespace is unknown, so the id cannot be proven foreign and is allowed.
+    """
+    text = (model or "").strip()
+    if not text or text.lower() == "default":
+        return False
+    if configured_model and text == configured_model.strip():
+        return True
+    known, exposed = _cli_known_models(name)
+    if text in known:
+        return True
+    provider = _model_provider(text)
+    if provider is not None and provider in exposed:
+        return True
+    if not known:
+        return True
+    if provider is not None and provider in _API_MODEL_PROVIDERS:
+        # An API / LLM-profile id this CLI never exposed.
+        return False
+    # Any id not in this CLI's known set is foreign.
+    return False
+
+
 def apply_overrides(
     registry: CliAdapterRegistry,
     params: dict[str, Any] | None,
@@ -453,6 +672,22 @@ def apply_overrides(
             entry["timeout"] = float(timeout)
         if model and name in model_targets and name in cli_catalog.MODEL_FLAG:
             adapter = registry.get(name)
+            configured = _configured_cli_model(name, list(adapter.config.cmd))
+            # ONE central namespace rule: a CLI seat only accepts ids from its
+            # own namespace (app-gated tiers and API / LLM-profile ids fall back
+            # to the seat's configured model).
+            from swarm.core.model_namespace import model_valid_for_provider
+
+            if not model_valid_for_provider(
+                "cli", name, model, config=config, configured_model=configured
+            ):
+                logger.info(
+                    "Ignoring model %r not valid for CLI %s; keeping configured model %r",
+                    model,
+                    name,
+                    configured,
+                )
+                continue
             pinned = cli_catalog.apply_model(
                 {"cmd": list(adapter.config.cmd)}, name, model
             )
@@ -521,19 +756,78 @@ def progress_chunk(content: str) -> dict:
     return {"type": PROGRESS_TYPE, "content": content}
 
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_PROGRESS_SECRET_PATTERNS = tuple(re.compile(p) for p in SENSITIVE_PATTERNS)
+
+
+def cli_progress_lines(
+    text: str, *, max_lines: int = 20, max_chars: int = 240
+) -> list[str]:
+    """ANSI-stripped, redacted progress lines from a CLI's stderr.
+
+    An agentic CLI prints its subagent/tool progress to stderr, not stdout (e.g.
+    ``opencode`` emits ``⚙ tool …`` lines there). That output is context for the
+    turn, not the answer, so it is surfaced as bubble-less status lines and never
+    persisted as the assistant reply. Sensitive-looking tokens are redacted and
+    the list is bounded so a chatty CLI cannot flood the transcript.
+    """
+    if not isinstance(text, str) or not text:
+        return []
+    cleaned = _ANSI_ESCAPE_RE.sub("", text)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in cleaned.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        for pattern in _PROGRESS_SECRET_PATTERNS:
+            line = pattern.sub("[REDACTED]", line)
+        line = redact_uri_credentials(line).strip()
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        if len(line) > max_chars:
+            line = line[: max_chars - 1].rstrip() + "…"
+        out.append(line)
+    return out[-max_lines:]
+
+
+def cli_progress_chunk(content: str) -> dict:
+    """A transient CLI tool/progress line (status-only; never persisted)."""
+    chunk = progress_chunk(content)
+    chunk["transient"] = True
+    return chunk
+
+
 def session_notice_chunk(
-    cli_name: str, *, resumed: bool, host: str | None = None
+    cli_name: str,
+    *,
+    resumed: bool,
+    host: str | None = None,
+    text: str | None = None,
+    recovered: bool = False,
 ) -> dict:
-    """Bubble-less session line. ``resumed`` only when the stored id was used."""
+    """Bubble-less session line. ``resumed`` only when the stored id was used.
+
+    ``text`` overrides the generated copy for a line that needs to say more
+    than "new" or "resumed" — a turn that recovered from a session the CLI no
+    longer recognises names that instead. ``recovered`` marks the chunk so a
+    hydrated transcript can tell it from a deliberate first turn.
+    """
     from swarm.core.cli_sessions import session_notice_text
 
     label = str(host or "").strip() or None
+    body = str(text).strip() if text else session_notice_text(
+        cli_name, resumed=resumed, host=label
+    )
     chunk = {
         "type": SESSION_NOTICE_TYPE,
-        "content": session_notice_text(cli_name, resumed=resumed, host=label),
+        "content": body,
         "resumed": resumed,
         "session_notice": True,
     }
+    if recovered:
+        chunk["session_recovered"] = True
     if label:
         chunk["host"] = label
     return chunk
@@ -565,16 +859,26 @@ def format_cli_error(adapter: CliAdapter, error: str) -> str:
 
 
 def annotate_cli_failure(error: str) -> str:
-    """#1125: append the state-dir remedy to an EACCES state-dir failure.
+    """#1125 / #1718: append a remedy to known CLI failure classes.
 
     The raw Bun/Node dump names the syscall but not the fix; the classifier
-    turns it into "path — remedy" so the operator sees the mount/XDG move
-    instead of a bare "All CLI candidates failed". Non-matching failures
-    pass through untouched.
+    turns it into "path - remedy" so the operator sees the mount/XDG move
+    instead of a bare "All CLI candidates failed". Exit-126 Windows-host
+    binaries (Docker Desktop) get the bake/rebuild hint. Non-matching
+    failures pass through untouched.
     """
     from swarm.core.cli_session_error import classify_state_dir_eacces
 
+    text = error or ""
+    lowered = text.lower()
+    if "exited 126" in lowered or "windows host binary not executable" in lowered:
+        return (
+            f"{text} - rebuild the OpenRig image so Linux opencode is at "
+            "/usr/local/bin (Dockerfile bake, #1718); host Windows PATH "
+            "mounts are not executable inside the Linux container"
+        )
     hit = classify_state_dir_eacces(error)
     if not hit:
         return error
-    return f"{error} — {hit['remedy']} (path: {hit['path']})"
+    return f"{error} - {hit['remedy']} (path: {hit['path']})"
+

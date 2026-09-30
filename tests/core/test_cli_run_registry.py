@@ -18,6 +18,7 @@ from swarm.core.cli_run_registry import (
     terminate_cli_runs,
     terminate_process_group,
 )
+from swarm.core.process_group import get_pgid
 
 PY = sys.executable
 
@@ -56,7 +57,7 @@ def test_idle_is_not_running():
 
 def test_terminate_looping_fixture_kills_group_only():
     child = _looping_child()
-    pgid = os.getpgid(child.pid)
+    pgid = get_pgid(child.pid)
     token = register_cli_run(
         user_key="u0",
         agent_id="cli_agent",
@@ -134,7 +135,7 @@ async def test_stream_run_registers_and_user_terminate_sets_flag(tmp_path):
 
 def test_terminate_already_dead_process_returns_not_running():
     child = _looping_child()
-    pgid = os.getpgid(child.pid)
+    pgid = get_pgid(child.pid)
     token = register_cli_run(
         user_key="u0",
         agent_id="cli_agent",

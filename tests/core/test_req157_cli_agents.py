@@ -25,7 +25,7 @@ APPS = REPO / "src" / "swarm" / "apps.py"
 
 def test_known_clis_are_documented():
     names = set(cli_catalog.catalog_names())
-    # omp (#193) and qwen joined the shipped catalog after REQ-157 froze the
+    # omp (#193), qwen, and ocr (#1363) joined after REQ-157 froze the
     # original seven; keep the tuple-order contract for all of them.
     assert names == {
         "agy",
@@ -34,6 +34,7 @@ def test_known_clis_are_documented():
         "gemini",
         "grok",
         "kilocode",
+        "ocr",
         "omp",
         "opencode",
         "pi",
@@ -44,7 +45,7 @@ def test_known_clis_are_documented():
 
 
 def test_configured_list_empty_until_add_then_remove_rediscover(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: f"/bin/{exe}")
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: f"/bin/{exe}")
     empty = {}
     assert cli_catalog.configured_cli_names(empty) == []
     assert cli_catalog.configured_cli_names({"cli_agents": {}}) == []
@@ -71,7 +72,7 @@ def test_discovery_uses_path_only_no_auth_or_network(monkeypatch):
     def fake_which(exe, path=None):
         return "/usr/bin/codex" if exe == "codex" else None
 
-    monkeypatch.setattr(cli_catalog.shutil, "which", fake_which)
+    monkeypatch.setattr(cli_catalog, "which_cli", fake_which)
     forbidden = MagicMock(side_effect=AssertionError("discovery must not spawn or auth"))
     monkeypatch.setattr(cli_catalog, "NATIVE_CONSENSUS", cli_catalog.NATIVE_CONSENSUS)
     import subprocess
@@ -90,7 +91,7 @@ def test_discovery_uses_path_only_no_auth_or_network(monkeypatch):
 
 
 def test_empty_path_yields_no_suggestions(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: None)
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: None)
     assert cli_catalog.discover_host_clis() == []
     assert cli_catalog.suggested_cli_agents({}) == {}
     payload = cli_catalog.cli_agents_catalog_payload({})

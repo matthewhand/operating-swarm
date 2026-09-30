@@ -10,13 +10,13 @@
         {
           "id": "codey",
           "name": "Codey",
-          "kind": "agent",
+          "kind": "api",
           "role": "coder"
         },
         {
           "id": "stewie",
           "name": "Stewie",
-          "kind": "agent",
+          "kind": "api",
           "role": "ops"
         }
       ]
@@ -53,14 +53,14 @@
           "name": "Hermes Remote",
           "kind": "remote",
           "role": "default",
-          "source": "placeholder:remote:hermes"
+          "source": "remote:hermes"
         },
         {
           "id": "openmousbot-remote",
           "name": "OpenMousBot Remote",
           "kind": "remote",
           "role": "default",
-          "source": "placeholder:remote:omb"
+          "source": "remote:omb"
         }
       ],
       "wires": {"handoff": true, "as_tool": true}
@@ -175,7 +175,7 @@
           "name": "Hermes Remote",
           "kind": "remote",
           "role": "default",
-          "source": "placeholder:remote:hermes"
+          "source": "remote:hermes"
         }
       ],
       "wires": {"handoff": true, "as_tool": true},

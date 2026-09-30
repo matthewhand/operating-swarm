@@ -1,4 +1,4 @@
-# Abstraction map — how Open Swarm's layers compose
+# Abstraction map — how Operating Swarm's layers compose
 
 > The one-picture version of the abstractions this repo defines, what subclasses
 > typically override, and which layer each belongs to. Each box links to its

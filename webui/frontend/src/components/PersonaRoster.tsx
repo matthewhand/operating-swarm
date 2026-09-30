@@ -31,7 +31,7 @@ export default function PersonaRoster({
 }: PersonaRosterProps) {
   const faces = facesFromDeclaredRoster(roster, groupId)
   const count = roster.parsed ? roster.count : 1
-  const caption = label || (roster.parsed ? `${count} declared members` : 'Team')
+  const caption = label || (roster.parsed ? `${count} declared members` : 'Rig')
   // The first declared persona is the face — "the member you are talking to"
   // rather than an arbitrary one, matching the member-row rule.
   const stack = teamChatFaceStack(faces, faces[0]?.id ?? '')

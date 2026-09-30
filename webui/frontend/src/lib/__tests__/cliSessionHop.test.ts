@@ -5,6 +5,8 @@ import {
   hopContinueTargets,
   hopCliSession,
   isContextCarriedStatus,
+  reconfigureHopForSeat,
+  reconfigureHopIsIdentity,
 } from '../cliSessionHop'
 import { DEFAULT_HOP_MODE, loadHopPrefs, saveHopPrefs } from '../sessionHopPrefs'
 
@@ -78,6 +80,54 @@ describe('sessionHopPrefs', () => {
     expect(loadHopPrefs()).toEqual({ mode: 'summary', tokenBudget: 4000 })
     saveHopPrefs({ mode: 'full', tokenBudget: 8000 })
     expect(loadHopPrefs()).toEqual({ mode: 'full', tokenBudget: 8000 })
+  })
+})
+
+describe('#1436 reconfigureHopForSeat', () => {
+  it('keeps a remote seat on remote instead of hardcoding api', () => {
+    const spec = reconfigureHopForSeat({
+      seatKind: 'remote',
+      seatId: 'remote:herdr',
+      conversationId: 'thread-1',
+      profile: 'claude-work',
+      currentRemoteId: 'herdr',
+    })
+    expect(spec.toKind).toBe('remote')
+    expect(reconfigureHopIsIdentity(spec)).toBe(false)
+    expect(spec.toAgent).toBe('remote:herdr')
+    expect(spec.toCli).toBe('remote:herdr')
+    expect(spec.toLabel).toBe('claude-work')
+    expect(spec.fromLabel).toBe('herdr')
+  })
+
+  it('keeps a CLI seat keyed by the current CLI', () => {
+    const spec = reconfigureHopForSeat({
+      seatKind: 'cli',
+      seatId: 'cli_agent',
+      conversationId: 'thread-1',
+      profile: 'claude-work',
+      currentCli: 'grok',
+    })
+    expect(spec.toKind).toBe('cli')
+    expect(spec.toCli).toBe('grok')
+    expect(spec.toAgent).toBe('grok')
+    expect(spec.toLabel).toBe('claude-work')
+    // Profile is a banner label. Both ends are the current CLI, which
+    // hop_backend rejects — the caller must not POST this hop.
+    expect(spec.fromCli).toBe('grok')
+    expect(reconfigureHopIsIdentity(spec)).toBe(true)
+  })
+
+  it('still keys an API seat by the seat record', () => {
+    const spec = reconfigureHopForSeat({
+      seatKind: 'api',
+      seatId: 'support',
+      conversationId: 'thread-1',
+      profile: 'auxiliary',
+    })
+    expect(spec.toKind).toBe('api')
+    expect(spec.toAgent).toBe('support')
+    expect(spec.toCli).toBe('support')
   })
 })
 

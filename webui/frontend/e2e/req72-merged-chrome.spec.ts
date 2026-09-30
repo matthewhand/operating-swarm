@@ -207,18 +207,34 @@ test('REQ-5c #322: Search palette choosing a bot navigates to that chat', async 
   await expect(page.getByRole('heading', { name: 'Codey' })).toBeVisible()
 })
 
-test('REQ-54: mobile header opens the tucked rail and closes after an agent pick', async ({
+test('REQ-54 #1202: left-edge swipe opens the tucked mobile rail and it closes after an agent pick', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await stubChromeApis(page)
   await page.goto('/')
-  const open = page.getByRole('button', { name: 'Open agent list' })
-  await expect(open).toBeVisible()
+  // #1202 follow-up: the mobile header drops the rail toggle; the left-edge
+  // swipe is the single affordance that restores the tucked rail.
+  await expect(page.getByRole('button', { name: 'Open agent list' })).toHaveCount(0)
   const backdrop = page.locator('button.fixed.inset-0[aria-label="Close agents sidebar"]')
   await expect(backdrop).toBeHidden()
 
-  await open.click()
+  await page.evaluate(() => {
+    const send = (type: string, x: number, y: number, done = false) => {
+      const touch = new Touch({ identifier: 1, target: document.body, clientX: x, clientY: y })
+      window.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          touches: done ? [] : [touch],
+          changedTouches: [touch],
+        }),
+      )
+    }
+    send('touchstart', 8, 240)
+    send('touchmove', 68, 244)
+    send('touchend', 68, 244, true)
+  })
+
   await expect(backdrop).toBeVisible()
   const rail = page.getByRole('navigation', { name: 'Agent list' })
   await expect(rail.getByRole('link', { name: /Codey/ })).toBeVisible()
@@ -281,7 +297,7 @@ test('REQ-24 #342: dragging a team row onto Hidden stores team:<id>', async ({ p
   const list = page.getByRole('navigation', { name: 'Agent list' })
   const team = list.getByRole('link', { name: /Demo Team \(team\)/ })
   await expect(team).toBeVisible()
-  const zone = page.getByRole('region', { name: 'Hidden Bots' })
+  const zone = page.getByRole('region', { name: 'Hidden Agents' })
   await team.evaluate((el) => {
     el.dispatchEvent(
       new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }),

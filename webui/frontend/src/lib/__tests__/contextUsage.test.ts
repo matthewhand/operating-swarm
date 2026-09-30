@@ -68,7 +68,7 @@ describe('contextUsage', () => {
     expect(formatUsageBadgeLabel(parsed!)).toBe('in ~16k / 128k tok')
     expect(
       formatUsageBadgeLabel({ ...parsed!, last_output: 320, estimate: false }),
-    ).toBe('out 320 · in 16k / 128k tok')
+    ).toBe('in 16k / 128k tok · out 320')
     expect(
       formatUsageBadgeLabel({ ...parsed!, window: null }),
     ).toBe('in ~16k tok')

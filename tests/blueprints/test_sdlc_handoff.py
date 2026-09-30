@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from swarm.blueprints.common.unavailable_seat import NO_MODEL_TURN_LEAD
 from swarm.blueprints.sdlc_handoff.blueprint_sdlc_handoff import SdlcHandoffBlueprint
 from swarm.core.blueprint_discovery import discover_blueprints
 from swarm.core.handoff_graph import (
@@ -155,6 +156,13 @@ async def test_ba_chat_calls_saved_profile_not_echo(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ba_chat_unreachable_llm_is_honest_error_not_echo(monkeypatch):
+    """An unreachable provider must name the failure, not answer something.
+
+    The requirement is unchanged from when this test was written — never echo,
+    never "falling back to echo" — but the *shape* of the honest error is now the
+    shared refusal (:mod:`swarm.blueprints.common.unavailable_seat`) rather than a
+    bespoke sentence, so a failed turn reads the same on every seat.
+    """
     monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
     fake = _FakeCompletions(error=RuntimeError("connection refused"))
     _FakeClient.completions = fake
@@ -167,5 +175,5 @@ async def test_ba_chat_unreachable_llm_is_honest_error_not_echo(monkeypatch):
     out = await _ask(bp, probe)
     assert probe not in out
     assert "falling back to echo" not in out.lower()
-    assert "Error: LLM call failed" in out
+    assert out.startswith(NO_MODEL_TURN_LEAD)
     assert "connection refused" in out

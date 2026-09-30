@@ -1,13 +1,15 @@
 /**
- * Per-agent plugin tool enablement (#805, re-keyed by #516).
+ * Per-agent plugin tool enablement (#805, re-keyed by #516, persisted #1313).
  *
  * Toggles persist in localStorage keyed by **agent seat id** — not the
- * conversation. #516: a plugin set is a capability of the agent (#502's
- * doctrine), so the same agent carries the same set across every thread, and
- * two agents never share one. The legacy per-chat map (`swarm_chat_plugin_tools`)
- * is deliberately NOT migrated: unioning every chat's set onto the agent would
- * silently enable tools the user never turned on for that agent — a capability
- * widening, not a migration. The old map is left orphaned.
+ * conversation — and are mirrored to `PATCH /v1/agents/<id>/settings/` as
+ * `mcp_tool_grants` so they survive a new browser. #516: a plugin set is a
+ * capability of the agent (#502's doctrine), so the same agent carries the
+ * same set across every thread, and two agents never share one. The legacy
+ * per-chat map (`swarm_chat_plugin_tools`) is deliberately NOT migrated:
+ * unioning every chat's set onto the agent would silently enable tools the
+ * user never turned on for that agent — a capability widening, not a
+ * migration. The old map is left orphaned.
  *
  * Catalog priority: GET /v1/mcp-plugins/ discovered tools (#502 live), then
  * /v1/config-options mcp_catalog, then localStorage configured servers, then
@@ -15,6 +17,7 @@
  */
 
 import {
+  apiPatch,
   fetchConfigOptions,
   fetchMcpPlugins,
   type ConfigOptions,
@@ -237,10 +240,14 @@ export function loadEnabledPluginToolIds(agentId: string): string[] {
   return loadAgentPluginPrefs()[key] ?? []
 }
 
-export function saveEnabledPluginToolIds(agentId: string, ids: readonly string[]): string[] {
+function writeEnabledPluginToolIds(agentId: string, ids: readonly string[]): string[] {
   const key = String(agentId || '').trim()
   const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id))]
   if (!key) return unique
+  const current = loadEnabledPluginToolIds(key)
+  if (current.length === unique.length && current.every((id, index) => id === unique[index])) {
+    return unique
+  }
   const all = loadAgentPluginPrefs()
   all[key] = unique
   try {
@@ -254,6 +261,37 @@ export function saveEnabledPluginToolIds(agentId: string, ids: readonly string[]
     )
   } catch {
     /* jsdom / SSR */
+  }
+  return unique
+}
+
+/** Write the local #516 cache without PATCHing settings (hydrate / tests). */
+export function hydrateEnabledPluginToolIds(agentId: string, ids: readonly string[]): string[] {
+  return writeEnabledPluginToolIds(agentId, ids)
+}
+
+/** Mirror the grant list to agent settings. Never sends secrets. */
+export async function persistEnabledPluginToolIds(
+  agentId: string,
+  ids: readonly string[],
+): Promise<string[]> {
+  const key = String(agentId || '').trim()
+  const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id))]
+  if (!key) return unique
+  try {
+    await apiPatch(`/v1/agents/${encodeURIComponent(key)}/settings/`, {
+      mcp_tool_grants: unique,
+    })
+  } catch {
+    /* local cache is the fallback */
+  }
+  return unique
+}
+
+export function saveEnabledPluginToolIds(agentId: string, ids: readonly string[]): string[] {
+  const unique = writeEnabledPluginToolIds(agentId, ids)
+  if (String(agentId || '').trim()) {
+    void persistEnabledPluginToolIds(agentId, unique)
   }
   return unique
 }

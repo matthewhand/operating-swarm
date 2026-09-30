@@ -31,7 +31,7 @@ ADMIN_AGENT_ALIASES: frozenset[str] = frozenset(
 # Chips shown on every bootstrap reply.
 BOOTSTRAP_KICKSTART_CHIPS: tuple[str, ...] = (
     "Configure API Provider",
-    "What is Open Swarm?",
+    "What is Operating Swarm?",
     "Local Models (Ollama)",
     "Upgrade to LLM",
 )
@@ -88,7 +88,7 @@ def _detect_intent(text: str) -> str:
 
 _REPLIES: dict[str, str] = {
     "greeting": (
-        "👋 Hi! I'm **Admin** — your Open Swarm onboarding assistant.\n\n"
+        "👋 Hi! I'm **Admin** — your Operating Swarm onboarding assistant.\n\n"
         "Right now I'm running in **Bootstrap mode** because no LLM inference provider "
         "has been configured yet. My responses are pre-written, but I can still guide you "
         "through the setup.\n\n"
@@ -102,7 +102,7 @@ _REPLIES: dict[str, str] = {
     ),
     "configure_provider": (
         "🔧 **Configuring an Inference Provider**\n\n"
-        "Open Swarm supports several LLM inference backends:\n\n"
+        "Operating Swarm supports several LLM inference backends:\n\n"
         "| Provider | Requires | Notes |\n"
         "|---|---|---|\n"
         "| **OpenAI** | `OPENAI_API_KEY` | GPT-4o, o1, etc. |\n"
@@ -112,11 +112,11 @@ _REPLIES: dict[str, str] = {
         "| **Ollama** | Local install | No API key needed |\n"
         "| **LiteLLM** | `LITELLM_BASE_URL` | Any model via proxy |\n\n"
         "**Steps:**\n"
-        "1. Add your API key to the `.env` file in the Open Swarm root, e.g.:\n"
+        "1. Add your API key to the `.env` file in the Operating Swarm root, e.g.:\n"
         "   ```\n"
         "   OPENAI_API_KEY=sk-...\n"
         "   ```\n"
-        "2. Restart the Open Swarm server.\n"
+        "2. Restart the Operating Swarm server.\n"
         "3. Open **Settings → Providers** to verify the key is recognised.\n"
         "4. In my agent settings, change **Provider** from `bootstrap` to `openai` "
         "(or whichever you configured).\n\n"
@@ -134,7 +134,7 @@ _REPLIES: dict[str, str] = {
         "# 3. Start the server (runs at http://localhost:11434 by default)\n"
         "ollama serve\n"
         "```\n\n"
-        "**Then in Open Swarm:**\n"
+        "**Then in Operating Swarm:**\n"
         "1. Open **Settings → Providers** and add an Ollama provider:\n"
         "   - Base URL: `http://localhost:11434`\n"
         "   - No API key required.\n"
@@ -155,8 +155,8 @@ _REPLIES: dict[str, str] = {
         "Haven't configured a provider yet? Use the **Configure API Provider** option below!"
     ),
     "what_is_swarm": (
-        "🌐 **What is Open Swarm?**\n\n"
-        "Open Swarm is an open-source multi-agent orchestration platform. It lets you:\n\n"
+        "🌐 **What is Operating Swarm?**\n\n"
+        "Operating Swarm is an open-source multi-agent orchestration platform. It lets you:\n\n"
         "- **Chat with AI agents** via a web UI, CLI, or remote connections.\n"
         "- **Build teams** of specialised agents (e.g. BA, Engineer, Tester) that "
         "hand off work between each other.\n"
@@ -185,7 +185,7 @@ _REPLIES: dict[str, str] = {
         "configure an LLM inference provider.\n\n"
         "Here's what I can help you with right now:\n"
         "- **Configure** an API provider (OpenAI, Anthropic, Groq, Ollama…)\n"
-        "- **Explain** what Open Swarm is and how it works\n"
+        "- **Explain** what Operating Swarm is and how it works\n"
         "- **Guide** you to upgrade me to full AI mode\n\n"
         "Once you've configured a provider and updated my settings, I'll be fully "
         "LLM-powered and ready to build anything with you!"

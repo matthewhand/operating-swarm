@@ -53,6 +53,7 @@ import os
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.blueprints.software_dev.workspace import (
     WORKDIR_CONTEXT_KEYS,
     WorkspaceBackend,
@@ -118,7 +119,7 @@ class SoftwareDevBlueprint(BlueprintBase):
             "without a quoted Issue; skeptic is look-only text PASS/FAIL."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["software-dev", "team", "cos", "engineer", "skeptic", "as-tool"],
         "aliases": ["software-dev", "software_dev_team"],
         "workflow": "as_tool",
@@ -556,8 +557,25 @@ class SoftwareDevBlueprint(BlueprintBase):
             result = await Runner.run(coordinator, text)
             content = getattr(result, "final_output", None) or str(result)
         except Exception as exc:
-            logger.warning("software_dev Runner failed; falling back to CoS status: %s", exc)
-            content = self._status_text() + f"\n(coordinator unavailable: {exc})"
+            # The old fallback appended the CoS wiring dump ("talk-to: ...,
+            # wiring: openai-agents as_tool (...)") to the error. That is the
+            # seat's own status banner, and in a chat bubble it reads as an
+            # answer to whatever was asked. `status` still returns the dump on
+            # request; a failed turn says it failed.
+            logger.warning("software_dev Runner failed: %s", exc)
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "software_dev",
+                why=(
+                    f"the CoS seat's model turn raised "
+                    f"{type(exc).__name__}: {str(exc)[:200]}"
+                ),
+                remedy=(
+                    "check the seat's LLM profile (Settings → LLM profiles), or "
+                    "send `status` for the offline wiring report"
+                ),
+                backends=["software_dev", SEAT_COS],
+            )
+            return
         yield support.message_chunk(
             str(content),
             final=True,

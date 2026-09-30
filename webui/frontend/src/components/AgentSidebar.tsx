@@ -1,6 +1,15 @@
 import { RailSections } from './sidebar/RailSections'
 import { createRowRenderers } from './sidebar/rowsRender'
+import RailBulkBar from './RailBulkBar'
 import {
+  EMPTY_RAIL_SELECTION,
+  selectRailRange,
+  toggleRailSelection,
+  type RailSelectionState,
+} from '../features/sidebar/railSelection'
+import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -14,7 +23,6 @@ import {
   ChevronRight,
   EyeOff,
   Plug,
-  Plus,
   Search,
   Server,
   Pin,
@@ -23,7 +31,6 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import AgentCalendarView from './AgentCalendarView'
 import {
   UNREAD_CHANGED_EVENT,
   loadUnreadAgentIds,
@@ -72,6 +79,7 @@ import { isNonCatalogRailPinId, railSeatAgents } from '../lib/railSeats'
 import {
   HIDDEN_AGENTS_CHANGED_EVENT,
   hasHiddenAgentsStorage,
+  hideAllAgentIds,
   loadHiddenAgentIds,
   loadOrSeedHiddenAgentIds,
   reconcileHiddenAgentIds,
@@ -89,6 +97,7 @@ import {
   bumpRailIdToTop,
   generationCompleteAgentId,
   generationCompleteDetail,
+  insertRailIdAfter,
   loadRailOrder,
   mergeRailOrder,
   moveRailId,
@@ -116,6 +125,29 @@ import {
   computeRailNavSequence,
   stepRailNav,
 } from '../lib/railHotkeys'
+// #1726: chat rows are DERIVED rail rows (an id that names the seat and the
+// session), so they flow through the same order/section/menu machinery as
+// every other row instead of a parallel list.
+import {
+  RAIL_CHAT_ROWS_EVENT,
+  addRailChatRow,
+  isRailChatRowId,
+  loadRailChatRows,
+  parseRailChatRowId,
+  railChatRowId,
+} from '../lib/railChatRows'
+// #1740: Alt+Arrow reorder. `railReorderIntent` is the single gate for the
+// gesture, mirroring the window navigation handler's guard so the two can
+// never both claim a keypress. The pin-grid helpers describe Pinned as one
+// more sibling scope, so a pinned tile reorders by the same rules.
+import {
+  RAIL_PIN_GRID_ID,
+  movePinToAdjacentSection,
+  moveToAdjacentSection,
+  railReorderIntent,
+  reorderWithinPinGrid,
+  reorderWithinSection,
+} from '../features/sidebar/railReorder'
 import {
   PINNED_AGENTS_CHANGED_EVENT,
   excludePinnedFromList,
@@ -123,10 +155,13 @@ import {
   loadOrSeedPinnedAgents,
   loadPinnedAgents,
   parseAgentDragPayload,
+  savePinnedAgents,
+  unpinAgent,
   type PinnedAgent,
 } from '../lib/pinnedAgents'
 import { hydrateRailPrefs, saveUserPrefs } from '../lib/userPrefs'
 import {
+  listAgentSessions,
   loadAllAgentSessions,
   SCALE_OUT_SESSIONS_EVENT,
   sessionHref,
@@ -141,13 +176,21 @@ import {
 } from '../lib/bubbleTheme'
 import { formatRailTimestamp, getRowLastMessage } from '../lib/chatTime'
 import { fetchTeamRosters, parseTeamRosters, teamHideId,   } from '../lib/teamRosters'
-import { fetchConfiguredRemotes, remoteDisplayName, remoteHideId,   } from '../lib/remotesCatalog'
 import {
+  fetchConfiguredRemotes,
+  remoteDisplayName,
+  remoteHideId,
+  type RemoteEntry,
+} from '../lib/remotesCatalog'
+import { emptyArray, emptyObject } from '../lib/stableEmpty'
+import {
+  activeCliRailAgentId,
   activeRailId,
   herdrRowIdFromParams,
   railSelectionFromParams,
 } from '../lib/railActive'
 import { configuredRemotes } from '../lib/remotes'
+import { configuredCliNames, discoveredCliNames } from '../lib/cliAgents'
 import RemoteSessionsPopup from './RemoteSessionsPopup'
 import UpdateChrome from './UpdateChrome'
 import {
@@ -176,6 +219,13 @@ import {
   loadLocalNewChatPerTask,
 } from '../lib/agentSettings'
 import {
+  REMOTE_HEALTH_CHANGED_EVENT,
+  isRemoteOffline,
+  startRemoteHealthPolling,
+  stopRemoteHealthPolling,
+} from '../lib/remoteHealth' // #1196
+import { stopTrackingSeatHealth, trackSeatHealth, type SeatRef } from '../lib/seatHealth' // #1658
+import {
   AGENT_CONVERSATION_EVENT,
   activeTaskSessionCount,
   agentChatHref,
@@ -189,8 +239,11 @@ import {
   type RailMenuItemId,
 } from '../lib/railContextMenu'
 import {
+  isAutoSectionId,
   isUnassignedSection,
   loadRailSections,
+  moveAgentToSection,
+  railMoveToDestinations,
   railSectionsHasContent,
   partitionRowsBySection,
   sectionIdForAgent,
@@ -203,16 +256,15 @@ import {
   isRailIdDeleted,
   loadDeletedRailIds,
 } from '../lib/deletedRailIds'
-import { openSearchPalette, type HiddenRailRow } from './SearchPalette'
+import { openSearchPalette, type HiddenRailRow } from './searchPaletteKernel'
 import { isMacPlatform, searchShortcutLabel } from '../lib/keybindingTips'
 import {
   AGENT_EDITS_CHANGED_EVENT,
 } from '../lib/agentEdits'
+import { AGENT_PROFILE_CHANGED_EVENT } from '../lib/agentProfile'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import { declaredRosterForTeam,   } from '../lib/declaredRoster'
 import PersonaRoster from './PersonaRoster'
-import SessionPicker from './SessionPicker'
-import CliSessionPicker from './CliSessionPicker'
 import {
   fetchCliSessions,
   latestCliActivityMs,
@@ -221,14 +273,14 @@ import {
   hopContinueTargets,
 } from '../lib/cliSessionHop'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
-import PluginsPopup from './PluginsPopup'
-import { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './TeamComposer'
-import { openSettingsSheet } from './SettingsSheet'
+import { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './teamComposerKernel'
+import { openSettingsSheet } from './settings/kernel'
 import { OPEN_PLUGINS_EVENT } from '../lib/chromeOverlay'
 import { useCurrentAgent, isSwarmOwnedSeat } from '../lib/currentAgent'
 import RailContextMenu from './RailContextMenu'
 import RailSectionHeader, { RailSectionEmpty } from './RailSectionHeader'
 import StackedAvatars from './StackedAvatars'
+import GroupAvatar from './GroupAvatar'
 import {
   MIN_RAIL_WIDTH,
   MAX_RAIL_WIDTH,
@@ -256,20 +308,42 @@ import {
   isBlueprintRailAgent,
   isCliRailAgent,
   isHerdrAgent,
+  isRemoteRailAgent,
   sidebarHref,
   toSidebarCli,
+  toSidebarCliName,
   toSidebarDynamic,
   toSidebarHerdr,
 } from '../features/sidebar/rows'
 import { useRailRowOps } from '../features/sidebar/useRailRowOps'
-import { useRailMenuOpeners } from '../features/sidebar/useRailMenuOpeners'
+import { railMenuKindForRow, useRailMenuOpeners } from '../features/sidebar/useRailMenuOpeners'
 import { useRailDragCommands } from '../features/sidebar/useRailDragCommands'
 import { useRailMenuCommands } from '../features/sidebar/useRailMenuCommands'
 import { useRailSessionCommands } from '../features/sidebar/useRailSessionCommands'
+import { useRailReveal } from '../features/sidebar/useRailReveal'
+import { sideAwarePopupAlign } from '../lib/railSide'
 import { useRailResize } from './sidebar/useRailResize'
 import type { AgentKind } from './AddAgentWizard'
+import AddBotMenu from './AddBotMenu'
 import { RailOverlays } from './sidebar/RailOverlays'
+
+const AgentCalendarView = lazy(() => import('./AgentCalendarView'))
+const SessionPicker = lazy(() => import('./SessionPicker'))
+const CliSessionPicker = lazy(() => import('./CliSessionPicker'))
+const PluginsPopup = lazy(() => import('./PluginsPopup'))
+
 export const OPEN_CALENDAR_EVENT = 'open-calendar-view'
+/**
+ * #1784 — how many CLI session reads the rail-activity fan-out keeps in flight.
+ *
+ * One per CLI rail row, so a busy host queues twenty-plus of them the instant
+ * the query key settles. They all go through `apiGet`, which inherits
+ * `pacedApiGet`'s shared `MAX_CONCURRENT_GETS = 4` gate — but that gate PACES a
+ * burst, it does not reduce the request COUNT, so the rail's own reads occupy
+ * every slot and the rest of the cold mount queues behind them. Two-wide keeps
+ * the activity timestamps arriving without monopolising the gate.
+ */
+const CLI_ACTIVITY_READ_WIDTH = 2
 export default function AgentSidebar({
   open = false,
   narrow = false,
@@ -284,6 +358,10 @@ export default function AgentSidebar({
     loadDynamicSubagents(),
   )
   const [subagentsCollapsed, setSubagentsCollapsed] = useState(false)
+  const [cliCollapsed, setCliCollapsed] = useState(false)
+  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
+  const [apiCollapsed, setApiCollapsed] = useState(false)
+  const [osCollapsed, setOsCollapsed] = useState(false)
 
   useEffect(() => {
     const onSpawned = () => {
@@ -306,9 +384,16 @@ export default function AgentSidebar({
   // (which team/remote scopes used to blank out, so those pins could never
   // light up). `activeRail` carries the `team:` / `remote:` id shape the pins
   // and rows are stored under.
+  // #1726: the session the URL names, if any. A chat row is the row the pane
+  // is showing when this matches its own session, which is also why the seat
+  // row stands down — the URL names a seat, but the operator is in a chat.
+  const activeSessionId = onChat ? (searchParams.get('session') ?? '').trim() : ''
   const activeRail = onChat ? activeRailId(railSelectionFromParams(searchParams)) : ''
   // #543: when the chat targets a herdr agent, that row is the active one.
   const activeHerdrRow = onChat ? herdrRowIdFromParams(searchParams) : ''
+  // A `?blueprint=cli_agent&cli=<cli>` URL names a derived `<cli>_agent` row;
+  // `activeRail` alone would only light the generic `cli_agent` seat.
+  const activeCliRail = onChat ? activeCliRailAgentId(searchParams) : ''
   const [hiddenIds, setHiddenIds] = useState<string[] | null>(() =>
     hasHiddenAgentsStorage() ? loadHiddenAgentIds() : null,
   )
@@ -436,6 +521,10 @@ export default function AgentSidebar({
   const [bumpCompleted, setBumpCompleted] = useState(() => loadBumpCompleted())
   const [bumpScope, setBumpScope] = useState<BumpScope>(() => loadBumpScope())
   const [sessionTick, setSessionTick] = useState(0)
+  // #1726: bumped by the chat-row store's own event, so a chat created from
+  // the row menu ("New session") and one created from "+ Add bot" land in the
+  // sidepane through the SAME tick — that is what makes the two paths one.
+  const [chatRowTick, setChatRowTick] = useState(0)
   const [sessionPicker, setSessionPicker] = useState<SessionPickerState | null>(null)
   const [cliPicker, setCliPicker] = useState<CliPickerState | null>(null)
   const menuRef = useRef<HTMLUListElement | null>(null)
@@ -451,6 +540,11 @@ export default function AgentSidebar({
   const searchShortcut = searchShortcutLabel()
   const [addWizardOpen, setAddWizardOpen] = useState(false)
   const sessionsByAgent = useMemo(() => loadAllAgentSessions(), [sessionTick])
+  // #1726: the chat rows the sidepane shows. `sessionTick` re-reads the
+  // scale-out cache, so this reads the same store and the same tick — a chat
+  // created in one surface cannot appear in the rail before it appears in the
+  // picker.
+  const chatRows = useMemo(() => loadRailChatRows(), [sessionTick, chatRowTick])
   const [unreadIds, setUnreadIds] = useState<string[]>(() => loadUnreadAgentIds())
   const [notifyIds, setNotifyIds] = useState<string[]>(() => loadNotifyAgentIds())
   // #546: the *outcome*, not a boolean. `permission !== 'granted'` collapsed
@@ -507,18 +601,33 @@ export default function AgentSidebar({
   }, [currentTargetId])
 
   // #856 slice C: resize/dock state machine moved to sidebar/useRailResize.
+  // #1683: `pins` is the rail's own canonical pinned-agents state (the same
+  // list RailSections renders the pinned tile grid from), so the resize hook
+  // reads the pin count from here rather than from a second source. It is the
+  // conservative half of the truth: a pin that is currently hidden or deleted
+  // renders no tile but still keeps the column detents, which can only make a
+  // drag stiffer than it needs to be, never wobblier.
   const {
     railSide,
     railWidth,
     isResizing,
     isAvatarOnly,
     isCollapsed,
-    handlePillToggle,
-    beginResizeDrag,
+    concealSidebar,
+    expandSidebar,
     handleResizeStart,
     handleResizeKeyDown,
-    pillDraggedRef,
-  } = useRailResize({ narrow, onClose })
+  } = useRailResize({ narrow, onClose, pinnedCount: pins.length })
+  useEffect(() => {
+    // #1726: the chat-row store announces its own writes (it is written from
+    // two surfaces — the row menu's "New session" and "+ Add bot"), so the
+    // sidepane has one subscription rather than two call-sites guessing when
+    // to re-read.
+    const onChatRowsChange = () => setChatRowTick((n) => n + 1)
+    window.addEventListener(RAIL_CHAT_ROWS_EVENT, onChatRowsChange)
+    return () => window.removeEventListener(RAIL_CHAT_ROWS_EVENT, onChatRowsChange)
+  }, [])
+
   useEffect(() => {
     const onChange = () => {
       setSessionTick((n) => n + 1)
@@ -565,9 +674,11 @@ export default function AgentSidebar({
   useEffect(() => {
     const onEdits = () => setEditsTick((tick) => tick + 1)
     window.addEventListener(AGENT_EDITS_CHANGED_EVENT, onEdits)
+    window.addEventListener(AGENT_PROFILE_CHANGED_EVENT, onEdits)
     window.addEventListener(TEAM_EDITS_CHANGED_EVENT, onEdits)
     return () => {
       window.removeEventListener(AGENT_EDITS_CHANGED_EVENT, onEdits)
+      window.removeEventListener(AGENT_PROFILE_CHANGED_EVENT, onEdits)
       window.removeEventListener(TEAM_EDITS_CHANGED_EVENT, onEdits)
     }
   }, [])
@@ -630,13 +741,24 @@ export default function AgentSidebar({
           tags: [design.kind],
           installed: true,
           compiled: true,
+          cli:
+            typeof design.cli === 'string' && design.cli.trim()
+              ? design.cli.trim()
+              : null,
           kind: 'design' as const,
         })),
     [designsQuery.data],
   )
   const catalog = propBlueprints ?? blueprintsQuery.data?.data ?? EMPTY_BLUEPRINTS
-  const teams = parseTeamRosters(teamsQuery.data ?? [])
-  const remotes = remotesQuery.data ?? []
+  // `?? []` here would allocate a fresh array every render while the query is
+  // empty, and `parseTeamRosters` returns fresh objects besides — so `teams`
+  // would miss every memo and re-run every effect that lists it. Keyed on the
+  // query data, which is the thing that actually changes.
+  const teams = useMemo(() => parseTeamRosters(teamsQuery.data), [teamsQuery.data])
+  const remotes = useMemo(
+    () => remotesQuery.data ?? emptyArray<RemoteEntry>(),
+    [remotesQuery.data],
+  )
   const agents = useMemo<SidebarAgent[]>(() => {
     const fromBlueprints = railSeatAgents(catalog)
     const seen = new Set(fromBlueprints.map((a) => a.id))
@@ -665,7 +787,26 @@ export default function AgentSidebar({
     }
     const herdr = (herdrQuery.data?.data ?? []).map(toSidebarHerdr)
     const named = (cliQuery.data?.rail ?? []).map(toSidebarCli)
-    const namedIds = new Set(named.map((a) => a.id))
+    // One row per discovered/configured CLI the wire rail does not already
+    // name. The generic `cli_agent`/`api_agent` rows are skipped as coverage
+    // sources (their `cli` is only a default pick), so a dedicated row is
+    // still derived for the default CLI.
+    const railCliCovered = new Set<string>()
+    for (const row of cliQuery.data?.rail ?? []) {
+      if (row.id === 'cli_agent') continue
+      const nm = String(row.name ?? '').trim()
+      if (nm) railCliCovered.add(nm)
+      const c = String(row.cli ?? '').trim()
+      if (c) railCliCovered.add(c)
+    }
+    const derivedCliNames = [
+      ...new Set([...discoveredCliNames(cliQuery.data), ...configuredCliNames(cliQuery.data)]),
+    ]
+      .map((name) => name.trim())
+      .filter((name) => name && !railCliCovered.has(name))
+      .sort((a, b) => a.localeCompare(b))
+    const derivedCli = derivedCliNames.map(toSidebarCliName)
+    const namedIds = new Set([...named, ...derivedCli].map((a) => a.id))
     const fromBlueprintsNoCli = fromBlueprints.filter((a) => !namedIds.has(a.id) && a.id !== 'api_agent')
     // Designed (router) agents join the rail; skip ids a live row already owns.
     const designed = designedAgents.filter((a) => !seen.has(a.id) && !namedIds.has(a.id))
@@ -684,7 +825,7 @@ export default function AgentSidebar({
       (a) => (isApiRailAgent(a) || isBlueprintRailAgent(a)) && !isSupportAgent(a),
     )
     const rest = list.filter((a) => !isSupportAgent(a) && !isApiRailAgent(a))
-    const merged = [...support, ...named, ...catalogApi, ...rest]
+    const merged = [...support, ...named, ...derivedCli, ...catalogApi, ...rest]
     const railRank = (a: SidebarAgent) => {
       if (isSupportAgent(a)) return 0
       if (isCliRailAgent(a)) return 1
@@ -710,22 +851,33 @@ export default function AgentSidebar({
     ],
     queryFn: async () => {
       const out: Record<string, number> = {}
-      await Promise.all(
-        cliAgentsForActivity.map(async ({ id, cli }) => {
-          try {
-            const ms = latestCliActivityMs(await fetchCliSessions(id, cli))
-            if (ms != null) out[id] = ms
-          } catch {
-            /* honest gap: row simply shows no timestamp */
-          }
-        }),
-      )
+      // #1784: read the seats two at a time instead of all at once, writing into
+      // the same `out` record. The per-seat try/catch is unchanged, so a failure
+      // is still an honest gap (the row shows no timestamp) rather than a
+      // rejection that loses the whole map. Deliberately no `delay()` between
+      // windows: that would only trade the burst for a slow rail.
+      for (let i = 0; i < cliAgentsForActivity.length; i += CLI_ACTIVITY_READ_WIDTH) {
+        const window = cliAgentsForActivity.slice(i, i + CLI_ACTIVITY_READ_WIDTH)
+        await Promise.all(
+          window.map(async ({ id, cli }) => {
+            try {
+              const ms = latestCliActivityMs(await fetchCliSessions(id, cli))
+              if (ms != null) out[id] = ms
+            } catch {
+              /* honest gap: row simply shows no timestamp */
+            }
+          }),
+        )
+      }
       return out
     },
     enabled: cliAgentsForActivity.length > 0,
     staleTime: 5 * 60 * 1000,
   })
-  const cliActivityByAgent = cliActivityQuery.data ?? {}
+  const cliActivityByAgent = useMemo(
+    () => cliActivityQuery.data ?? emptyObject<Record<string, number>>(),
+    [cliActivityQuery.data],
+  )
   const rosterById = useMemo(() => new Map(teams.map((r) => [r.id, r])), [teams])
   const childTeamIds = useMemo(() => {
     const ids = new Set<string>()
@@ -766,18 +918,119 @@ export default function AgentSidebar({
       cliQuery.isPending ||
       herdrQuery.isPending ||
       designsQuery.isPending)
-  const resolvedHiddenIds = railDataPending
-    ? hiddenIds ?? []
-    : reconcileHiddenAgentIds(
-        hiddenIds ?? loadOrSeedHiddenAgentIds(agents),
-        liveRowIds,
-        pins.map((pin) => pin.id),
-      )
+  // `?? []` and `reconcileHiddenAgentIds` (a `filter`) both allocate a fresh
+  // array per render, and this is in the dep list of ~15 memos/callbacks/effects
+  // — including the two health polls, so the churn reached the network. Memoized
+  // on the things that decide its contents; `pins` only contributes ids, so its
+  // own array identity must not be a key or the memo would never hit.
+  const resolvedPinnedIds = useMemo(() => pins.map((pin) => pin.id), [pins])
+  const resolvedHiddenIds = useMemo(
+    () =>
+      railDataPending
+        ? (hiddenIds ?? emptyArray<string>())
+        : reconcileHiddenAgentIds(
+            hiddenIds ?? loadOrSeedHiddenAgentIds(agents),
+            liveRowIds,
+            resolvedPinnedIds,
+          ),
+    [railDataPending, hiddenIds, agents, liveRowIds, resolvedPinnedIds],
+  )
 
   useEffect(() => {
     if (hiddenIds !== null || blueprintsQuery.isPending) return
     setHiddenIds(loadOrSeedHiddenAgentIds(agents))
   }, [hiddenIds, blueprintsQuery.isPending, agents])
+
+  /* #1705 — Ctrl/Shift multi-select with a visible outcome.
+   *
+   * The gesture model is the documented one (click = single, Ctrl/Cmd+click =
+   * toggle, Shift+click = contiguous range from the anchor, Escape = clear,
+   * Space = toggle from the keyboard); the RANGE order is read back from the
+   * rendered DOM so "contiguous" means what the operator sees between the
+   * anchor and the target — section grouping and seat kind included — rather
+   * than a second ordering that could drift from the list. */
+  const [multiSelection, setMultiSelection] = useState<RailSelectionState>(
+    EMPTY_RAIL_SELECTION,
+  )
+  const railRootRef = useRef<HTMLElement | null>(null)
+  const railSelectableOrder = useCallback(() => {
+    const root = railRootRef.current
+    if (!root) return [] as string[]
+    // Only the row roots: the pinned-tile grid and the per-row avatar glyphs
+    // carry `data-agent-id` too and are not part of this selection.
+    return Array.from(root.querySelectorAll('.os-agent-row[data-agent-id]'))
+      .map((node) => node.getAttribute('data-agent-id') || '')
+      .filter((id) => id.length > 0)
+  }, [])
+  const isRailRowSelected = useCallback(
+    (id: string) => multiSelection.ids.includes(id),
+    [multiSelection.ids],
+  )
+  const isRailRowSelectable = useCallback((id: string) => Boolean(id), [])
+  const toggleRailRowSelection = useCallback((id: string) => {
+    setMultiSelection((current) => toggleRailSelection(current, id))
+  }, [])
+  const selectRailRowRange = useCallback(
+    (id: string) => {
+      const order = railSelectableOrder()
+      setMultiSelection((current) => selectRailRange(current, id, order))
+    },
+    [railSelectableOrder],
+  )
+  const clearMultiSelection = useCallback(() => setMultiSelection(EMPTY_RAIL_SELECTION), [])
+  /* Escape clears wherever focus is. Capture phase, so a pane that stops
+     propagation on Escape cannot swallow it, and never while the operator is
+     typing (a form field owns Escape there). */
+  useEffect(() => {
+    if (multiSelection.ids.length === 0) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      const target = event.target as HTMLElement | null
+      if (
+        target &&
+        (target.isContentEditable ||
+          ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return
+      }
+      event.preventDefault()
+      setMultiSelection(EMPTY_RAIL_SELECTION)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [multiSelection.ids.length])
+
+  /* Bulk actions. Both reuse the SAME store writers the per-row context menu
+     uses, so a bulk edit lands in localStorage through one code path — and the
+     rail's existing debounced `flushPrefsSave` then PATCHes the same
+     `favourites` / `hidden_agents` arrays to /v1/preferences/, which is how a
+     single-row hide/pin already syncs. There is no separate bulk route. */
+  const bulkHideSelected = useCallback(() => {
+    const ids = multiSelection.ids
+    if (ids.length < 1) return
+    setHiddenIds((current) => hideAllAgentIds([...(current ?? resolvedHiddenIds), ...ids]))
+    setMultiSelection(EMPTY_RAIL_SELECTION)
+  }, [multiSelection.ids, resolvedHiddenIds, setHiddenIds])
+  const bulkUnpinSelected = useCallback(() => {
+    const ids = multiSelection.ids
+    if (ids.length < 1) return
+    const doomed = new Set(ids)
+    setPins((current) => {
+      const next = current.filter((pin) => !doomed.has(pin.id))
+      if (next.length === current.length) return current
+      savePinnedAgents(next)
+      return next
+    })
+    setMultiSelection(EMPTY_RAIL_SELECTION)
+  }, [multiSelection.ids, setPins])
+  const bulkHiddenCount = useMemo(
+    () => multiSelection.ids.filter((id) => resolvedHiddenIds.includes(id)).length,
+    [multiSelection.ids, resolvedHiddenIds],
+  )
+  const bulkPinnedCount = useMemo(
+    () => multiSelection.ids.filter((id) => pins.some((pin) => pin.id === id)).length,
+    [multiSelection.ids, pins],
+  )
 
   useEffect(() => {
     if (prefsHydrated.current || blueprintsQuery.isPending) return
@@ -874,8 +1127,27 @@ export default function AgentSidebar({
   useEffect(() => {
     const onSettings = () => setSettingsTick((n) => n + 1)
     window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onSettings)
-    return () => window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onSettings)
+    // #1196: remote health is a shared store now — a probe finishing re-renders
+    // the rows so offline dots appear/disappear without a poll of their own.
+    window.addEventListener(REMOTE_HEALTH_CHANGED_EVENT, onSettings)
+    return () => window.removeEventListener(REMOTE_HEALTH_CHANGED_EVENT, onSettings)
   }, [])
+
+  // #1196: the sidebar starts the shared health poll once remotes are known.
+  // Two effects, deliberately, for the same reason as the seat poll below:
+  // publishing the ids belongs to the id list (the store decides from what
+  // CHANGED in the list whether that is worth traffic, so a `remotes` poll
+  // handing over a fresh array with the same ids costs nothing), and owning
+  // the poll's lifetime belongs to the rail's lifetime. A cleanup on the list
+  // effect would release and re-acquire on every `remotes` poll.
+  useEffect(() => {
+    startRemoteHealthPolling(
+      remotes.map((r) => r.id),
+      'sidebar',
+    )
+  }, [remotes])
+  // Without this the rail's subscription outlives the rail.
+  useEffect(() => () => stopRemoteHealthPolling('sidebar'), [])
 
   // #507: Hide and Unhide are inverses for every rail kind — the old
   // force-visible exemption for CLI/API seats (#321/#621) turned Hide into a
@@ -900,6 +1172,37 @@ export default function AgentSidebar({
       ),
     [agents, resolvedHiddenIds, deletedIds],
   )
+
+  // #1658 follow-up: one health verdict for every seat kind, so a dead agent
+  // is labelled broken wherever its name appears (rail rows, pickers, composer,
+  // navbar). `trackSeatHealth` owns the 60s poll and is idempotent; the seat
+  // list is rebuilt from what the rail already renders, so nothing is probed
+  // that the operator cannot see.
+  //
+  // Two effects, deliberately. Publishing the seats belongs to the seat list:
+  // the store decides from the *set* of `kind:seat_id` keys whether that is a
+  // change worth traffic, so a new array with the same seats costs nothing.
+  // Owning the poll's lifetime belongs to the rail's lifetime, and must not
+  // re-run per rebuild — a cleanup on the list effect would unsubscribe and
+  // resubscribe on every `remotes` poll, which is the burst this replaces.
+  useEffect(() => {
+    const seats: SeatRef[] = []
+    for (const row of remotes) {
+      if (row.id) seats.push({ kind: 'remote', seatId: row.id })
+    }
+    for (const agent of [...visibleAgents, ...hiddenAgents]) {
+      if (isCliRailAgent(agent)) {
+        seats.push({ kind: 'cli', seatId: agent.id, cli: (agent as { cli?: string }).cli })
+      } else {
+        seats.push({ kind: 'api', seatId: agent.id })
+      }
+    }
+    trackSeatHealth(seats)
+  }, [remotes, visibleAgents, hiddenAgents])
+
+  // The interval must not outlive the rail: nothing else calls
+  // `stopTrackingSeatHealth`, so without this a closed sidebar keeps polling.
+  useEffect(() => () => stopTrackingSeatHealth(), [])
   const visibleTeams = useMemo(
     () =>
       teams.filter(
@@ -1035,36 +1338,145 @@ export default function AgentSidebar({
       id: agent.id,
       agent,
     }))
+    /* #1726: chat rows are ordinary `RailRow`s with a distinct rail id, so
+     * `applyRailOrder`, `partitionRowsBySection`, the kind buckets, the
+     * Move-to submenu and the renderers all handle them with no special case
+     * at the rail level. They are placed directly after the seat they belong
+     * to (the flat order is applied on top), a chat whose seat is gone or
+     * hidden is dropped rather than rendered as an orphan, and a chat never
+     * enters `agents` — so it cannot be pinned, duplicated, or offered by
+     * "+ Add bot". */
+    const seatById = new Map(
+      [...supportAgents, ...cliAgents, ...apiAgents, ...otherAgents].map((agent) => [
+        agent.id,
+        agent,
+      ]),
+    )
+    const chatsBySeat = new Map<string, RailRow[]>()
+    for (const chat of chatRows) {
+      const seat = seatById.get(chat.agentId)
+      if (!seat) continue
+      if (resolvedHiddenIds.includes(chat.agentId)) continue
+      /* The chat rides ON ITS OWN ROW, tagged via `railChat` on the row's agent
+       * object. It is NOT a seat-keyed lookup: a lookup would also hand the
+       * chat to the seat's own row, and one of the two would then be wearing
+       * the other's identity — which is how the first attempt at this silently
+       * deleted the seat row. #1709's "one row per seat" stays literally true:
+       * the seat row is still there, still carries the stacked session faces,
+       * and still owns the active state; the chat is a second row beside it. */
+      const chatAgent = { ...seat, railChat: chat } as typeof seat
+      const row: RailRow = { kind: 'agent', id: chat.id, agent: chatAgent }
+      const bucket = chatsBySeat.get(chat.agentId)
+      if (bucket) bucket.push(row)
+      else chatsBySeat.set(chat.agentId, [row])
+    }
+    const seatRows: RailRow[] = [
+      ...supportRows,
+      ...cliRows,
+      ...apiRows,
+      ...teamRows,
+      ...remoteRows,
+      ...otherRows,
+    ]
+    const withChats: RailRow[] = []
+    for (const row of seatRows) {
+      withChats.push(row)
+      for (const chat of chatsBySeat.get(row.id) ?? []) withChats.push(chat)
+    }
     return excludePinnedFromList(
-      [...supportRows, ...cliRows, ...apiRows, ...teamRows, ...remoteRows, ...otherRows],
+      withChats,
       pins,
     )
-  }, [supportAgents, cliAgents, apiAgents, visibleRootTeams, visibleRemotes, otherAgents, pins])
+  }, [
+    supportAgents,
+    cliAgents,
+    apiAgents,
+    visibleRootTeams,
+    visibleRemotes,
+    otherAgents,
+    pins,
+    chatRows,
+    resolvedHiddenIds,
+  ])
   const orderedRows = useMemo(
     () => applyRailOrder(catalogRows, railOrder),
     [catalogRows, railOrder],
   )
+  // #1714: the synthetic kind buckets only harvest Unassigned. A row a user
+  // explicitly filed into a custom section honours that membership and stays
+  // put, so custom sections keep working exactly as before.
+  //
+  // This is the ONE definition of "which auto section claims this row", shared
+  // with the Move-to submenu below. It used to live inline in the `sectionBlocks`
+  // memo, which is why the menu could not know about the auto sections at all:
+  // it read `state.sections` instead, and `os` / `remote` / `cli` / `api` /
+  // `subagents` are not in that bag. Hoisted so both surfaces agree by
+  // construction.
+  const autoSectionOfRow = useCallback(
+    (row: RailRow, dynamicIds: Set<string>): string | null => {
+      // Open Swarm instances (`kind: swarm`) get their own "OS" block; every
+      // other remote stays under "Remote".
+      if (row.kind === 'remote') {
+        // `impl` is a legacy alias the old inline `remoteKindOf` read off an
+        // untyped shape; `RemoteEntry` declares `kind` and `id`.
+        const remoteKind = String(row.remote?.kind || row.remote?.id || '')
+          .trim()
+          .toLowerCase()
+        return remoteKind === 'swarm' ? 'os' : 'remote'
+      }
+      if (row.kind !== 'agent') return dynamicIds.has(row.id) ? 'subagents' : null
+      // Kind precedence: a remote-impl seat is Remote even if it also carries
+      // an api-shaped id; a CLI seat bound to a remote endpoint stays CLI.
+      if (isRemoteRailAgent(row.agent)) return 'remote'
+      if (isCliRailAgent(row.agent)) return 'cli'
+      if (isApiRailAgent(row.agent)) return 'api'
+      return dynamicIds.has(row.id) ? 'subagents' : null
+    },
+    [],
+  )
+
   const sectionBlocks = useMemo(() => {
     const baseBlocks = partitionRowsBySection(orderedRows, sectionState)
-    if (dynamicSubagents.length === 0) return baseBlocks
-
     const dynamicIds = new Set(dynamicSubagents.map((s) => s.id))
+    const osRows: RailRow[] = []
+    const remoteRows: RailRow[] = []
+    const cliRows: RailRow[] = []
+    const apiRows: RailRow[] = []
     const subagentRows: RailRow[] = []
 
     const updatedBlocks = baseBlocks.map((block) => {
-      if (block.id === UNASSIGNED_SECTION_ID) {
-        const standardRows: RailRow[] = []
-        for (const row of block.rows) {
-          if (dynamicIds.has(row.id)) {
-            subagentRows.push(row)
-          } else {
-            standardRows.push(row)
-          }
-        }
-        return { ...block, rows: standardRows }
+      if (block.id !== UNASSIGNED_SECTION_ID) return block
+      const standardRows: RailRow[] = []
+      for (const row of block.rows) {
+        const bucket = autoSectionOfRow(row, dynamicIds)
+        if (bucket === 'os') osRows.push(row)
+        else if (bucket === 'remote') remoteRows.push(row)
+        else if (bucket === 'cli') cliRows.push(row)
+        else if (bucket === 'api') apiRows.push(row)
+        else if (dynamicIds.has(row.id)) subagentRows.push(row)
+        else standardRows.push(row)
       }
-      return block
+      return { ...block, rows: standardRows }
     })
+
+    // OS / Remote / CLI / API lead the list; existing sections (custom +
+    // Subagents) and Unassigned keep their relative order underneath.
+    const kindBlocks = (
+      [
+        { id: 'os', name: 'OS', collapsed: osCollapsed, rows: osRows },
+        { id: 'remote', name: 'Remote', collapsed: remoteCollapsed, rows: remoteRows },
+        { id: 'cli', name: 'CLI', collapsed: cliCollapsed, rows: cliRows },
+        { id: 'api', name: 'API', collapsed: apiCollapsed, rows: apiRows },
+      ] as Array<{
+        id: string
+        name: string
+        collapsed: boolean
+        rows: RailRow[]
+      }>
+    )
+      .filter((block) => block.rows.length > 0)
+      .map((block) => ({ ...block, custom: false }))
+    updatedBlocks.splice(0, 0, ...kindBlocks)
 
     if (subagentRows.length > 0) {
       const subagentsBlock = {
@@ -1083,8 +1495,32 @@ export default function AgentSidebar({
     }
 
     return updatedBlocks
-  }, [orderedRows, sectionState, dynamicSubagents, subagentsCollapsed])
+  }, [
+    orderedRows,
+    sectionState,
+    dynamicSubagents,
+    autoSectionOfRow,
+    subagentsCollapsed,
+    cliCollapsed,
+    remoteCollapsed,
+    apiCollapsed,
+    osCollapsed,
+  ])
   const visibleRowIds = useMemo(() => orderedRows.map((row) => row.id), [orderedRows])
+
+  // #1714: the section block each row is rendered under, derived from the very
+  // blocks the rail renders. The Move-to submenu reads this so its list is a
+  // subset of the visible sections BY CONSTRUCTION — the old code rebuilt the
+  // list from `sectionState.sections` and silently dropped every auto section.
+  const autoSectionByRowId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const block of sectionBlocks) {
+      for (const row of block.rows) {
+        map.set(row.id, block.id)
+      }
+    }
+    return map
+  }, [sectionBlocks])
   const knownRailIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents])
   const catalogById = useMemo(() => new Map(catalog.map((row) => [row.id, row])), [catalog])
   const catalogReady = Boolean(propBlueprints) || !blueprintsQuery.isPending
@@ -1109,12 +1545,19 @@ export default function AgentSidebar({
 
   const navScrollRef = useRef<HTMLElement | null>(null)
   const [canScroll, setCanScroll] = useState(false)
+  // #1247: directional scrollability for the avatar-only chevrons. The native
+  // scrollbar is concealed there, so these two flags drive the faint up/down
+  // affordances.
+  const [canScrollUp, setCanScrollUp] = useState(false)
+  const [canScrollDown, setCanScrollDown] = useState(false)
 
   const updateCanScroll = useCallback(() => {
     const el = navScrollRef.current
     if (!el) return
     const scrollable = el.scrollHeight > el.clientHeight
     setCanScroll(scrollable)
+    setCanScrollUp(el.scrollTop > 4)
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4)
   }, [])
 
   useEffect(() => {
@@ -1124,10 +1567,33 @@ export default function AgentSidebar({
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(updateCanScroll)
       ro.observe(el)
+      // #1247: rows/sections collapse changes scrollHeight without a scroll
+      // event, so re-derive the chevron flags from the container's box too.
+      if (el.firstElementChild) ro.observe(el.firstElementChild)
       return () => ro.disconnect()
     }
     return undefined
   }, [updateCanScroll, orderedRows.length, visiblePins.length])
+
+  // #1709: adding a chat with an existing seat must leave the rail SHOWING it
+  // — section expanded, row scrolled into view, row lit as the active seat.
+  // Without this the URL moved and the rail looked untouched.
+  // #1805: the scroll inside that hook is once per SELECTION — Alt+Arrow
+  // browse, a created agent, a click-select — so rebuilding `visibleRowIds`
+  // here (a health tick, a remotes refresh, a refocus refetch) can no longer
+  // drag a free-scrolling operator back to the selected seat.
+  useRailReveal({
+    activeRail,
+    sectionBlocks,
+    visibleRowIds,
+    navScrollRef,
+    setSectionState,
+    setOsCollapsed,
+    setRemoteCollapsed,
+    setCliCollapsed,
+    setApiCollapsed,
+    setSubagentsCollapsed,
+  })
 
   const openPalette = useCallback(() => {
     onOpenSearch?.()
@@ -1205,6 +1671,204 @@ export default function AgentSidebar({
       persistVisibleOrder(moveRailIdAfter(base, fromId, afterId))
     },
     [railOrder, visibleRowIds, persistVisibleOrder],
+  )
+
+  /* ---------------------------------------------------------------------
+   * #1740 — Alt+Arrow reordering, from one focused row.
+   *
+   * The full key map, and what it coexists with:
+   *
+   *   Alt+ArrowUp / Down   reorder among siblings in the SAME section
+   *   Alt+ArrowLeft/Right  move the row to the ADJACENT section
+   *   Alt+Arrow on a pin   the same two verbs in the PIN GRID's scope — see
+   *                        `railPinKeyboardReorder` below. It used to be
+   *                        #1088's sequential navigation, which is what a pin
+   *                        fell through to when this only owned section rows.
+   *   Space                #1705's selection toggle (it excludes altKey)
+   *   Enter                untouched — the row opens
+   *   Shift+F10 / Menu     untouched — forwarded to `rowMenu.onKeyDown`
+   *   Escape               #1705's clear-selection, unchanged
+   *   Ctrl/Cmd+Arrow       not a gesture here (the gate requires no second
+   *                        modifier) — Alt+Arrow never fires for it
+   *
+   * Returns true when it CLAIMED the key, which is what makes the row's
+   * onKeyDown `preventDefault` it and lets the window navigation handler
+   * (`onAltArrow`, above) stand down via its `defaultPrevented` bail.
+   */
+  const [reorderAnnouncement, setReorderAnnouncement] = useState('')
+  // #1740 §3: selection stays on the moved item. A cross-section move
+  // unmounts the row from one block and mounts it in another, so focus has to
+  // be re-taken once the new block has rendered.
+  const pendingReorderFocus = useRef<string | null>(null)
+  useEffect(() => {
+    const id = pendingReorderFocus.current
+    if (!id) return
+    const root = railRootRef.current
+    const node = root?.querySelector<HTMLElement>(`[data-agent-id="${id.replace(/"/g, '\\"')}"]`)
+    if (!node) return
+    pendingReorderFocus.current = null
+    node.focus()
+    // `pins` joins because a pin reorder re-orders the GRID: the tile keeps the
+    // same node but moves, and a grid that never re-rendered would leave the
+    // announcement claiming a move the operator cannot see.
+  }, [pins, sectionBlocks, railOrder, sectionState])
+
+  const railKeyboardReorder = useCallback(
+    (rowId: string, event: { key: string; altKey: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }) => {
+      const intent = railReorderIntent(event)
+      if (!intent) return false
+      const block = sectionBlocks.find((candidate) =>
+        candidate.rows.some((row) => row.id === rowId),
+      )
+      if (!block) return false
+      if (block.collapsed) return false
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      const orderBase = railOrder.length > 0 ? base : visibleRowIds
+      if (intent.direction === 'up' || intent.direction === 'down') {
+        const outcome = reorderWithinSection({
+          order: orderBase,
+          blocks: sectionBlocks,
+          rowId,
+          direction: intent.direction,
+        })
+        if (outcome.moved) {
+          persistVisibleOrder(outcome.order)
+          pendingReorderFocus.current = rowId
+        }
+        setReorderAnnouncement(outcome.announcement)
+        return true
+      }
+      // #1714: the destination list is the rail's OWN blocks, so Alt+Left /
+      // Right cannot land on a section the Move-to submenu would have refused.
+      const currentSectionId = block.id
+      const outcome = moveToAdjacentSection({
+        order: orderBase,
+        destinations: railMoveToDestinations({
+          blocks: sectionBlocks,
+          currentSectionId,
+          autoGroup: isAutoSectionId(currentSectionId) ? currentSectionId : null,
+        }),
+        blocks: sectionBlocks,
+        rowId,
+        currentSectionId,
+        direction: intent.direction,
+      })
+      if (outcome.moved && outcome.targetId) {
+        // A pinned row must LEAVE the pin grid to be filed, or its membership
+        // would park it in limbo — same rule as drag-to-section and Move-to.
+        if (isPinnedId(rowId)) {
+          setPins((current) =>
+            current.some((pin) => pin.id === rowId) ? unpinAgent(rowId, current) : current,
+          )
+        }
+        setSectionState((current) => moveAgentToSection(current, rowId, outcome.targetId as string))
+        if (outcome.order) persistVisibleOrder(outcome.order)
+        pendingReorderFocus.current = rowId
+      }
+      setReorderAnnouncement(outcome.announcement)
+      return true
+    },
+    [
+      isPinnedId,
+      persistVisibleOrder,
+      railOrder,
+      sectionBlocks,
+      sectionState,
+      setPins,
+      setSectionState,
+      visibleRowIds,
+    ],
+  )
+
+  /* ---------------------------------------------------------------------
+   * #1740 — the same two verbs, in the PIN GRID's scope.
+   *
+   * A pinned tile is a different row class from a section row: it is rendered
+   * above every section, out of its own store (`lib/pinnedAgents`), and it
+   * never went through `railKeyboardReorder` above. So Alt+Down on a focused
+   * pin fell through to #1088's sequential navigation and paged away to the
+   * next seat — the one place the issue's §1 ("reorder among siblings in the
+   * same section, including Pinned") did not hold.
+   *
+   * Nothing here is a second rule set: the gate is the same `railReorderIntent`,
+   * the arithmetic is `reorderWithinPinGrid` / `movePinToAdjacentSection` in
+   * `features/sidebar/railReorder`, the announcement is the same
+   * `reorderAnnouncement` live region, and the return value means the same
+   * thing — the tile claimed the key, so `RailSections` `preventDefault`s it
+   * and the window `onAltArrow` stands down via its `defaultPrevented` bail.
+   * ------------------------------------------------------------------- */
+  const railPinKeyboardReorder = useCallback(
+    (
+      pinId: string,
+      event: { key: string; altKey: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean },
+    ) => {
+      const intent = railReorderIntent(event)
+      if (!intent) return false
+      // The tile already proved it is a pin by calling us; a row id that is
+      // not pinned (a chat row, a stale tile mid-unpin) is not the grid's.
+      if (!isPinnedId(pinId)) return false
+      if (intent.direction === 'up' || intent.direction === 'down') {
+        const outcome = reorderWithinPinGrid({
+          pins,
+          visiblePins,
+          pinId,
+          direction: intent.direction,
+        })
+        if (outcome.moved) {
+          // The grid's storage is the pin list itself, so the swapped id order
+          // is written back with the store drag-to-pin already uses (#1217's
+          // same-tab `savePinnedAgents`). Hidden pins keep their own slots.
+          const byId = new Map(pins.map((pin) => [pin.id, pin]))
+          const next = outcome.order
+            .map((id) => byId.get(id))
+            .filter((pin): pin is PinnedAgent => Boolean(pin))
+          setPins(next)
+          savePinnedAgents(next)
+          pendingReorderFocus.current = pinId
+        }
+        setReorderAnnouncement(outcome.announcement)
+        return true
+      }
+      const base = mergeRailOrder(railOrder, visibleRowIds)
+      const orderBase = railOrder.length > 0 ? base : visibleRowIds
+      const outcome = movePinToAdjacentSection({
+        order: orderBase,
+        // #1714's own destination list, so a pin is filed exactly where the
+        // Move-to submenu would file it.
+        sectionDestinations: railMoveToDestinations({
+          blocks: sectionBlocks,
+          currentSectionId: RAIL_PIN_GRID_ID,
+        }),
+        blocks: sectionBlocks,
+        visiblePins,
+        pinId,
+        direction: intent.direction,
+      })
+      if (outcome.moved && outcome.targetId) {
+        // #801: filing a pin LEAVES the grid. `excludePinnedFromList` strips
+        // pinned ids from the section rows, so a pin that stayed would be
+        // rendered nowhere at all — the same rule drag-to-section follows.
+        setPins((current) =>
+          current.some((pin) => pin.id === pinId) ? unpinAgent(pinId, current) : current,
+        )
+        setSectionState((current) => moveAgentToSection(current, pinId, outcome.targetId as string))
+        if (outcome.order) persistVisibleOrder(outcome.order)
+        pendingReorderFocus.current = pinId
+      }
+      setReorderAnnouncement(outcome.announcement)
+      return true
+    },
+    [
+      isPinnedId,
+      persistVisibleOrder,
+      pins,
+      railOrder,
+      sectionBlocks,
+      setPins,
+      setSectionState,
+      visiblePins,
+      visibleRowIds,
+    ],
   )
 
   // #856 slice 12: drag/pin/hide interactions live in the hook below; the
@@ -1318,6 +1982,20 @@ export default function AgentSidebar({
     [agents, pins, remotes, teams],
   )
 
+  // #1674: the Add-bot menu lists the SAME `agents` the rail renders — no
+  // second registry. Display names go through `rowDisplayName` so a pin rename
+  // reads identically in the menu and in the rail.
+  const addBotMenuAgents = useMemo(
+    () =>
+      agents.map((agent) => ({
+        id: agent.id,
+        label: rowDisplayName(agent.id, agent.name) || agent.id,
+        avatarSrc: agent.avatar_path ?? null,
+        remoteKind: typeof agent.kind === 'string' ? agent.kind : null,
+      })),
+    [agents, rowDisplayName],
+  )
+
   useEffect(() => {
     const onComplete = (event: Event) => {
       const detail = generationCompleteDetail(event)
@@ -1382,19 +2060,33 @@ export default function AgentSidebar({
     // #1088: Alt+Up / Alt+Down sequential navigation (Herdr parity) replaces
     // REQ-172's Alt+1..9 slots, which collided with native browser tab
     // switching. The anchor is whichever row the URL currently points at.
+    // #1218: a focused popup owns Alt+Arrow for its own list — the rail
+    // handler yields whenever the event originates inside an overlay.
+    //
+    // #1740: this handler used to claim EVERY Alt+Arrow and read anything that
+    // was not ArrowDown as "up", so Alt+Left / Alt+Right silently navigated
+    // backwards. Two changes, both load-bearing:
+    //  - only Up/Down remain navigation keys; Left/Right are #1740's
+    //    "change section" pair and are left to the focused row;
+    //  - `defaultPrevented` is honoured, so the row's own reorder handler
+    //    (which runs first, on React's root inside this window) wins outright
+    //    instead of both acting on one keypress.
     const onAltArrow = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+      const el = event.target instanceof Element ? event.target : null
+      if (el?.closest('.os-search-palette, dialog[open], [role="dialog"]')) return
       const dir: 1 | -1 = event.key === 'ArrowDown' ? 1 : -1
       const currentIdx = activeRailNavIndex(hotkeyTargets, window.location.search)
-      const target = stepRailNav(hotkeyTargets, currentIdx, dir)
-      if (target) {
+      const target2 = stepRailNav(hotkeyTargets, currentIdx, dir)
+      if (target2) {
         event.preventDefault()
-        if (target.isHerdr) {
-          window.location.assign('/teams/#herdr-members')
-        } else {
-          navigate(target.href)
-        }
+        // #1195: every target chats via its computed href — herdr pins included
+        // (#543: `?remote=herdr&session=<name>` IS the conversation). The old
+        // `window.location.assign('/teams/#herdr-members')` override fought
+        // the sequence data and hard-reloaded the SPA mid-navigation.
+        navigate(target2.href)
         onClose?.()
       }
     }
@@ -1410,8 +2102,59 @@ export default function AgentSidebar({
     continueCliSessionOn,
     selectSession,
     openAgentSessionPicker,
-    startNewAgentSession,
+    startNewAgentSession: railStartNewAgentSession,
   } = railSession
+
+  /* #1726 — the ONE "New session" command, now shared by BOTH surfaces.
+   *
+   * The row context menu's "New session" and `AddBotMenu.onStartChat` already
+   * called the same `startNewAgentSession`; what was missing was the visible
+   * result. This wrapper keeps that single command and adds the two things the
+   * issue asks for, in this order:
+   *
+   *   1. a DUPLICATE sidepane row (the chat row), filed right under its seat,
+   *      so the twin is where the operator is already looking; and
+   *   2. the main-pane switch, which the underlying command already did.
+   *
+   * Because both call sites go through here, "New session" and "+ Add bot" are
+   * the same code path by construction — there is no second session model to
+   * drift. A failure to create the session leaves the rail untouched rather
+   * than adding a row for a chat that does not exist. */
+  const startNewAgentSession = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return
+      let sessionId = ''
+      let title = 'New chat'
+      try {
+        await railStartNewAgentSession(agentId)
+        // #1726: `createAgentSession` already writes the new session into the
+        // scale-out cache (#1709 did that so the rail could show it), so the
+        // id is read back from the SAME store rather than inventing a second
+        // return channel. `listAgentSessions` sorts newest-first, which is the
+        // row we just made.
+        const newest = listAgentSessions(agentId)[0]
+        sessionId = newest?.id || ''
+        title = newest?.title || title
+      } catch {
+        return
+      }
+      if (!sessionId) return
+      const chatId = railChatRowId(agentId, sessionId)
+      addRailChatRow({ id: chatId, agentId, sessionId, title, createdAt: Date.now() })
+      // Put the twin directly after its seat so it is visible without a
+      // scroll, and inherit the seat's section so it is not left in limbo by
+      // an order that has never heard of it.
+      setSectionState((current) =>
+        moveAgentToSection(current, chatId, sectionIdForAgent(agentId, current)),
+      )
+      setRailOrder((current) =>
+        saveRailOrder(
+          insertRailIdAfter(mergeRailOrder(current, visibleRowIds), chatId, agentId),
+        ),
+      )
+    },
+    [railStartNewAgentSession, setRailOrder, setSectionState, visibleRowIds],
+  )
 
   // #856 slice 13: menu-opener surface lives in the hook below; the menu
   // state stays page-owned so handleMenuSelect and the overlays are unchanged.
@@ -1584,6 +2327,27 @@ export default function AgentSidebar({
     }
   }
 
+  /* #1726 — the seat a chat row belongs to, for the capability predicates.
+   *
+   * A chat is a session, and the session store it lives in belongs to the
+   * agent, so `seatHasSessions` must be asked about the SEAT: `kind: 'chat'` is
+   * a rail-menu concept, not a seat kind, and no capability is declared
+   * against it.
+   *
+   * The kind is read from the MENU — which `resolveMenuKind`/`railMenuKindForRow`
+   * already resolved — and never from the catalog row's raw `kind` field. That
+   * field is a wire value the rail groups by (`'design'`, `'subagent'`); letting
+   * it answer made Select session / New session vanish from a designed rail
+   * seat. Only the two fields `seatHasSessions` reads are projected, so nothing
+   * else on a menu or a Blueprint row can shadow them. */
+  const seat = useMemo(() => {
+    if (!menu) return { kind: null as string | null, isCli: false }
+    const chat = isRailChatRowId(menu.agentId) ? parseRailChatRowId(menu.agentId) : null
+    return {
+      kind: chat ? railMenuKindForRow(chat.agentId, agents) : menu.kind,
+      isCli: Boolean(menu.isCli),
+    }
+  }, [menu, agents])
   const menuItems = menu
     ? railMenuItems({
         kind: menu.kind,
@@ -1592,18 +2356,36 @@ export default function AgentSidebar({
         unread: unreadIds.includes(menu.agentId),
         hasSelectAgent: shouldShowSelectAgent(menu.sessions),
         // #580: one declared capability drives the rail menu AND the navbar.
-        hasSelectSession: seatHasSessions(menu),
-        hasNewSession: seatHasSessions(menu),
+        // #1726: a chat row follows its SEAT's capability — the session store
+        // belongs to the agent, and "New session" from a chat row means
+        // "another chat with this agent", which is the point of the twin.
+        hasSelectSession: seatHasSessions(seat),
+        hasNewSession: seatHasSessions(seat),
         notifyEnabled: notifyIds.includes(menu.agentId),
         canCopyId:
-          menu.kind === 'cli' || menu.kind === 'remote'
+          menu.kind === 'cli' || menu.kind === 'remote' || menu.kind === 'herdr'
             ? Boolean(copyableConversationId(menu.kind, menu.agentId, menu.entityId))
             : true,
         cliRunning:
           cliRunningIds.has(menu.agentId) || peekCliRunning(menu.agentId),
+        // #1714: enumerate the rail's OWN blocks, not `sectionState.sections`, so
+        // every section the operator can see in the sidepane is in the menu (and a
+        // section removed from the rail is gone from the menu). `autoGroup` is the
+        // derived section the row actually sits under, which is what the check mark
+        // must name — a CLI row is rendered under "CLI", so ticking "Unassigned"
+        // was a lie, and choosing "Unassigned" for it was a silent no-op.
         moveTo: {
-          sections: sectionState.sections,
-          currentSectionId: sectionIdForAgent(menu.agentId, sectionState),
+          destinations: railMoveToDestinations({
+            blocks: sectionBlocks,
+            currentSectionId: sectionIdForAgent(menu.agentId, sectionState),
+            // Only a real auto section counts as an auto group. A row rendered
+            // under Unassigned is in no group at all, so Unassigned stays a
+            // genuine destination for it — passing the block id blindly would
+            // disable the one move that works.
+            autoGroup: isAutoSectionId(autoSectionByRowId.get(menu.agentId))
+              ? (autoSectionByRowId.get(menu.agentId) as string)
+              : null,
+          }),
         },
         // #724: per-agent bubble theme override picker (agent-presentation
         // setting belongs on the agent row's menu, not the message's).
@@ -1633,12 +2415,16 @@ export default function AgentSidebar({
     agentTurns,
     Link,
     NEEDS_APPROVAL_LABEL,
+    GroupAvatar,
     PersonaRoster,
     RailRowSlot,
     StackedAvatars,
     Users,
     activeHerdrRow,
+    activeCliRail,
     activeRail,
+    activeSessionId, // #1726
+    railKeyboardReorder, // #1740
     activeTaskSessionCount,
     agentLabel,
     agentRole,
@@ -1663,6 +2449,9 @@ export default function AgentSidebar({
     isHerdrAgent,
     isMac,
     isPinnedId,
+    isRailRowSelectable, // #1705: Ctrl/Shift multi-select
+    isRailRowSelected,
+    isRemoteOffline, // #1196: row dot for offline backing remotes
     loadLocalNewChatPerTask,
     markStackWorking,
     navigate,
@@ -1683,6 +2472,7 @@ export default function AgentSidebar({
     roleCssClass,
     rosterById,
     rowMenuHandlers,
+    selectRailRowRange,
     sessionsByAgent,
     sessionsForRemote,
     sessionsForTeam,
@@ -1695,6 +2485,7 @@ export default function AgentSidebar({
     teamChatFaceStack,
     teamHideId,
     teamSidepaneStack,
+    toggleRailRowSelection, // #1705: Ctrl/Shift multi-select
     unreadIds,
     __ctx: null as unknown,
   })
@@ -1702,6 +2493,8 @@ export default function AgentSidebar({
     AgentAvatar,
     agentTurns,
     canScroll,
+    canScrollUp,
+    canScrollDown,
     Link,
     NEEDS_APPROVAL_LABEL,
     RailSectionEmpty,
@@ -1735,6 +2528,7 @@ export default function AgentSidebar({
     isHerdrAgent,
     isMac,
     isPinnedId,
+    isRemoteOffline, // #1196: pin dot for offline backing remotes
     isUnassignedSection,
     listDropActive,
     loadFailed,
@@ -1749,6 +2543,7 @@ export default function AgentSidebar({
     peekApprovalWait,
     peekCliRunning,
     pickOrClose,
+    railPinKeyboardReorder, // #1740: the pin grid is a sibling scope of its own
     remoteHideId,
     remotes,
     renderAgentRow,
@@ -1765,6 +2560,10 @@ export default function AgentSidebar({
     setEditingSectionName,
     setListDropActive,
     setSectionState,
+    setCliCollapsed,
+    setRemoteCollapsed,
+    setApiCollapsed,
+    setOsCollapsed,
     setSubagentsCollapsed,
     stackFacesForTeam,
     teamChatFaceStack,
@@ -1794,6 +2593,7 @@ export default function AgentSidebar({
       )}
 
       <aside
+        ref={railRootRef}
         className={`os-agent-sidebar os-agent-sidebar--${railSide} fixed inset-y-0 ${
           railSide === 'right' ? 'right-0' : 'left-0'
         } z-40 flex shrink-0 flex-col transition-transform duration-200 lg:relative lg:z-30 lg:translate-x-0 ${
@@ -1803,7 +2603,9 @@ export default function AgentSidebar({
               ? 'translate-x-full'
               : '-translate-x-full'            } ${isAvatarOnly ? 'os-agent-sidebar--avatar-only' : ''} ${
           isCollapsed ? 'os-agent-sidebar--collapsed' : ''
-        } ${tabletDocked ? 'os-agent-sidebar--tablet-docked' : ''}`}
+        } ${tabletDocked ? 'os-agent-sidebar--tablet-docked' : ''} ${
+          !narrow ? 'os-agent-sidebar--animated' : ''
+        }`}
         style={
           !narrow
             ? isCollapsed
@@ -1819,6 +2621,15 @@ export default function AgentSidebar({
         aria-hidden={drawerHidden || undefined}
         {...(drawerHidden ? { inert: '' } : {})}
       >
+        {/* #1246: the expansion affordance for the fully-collapsed (0px)
+            pane. It rides the top of the divider spine — immediately left of
+            the chat header's agent avatar — instead of the retired mid-pane
+            pill. Visible without hover: it is the only way back. */}
+        {isCollapsed && !narrow ? (
+          <span className="os-rail-collapsed-expand">
+            <SidebarExpandButton onClick={expandSidebar} />
+          </span>
+        ) : null}
         {!narrow ? (
           <div
             className={`os-rail-resizer ${
@@ -1834,57 +2645,20 @@ export default function AgentSidebar({
             data-testid="rail-resize-handle"
             onPointerDown={handleResizeStart}
             onKeyDown={handleResizeKeyDown}
+          />
+        ) : null}
+        {/* #1349: in ultra-compact (avatar-only) mode the expand control is the
+            top-most element of the pane, above the search row. The search row
+            stacks vertically here and used to push the control to the bottom;
+            hoisting it to the pane top keeps recovery reachable, and it is
+            centred so it reads identically in either dock. */}
+        {!narrow && isAvatarOnly && !isCollapsed ? (
+          <div
+            className="os-rail-top-toggle"
+            data-testid="rail-top-toggle"
+            data-rail-side={railSide}
           >
-            {/* #555: collapse/expand lives on the divider, not in the pane
-                header — the bee mark was doing the brand mark's job and the
-                collapse button's job at once, and read as a logo that
-                happened to collapse the pane. The pill overlays the edge (no
-                width taken from the pane) and stays in the tab order: it
-                reveals on hover *and* on focus, plus unconditionally on
-                coarse pointers where hover does not exist. Its own
-                pointerdown never reaches the resizer, so a drag that starts
-                on the pill cannot resize. */}
-            {/* #741: the pill is a handle now, not a click-only button that
-                blocks the divider. Pointer-down records the origin and the
-                window listeners watch for movement: past the slop it becomes
-                a resize (funnelling into the same drag body as the strip).
-                The toggle itself is intent-gated in handlePillToggle — the
-                trailing click after a drag is the end of the resize, not a
-                toggle. */}
-            <span
-              className="os-rail-divider-pill"
-              data-testid="rail-divider-pill"
-              onPointerDown={(event) => {
-                if (narrow) return
-                event.stopPropagation()
-                const startX = event.clientX
-                const pointerId = event.pointerId
-                // React nulls currentTarget after the handler returns — the
-                // drag body needs the element for pointer capture.
-                const pillEl = event.currentTarget
-                pillDraggedRef.current = false
-                const onMove = (e: PointerEvent) => {
-                  if (pillDraggedRef.current || Math.abs(e.clientX - startX) > 8) {
-                    pillDraggedRef.current = true
-                    window.removeEventListener('pointermove', onMove)
-                    window.removeEventListener('pointerup', onUp)
-                    beginResizeDrag(startX, pointerId, pillEl)
-                  }
-                }
-                const onUp = () => {
-                  window.removeEventListener('pointermove', onMove)
-                  window.removeEventListener('pointerup', onUp)
-                }
-                window.addEventListener('pointermove', onMove)
-                window.addEventListener('pointerup', onUp)
-              }}
-            >
-              {isAvatarOnly ? (
-                <SidebarExpandButton onClick={handlePillToggle} />
-              ) : (
-                <SidebarConcealButton onClick={handlePillToggle} />
-              )}
-            </span>
+            <SidebarExpandButton onClick={expandSidebar} />
           </div>
         ) : null}
         {/* #555: the top of the pane is content now (search, sections, rows).
@@ -1892,7 +2666,7 @@ export default function AgentSidebar({
             dismiss affordance. */}
         {/* #1073: drawer header — X on the LEFT; the tablet pin toggle sits
             on the RIGHT (hidden on mobile: no room to dock). Desktop hides
-            the whole header; collapse lives on the divider pill (#555). */}
+            the whole header; collapse lives in the search row (#1246). */}
         <div className="flex items-center justify-between gap-2 px-3 pt-3 lg:hidden">
           <button
             type="button"
@@ -1939,16 +2713,29 @@ export default function AgentSidebar({
             <span className="os-rail-search__input os-rail-search__placeholder">Search</span>
             <kbd className="os-rail-search__kbd kbd kbd-xs">{searchShortcut}</kbd>
           </button>
-          <button
-            type="button"
-            className="os-search-add-btn"
-            aria-label="Add agent"
-            title="Add agent"
-            data-testid="add-agent-button"
-            onClick={() => setAddWizardOpen(true)}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-          </button>
+          {/* #1674: `+` is now a menu, not a detour. It offers the two create
+              actions plus the rail's own agent list, and picking an agent
+              starts a NEW session with it (the same `startNewAgentSession` the
+              row context menu's "New session" uses). One registry: the rows
+              below are the same `agents` the rail already renders. */}
+          <AddBotMenu
+            triggerLabel="Add agent"
+            className="os-rail-add-menu"
+            activeAgentId={selectedId}
+            agents={addBotMenuAgents}
+            onCreateBot={() => setAddWizardOpen(true)}
+            onCreateGroupChat={() =>
+              window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))
+            }
+            onStartChat={(agentId) => {
+              void startNewAgentSession(agentId)
+            }}
+          />
+          {/* #1246: pane collapse lives top-right of the search row; #1349:
+              ultra-compact uses the top-of-pane expand control instead. */}
+          {!narrow && !isAvatarOnly ? (
+            <SidebarConcealButton onClick={concealSidebar} />
+          ) : null}
         </div>
 
           <RailSections {...railSectionsProps} />
@@ -2051,6 +2838,36 @@ export default function AgentSidebar({
         </div>
 
         <div className="border-t border-base-300/70 px-3 py-3" data-testid="sidebar-footer-container">
+          {/* #1705: the bulk-action bar. It lives at the TOP of the footer
+              (which is the pane's last flex child) so showing it shrinks the
+              scroller instead of shifting the rows above it, and it renders
+              itself only at two or more selected seats. A drag in flight hides
+              it: the recycle bin reserves the exact height of the cluster it
+              replaces (#783), and the bar would break that reservation. */}
+          {draggingId ? null : (
+            <RailBulkBar
+              selectedIds={multiSelection.ids}
+              hiddenCount={bulkHiddenCount}
+              pinnedCount={bulkPinnedCount}
+              onClear={clearMultiSelection}
+              onHide={bulkHideSelected}
+              onUnpin={bulkUnpinSelected}
+            />
+          )}
+          {/* #1740: the reorder announcement. A keyboard-only gesture that
+              moves a row has to SAY so — the pointer user sees the row land,
+              the keyboard user has no such cue, and an edge no-op is
+              indistinguishable from a dropped keypress without it. It is a
+              polite live region, visually hidden, and lives on the rail so it
+              is announced from the pane the operator is in. */}
+          <div
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+            data-testid="rail-reorder-announce"
+          >
+            {reorderAnnouncement}
+          </div>
           {draggingId ? (
             <div
               /* #783: the bin reserves the exact height of the menu cluster it
@@ -2091,22 +2908,22 @@ export default function AgentSidebar({
             </div>
           ) : (
             <>
-              {/* #182: Teams entry lives in the rail footer, directly above Plugins. */}
+              {/* #182: Group-chat entry lives in the rail footer, directly above Plugins. */}
               <button
                 type="button"
-                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn os-rail-icon-badge flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={() => window.dispatchEvent(new CustomEvent(OPEN_TEAM_COMPOSER_EVENT))}
-                title="Teams"
-                aria-label="Teams"
+                title="Group chats"
+                aria-label="Group chats"
                 aria-haspopup="dialog"
                 data-testid="os-teams-button"
               >
                 <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="os-teams-label">Teams</span>
+                <span className="os-teams-label">Group chats</span>
               </button>
               <button
                 type="button"
-                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn os-rail-icon-badge flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={openPlugins}
                 title={pluginsCalendarSupported ? 'Plugins' : API_ONLY_REASON}
                 aria-label={pluginsCalendarSupported ? 'Plugins' : `Plugins: ${API_ONLY_REASON}`}
@@ -2126,7 +2943,7 @@ export default function AgentSidebar({
               </span>
               <button
                 type="button"
-                className="os-rail-footer-btn flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
+                className="os-rail-footer-btn os-rail-icon-badge flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-base-content/60 hover:bg-base-300/30 hover:text-base-content"
                 onClick={openCalendar}
                 title={pluginsCalendarSupported ? 'Routines' : API_ONLY_REASON}
                 aria-label={pluginsCalendarSupported ? 'Routines' : `Routines: ${API_ONLY_REASON}`}
@@ -2148,7 +2965,7 @@ export default function AgentSidebar({
               <div className="relative os-rail-hostname-row">
                 <button
                   type="button"
-                  className="os-rail-hostname-icon btn btn-ghost btn-xs btn-square h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content relative"
+                  className="os-rail-hostname-icon os-rail-icon-badge btn btn-ghost btn-xs btn-square h-4 w-4 min-h-0 text-base-content/60 hover:text-base-content relative"
                   aria-label="Remote sessions"
                   aria-expanded={remotesPopupOpen}
                   aria-haspopup="menu"
@@ -2201,6 +3018,7 @@ export default function AgentSidebar({
                     isOpen={remotesPopupOpen}
                     onClose={() => setRemotesPopupOpen(false)}
                     remotes={configuredRemotesList}
+                    align={sideAwarePopupAlign(railSide)}
                     onOpenSettingsRemotes={() => {
                       setRemotesPopupOpen(false)
                       openSettingsSheet({ section: 'remotes' })
@@ -2213,40 +3031,58 @@ export default function AgentSidebar({
         </div>
       </aside>
 
-      <PluginsPopup open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
-      <AgentCalendarView
-        open={calendarOpen}
-        onClose={() => setCalendarOpen(false)}
-        agents={agents}
-      />
+      {pluginsOpen ? (
+        <Suspense fallback={null}>
+          <PluginsPopup open={pluginsOpen} onClose={() => setPluginsOpen(false)} />
+        </Suspense>
+      ) : null}
+      {calendarOpen ? (
+        <Suspense fallback={null}>
+          <AgentCalendarView
+            open={calendarOpen}
+            onClose={() => setCalendarOpen(false)}
+            agents={agents}
+          />
+        </Suspense>
+      ) : null}
 
-      <SessionPicker
-        open={Boolean(picker)}
-        title={picker?.title ?? ''}
-        sessions={picker?.sessions ?? []}
-        onClose={closePicker}
-        onSelect={selectSession}
-      />
+      {picker ? (
+        <Suspense fallback={null}>
+          <SessionPicker
+            open
+            title={picker.title ?? ''}
+            sessions={picker.sessions ?? []}
+            onClose={closePicker}
+            onSelect={selectSession}
+          />
+        </Suspense>
+      ) : null}
 
-      <SessionPicker
-        open={sessionPicker !== null}
-        agentName={sessionPicker?.agentName ?? ''}
-        sessions={sessionPicker?.sessions ?? []}
-        onClose={() => setSessionPicker(null)}
-        onNewSession={() => {
-          const agentId = sessionPicker?.agentId
-          if (agentId) void startNewAgentSession(agentId)
-        }}
-        onSelect={(session) => {
-          const agentId = sessionPicker?.agentId || session.agentId
-          setConversationIdForAgent(agentId, session.id)
-          navigate(sessionHref(agentId, session.id))
-          onClose?.()
-        }}
-      />
+      {sessionPicker ? (
+        <Suspense fallback={null}>
+          <SessionPicker
+            open
+            agentName={sessionPicker.agentName ?? ''}
+            sessions={sessionPicker.sessions ?? []}
+            onClose={() => setSessionPicker(null)}
+            onNewSession={() => {
+              const agentId = sessionPicker.agentId
+              if (agentId) void startNewAgentSession(agentId)
+            }}
+            onSelect={(session) => {
+              const agentId = sessionPicker.agentId || session.agentId
+              setConversationIdForAgent(agentId, session.id)
+              navigate(sessionHref(agentId, session.id))
+              onClose?.()
+            }}
+          />
+        </Suspense>
+      ) : null}
 
+      {cliPicker ? (
+      <Suspense fallback={null}>
       <CliSessionPicker
-        open={cliPicker !== null}
+        open
         agentName={cliPicker?.agentName ?? ''}
         cli={cliPicker?.cli ?? ''}
         sessions={cliPicker?.sessions ?? []}
@@ -2284,6 +3120,8 @@ export default function AgentSidebar({
           })
         }}
       />
+      </Suspense>
+      ) : null}
 
       {menu && (
         <RailContextMenu

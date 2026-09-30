@@ -1,9 +1,10 @@
 /**
  * #639 (REQ-909) — width-adaptive team avatars in the rail.
  *
- * Collapsed (avatar-width) rail: exactly ONE face — the team's most recently
- * active member. Wide rail: the large chat-target face plus up to 3 recency
- * minis at graduated sizes. Single-agent seats are untouched.
+ * #1362 supersedes the single-face #438/#817 rule for real teams: a team row
+ * now renders the shared circle group avatar (up to three member faces plus a
+ * `+N`), in both the collapsed and wide rail. Remotes and single-agent seats
+ * are untouched.
  */
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -108,8 +109,8 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     localStorage.clear()
   })
 
-  it('collapsed rail renders one recency face with the +N sticker (#817)', async () => {
-    renderRail(72) // <= AVATAR_ONLY_THRESHOLD (96)
+  it('collapsed rail renders the group avatar with the +N sticker (#1362)', async () => {
+    renderRail(72) // <= AVATAR_ONLY_THRESHOLD (88, #1350)
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Demo/ })
     await waitFor(() => {
@@ -117,13 +118,15 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     })
     const face = row.querySelector('[data-testid="team-chat-face"]')!
     expect(face.getAttribute('data-rail-collapsed')).toBe('true')
-    expect(face.getAttribute('data-stack-count')).toBe('1')
-    // #817: the +N remainder rides along in every rail state (4 members → +3).
-    expect(face.getAttribute('data-remainder')).toBe('3')
-    expect(face.querySelector('[data-testid="team-remainder"]')).not.toBeNull()
+    // #1362: four members render three circle faces plus a +1 remainder.
+    expect(face.getAttribute('data-stack-count')).toBe('3')
+    expect(face.getAttribute('data-member-count')).toBe('4')
+    expect(face.getAttribute('data-remainder')).toBe('1')
+    expect(face.querySelectorAll('[data-testid="os-group-avatar-face"]')).toHaveLength(3)
+    expect(face.querySelector('[data-testid="os-group-avatar-remainder"]')).toHaveTextContent('+1')
   })
 
-  it('wide rail renders a single face — the mini row is retired (#817)', async () => {
+  it('wide rail renders the same circle group avatar — no mini row (#1362)', async () => {
     renderRail(280)
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Demo/ })
@@ -132,10 +135,11 @@ describe('rail team avatar stack (#639 / REQ-909)', () => {
     })
     const face = row.querySelector('[data-testid="team-chat-face"]')!
     expect(face.getAttribute('data-rail-collapsed')).toBe('false')
-    // #817 (supersedes #639's multi-face ruling): exactly one face + the +N.
-    expect(face.getAttribute('data-stack-count')).toBe('1')
+    // #1362 supersedes #817's single face: three circle faces + a +1.
+    expect(face.getAttribute('data-stack-count')).toBe('3')
     expect(face.querySelectorAll('.os-team-face__mini').length).toBe(0)
-    expect(face.getAttribute('data-remainder')).toBe('3')
+    expect(face.getAttribute('data-remainder')).toBe('1')
+    expect(face.querySelectorAll('[data-testid="os-group-avatar-face"]')).toHaveLength(3)
   })
 
   it('single-agent rows are untouched (no team stack semantics)', async () => {

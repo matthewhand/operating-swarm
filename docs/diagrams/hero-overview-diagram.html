@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operating Swarm · System Overview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1040px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Overview · Operating Swarm</p>
+    <h1>Operating Swarm · System Overview</h1>
+
+    <svg viewBox="0 0 1000 668" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="os-hero-title os-hero-desc">
+      <title id="os-hero-title">Operating Swarm system overview</title>
+      <desc id="os-hero-desc">Operating Swarm overview: operators and clients reach four interfaces (WebUI, CLI, OpenAI-compatible API, desktop tray) that share one Django ASGI core, which routes work to four execution seats (CLI, API, Blueprint/Team, Remote) and depends on model providers, remote harnesses, local state, and GitHub.</desc>
+      <defs>
+        <pattern id="grid-dots-hero" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.07)"/>
+        </pattern>
+        <marker id="hero-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-hero)" opacity="0.6"/>
+
+      <!-- Primary downward flow, drawn before boxes -->
+      <line x1="500" y1="104" x2="500" y2="126" stroke="#f08a59" stroke-width="2" marker-end="url(#hero-arrow-accent)"/>
+      <line x1="500" y1="216" x2="500" y2="238" stroke="#f08a59" stroke-width="2" marker-end="url(#hero-arrow-accent)"/>
+      <line x1="500" y1="328" x2="500" y2="350" stroke="#f08a59" stroke-width="2" marker-end="url(#hero-arrow-accent)"/>
+      <line x1="500" y1="440" x2="500" y2="462" stroke="#f08a59" stroke-width="2" marker-end="url(#hero-arrow-accent)"/>
+
+      <!-- Band 1: Users & clients -->
+      <text x="24" y="30" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">USERS &amp; CLIENTS</text>
+      <rect x="120" y="16" width="760" height="88" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.16)" stroke-width="1"/>
+      <g transform="translate(136,36)">
+        <rect width="170" height="48" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Human operator</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">WebUI / tray</text>
+      </g>
+      <g transform="translate(322,36)">
+        <rect width="170" height="48" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Terminal user</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">os-cli / os tui</text>
+      </g>
+      <g transform="translate(508,36)">
+        <rect width="170" height="48" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">API client</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">SDK / curl / Open WebUI</text>
+      </g>
+      <g transform="translate(694,36)">
+        <rect width="170" height="48" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Peer OS / bot</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">os-peer / remote</text>
+      </g>
+
+      <!-- Band 2: Interfaces -->
+      <text x="24" y="142" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">INTERFACES</text>
+      <rect x="120" y="128" width="760" height="88" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.16)" stroke-width="1"/>
+      <g transform="translate(136,148)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">OS WebUI</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">React SPA · / &amp; /chat</text>
+      </g>
+      <g transform="translate(322,148)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">OS CLI</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">os / swarm-cli</text>
+      </g>
+      <g transform="translate(508,148)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">OS API</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">/v1 OpenAI-compatible</text>
+      </g>
+      <g transform="translate(694,148)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">os-marchy-systray</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">desktop tray</text>
+      </g>
+
+      <!-- Band 3: Core (focal) -->
+      <text x="24" y="254" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">CORE</text>
+      <rect x="120" y="240" width="760" height="88" rx="8" fill="rgba(240,138,89,0.06)" stroke="rgba(240,138,89,0.55)" stroke-width="1.5"/>
+      <g transform="translate(136,260)">
+        <rect width="230" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="115" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">os-core (swarm.asgi)</text>
+        <text x="115" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Django ASGI · HTTP + WS</text>
+      </g>
+      <g transform="translate(382,260)">
+        <rect width="230" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="115" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Seat router &amp; orchestration</text>
+        <text x="115" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">handoff · agent-as-tool</text>
+      </g>
+      <g transform="translate(628,260)">
+        <rect width="236" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="118" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Routines · sessions · memory</text>
+        <text x="118" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">persisted turns &amp; triggers</text>
+      </g>
+
+      <!-- Band 4: Seats -->
+      <text x="24" y="366" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">EXECUTION SEATS</text>
+      <rect x="120" y="352" width="760" height="88" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.16)" stroke-width="1"/>
+      <g transform="translate(136,372)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">CLI seat</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">host subprocess / PTY</text>
+      </g>
+      <g transform="translate(322,372)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">API seat</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">true inference · chatbot</text>
+      </g>
+      <g transform="translate(508,372)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Blueprint / Team</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">openai-agents · MoA</text>
+      </g>
+      <g transform="translate(694,372)">
+        <rect width="170" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Remote seat</text>
+        <text x="85" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">external harnesses</text>
+      </g>
+
+      <!-- Band 5: External systems -->
+      <text x="24" y="478" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">EXTERNAL SYSTEMS</text>
+      <rect x="120" y="464" width="760" height="88" rx="8" fill="rgba(110,168,254,0.05)" stroke="rgba(110,168,254,0.45)" stroke-width="1" stroke-dasharray="4,4"/>
+      <g transform="translate(136,484)">
+        <rect width="170" height="48" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Model providers</text>
+        <text x="85" y="37" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">OpenAI · Anthropic · local</text>
+      </g>
+      <g transform="translate(322,484)">
+        <rect width="170" height="48" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Remote harnesses</text>
+        <text x="85" y="37" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Hermes · Herdr · OMB</text>
+      </g>
+      <g transform="translate(508,484)">
+        <rect width="170" height="48" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Local state</text>
+        <text x="85" y="37" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Postgres / SQLite / files</text>
+      </g>
+      <g transform="translate(694,484)">
+        <rect width="170" height="48" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="85" y="21" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">GitHub</text>
+        <text x="85" y="37" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">marketplace · routines</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="24" y1="580" x2="976" y2="580" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="600" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="110" y1="596" x2="146" y2="596" stroke="#f08a59" stroke-width="2" marker-end="url(#hero-arrow-accent)"/>
+      <text x="158" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Primary request / ownership flow</text>
+      <rect x="470" y="588" width="16" height="16" rx="2" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+      <text x="494" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">os-core (focal)</text>
+      <rect x="650" y="588" width="16" height="16" rx="2" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+      <text x="674" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">External system</text>
+      <text x="24" y="636" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: README.md · src/swarm/asgi.py · src/swarm/core/kind_bases.py · src/swarm/core/agent_kind.py</text>
+    </svg>
+  </div>
+</body>
+</html>

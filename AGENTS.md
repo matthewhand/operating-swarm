@@ -1,6 +1,6 @@
 # Agent Guidelines (AGENTS.md)
 
-This file defines rules, constraints, and architecture invariants for AI coding assistants (Codebuff, OpenHands, Antigravity, Cursor, Copilot, etc.) contributing to **Open Swarm**.
+This file defines rules, constraints, and architecture invariants for AI coding assistants (Codebuff, OpenHands, Antigravity, Cursor, Copilot, etc.) contributing to **Operating Swarm**.
 
 ---
 
@@ -67,7 +67,7 @@ Every PR must satisfy all three gates before merging:
 ## 3. Core Architectural Invariants
 
 ### First-Class Seat Kinds
-- Open Swarm has four first-class seat kinds:
+- Operating Swarm has four first-class seat kinds:
   1. `api`: API-managed model sessions (`ApiKindBase`).
   2. `cli`: Local host subprocess sessions (`CliKindBase`).
   3. `remote`: External agent bridges like Hermes, Herdr, AnythingLLM (`RemoteKindBase`).
@@ -81,7 +81,7 @@ Every PR must satisfy all three gates before merging:
 - **File Attachments**: Uploaded file chips must handle progress, category icons, dismissal, cancellation via `AbortController`, and textless sends.
 
 ### Context & Session Persistence
-- **Conversation Storage**: Django database (`ChatMessage` / `ChatConversation`) and `chat_store` are the canonical source of truth for persisted chat history.
+- **Conversation Storage**: Django database (`ChatMessage` / `ChatConversation`) is canonical. Each new message is one `ChatMessage` row via `ChatRepository` (`sync_transcript` / `append_message`). `chat_store` JSON is a derived cache refreshed after that write, with a one-way import when the DB thread is empty. Retention and trash operate on the database. Attachment bytes stay on disk.
 - **Cross-Kind Context Transfer (Active Requirement #901)**: While CLI-to-CLI session context preservation is implemented (`cli_agent_context.py`), cross-kind context transfer (e.g. switching CLI ↔ API ↔ Remote) is an active requirement being built. Sessions should write to the Django DB before transitioning so context is never lost.
 
 ### UI & Styling Standards

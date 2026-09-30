@@ -1,10 +1,15 @@
 import { BubbleThemeBase, formatBubbleTime, type NoticeRowSpec } from './base'
+import { THEME_REACTION_EMOJIS } from './reactions'
 import { registerBubbleTheme } from './registry'
 
 /** Tails + symmetric gutters (REQ-844). Timestamp stays above, CSS-hidden. */
 export class SpeechTheme extends BubbleThemeBase {
   readonly id = 'speech' as const
   readonly label = 'Speech'
+
+  override reactionEmojis(): readonly string[] {
+    return THEME_REACTION_EMOJIS.speech
+  }
 }
 
 /** Traditional chat: rounded pills, timestamp inline beside the bubble
@@ -18,6 +23,10 @@ export class SimpleTheme extends BubbleThemeBase {
   override readonly timestampPlacement = 'inline' as const
   /** #520: the beside-bubble avatar and speaker label are noise here. */
   override readonly showAvatar = false
+
+  override reactionEmojis(): readonly string[] {
+    return THEME_REACTION_EMOJIS.simple
+  }
 }
 
 /** Full-width nick gutter; timestamp sits next to the line. */
@@ -45,6 +54,10 @@ export class IrcTheme extends BubbleThemeBase {
     key: string,
   ): NoticeRowSpec {
     return this.gutterNotice(speaker, text, ts, key)
+  }
+
+  override reactionEmojis(): readonly string[] {
+    return THEME_REACTION_EMOJIS.irc
   }
 }
 

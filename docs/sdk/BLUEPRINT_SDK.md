@@ -26,9 +26,9 @@ BlueprintBase                 ← the low-level openai-agents unit. Do not
 
 | Base | kind | The brain lives… | Pick it when… |
 |---|---|---|---|
-| `ApiKindBase` | `api` | inside Open Swarm (openai-agents graphs, Runner) | you need programmatic workflows: handoffs, fan-out, `as_tool`, skeptic loops |
+| `ApiKindBase` | `api` | inside Operating Swarm (openai-agents graphs, Runner) | you need programmatic workflows: handoffs, fan-out, `as_tool`, skeptic loops |
 | `CliKindBase` | `cli` | in a host CLI process (claude, codex, gemini, omp, agy…) | you are adapting an installed, authenticated CLI and want its session to stay native |
-| `RemoteKindBase` | `remote` | on a remote harness (OMB, Hermes, Rakazo, Herdr, nested swarm, TrueForge…) | Open Swarm sits in front of another service over HTTP |
+| `RemoteKindBase` | `remote` | on a remote harness (OMB, Hermes, Rakazo, Herdr, nested swarm, TrueForge…) | Operating Swarm sits in front of another service over HTTP |
 | `BlueprintBase` | — | — | only for legacy recipes; new work uses a kind base |
 
 References: [ADR-005 kind bases](adr/005-kind-bases.md) (REQ-159 / #570),

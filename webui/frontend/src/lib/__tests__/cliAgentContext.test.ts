@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   apiModelOptionsFromProfiles,
+  cliModelOptionsFor,
+  designedCliSeat,
   discoverChatClis,
   honestChatCliModels,
   isApiBlueprintId,
@@ -213,6 +215,47 @@ describe('honestChatCliModels', () => {
   })
 })
 
+describe('cliModelOptionsFor', () => {
+  it('uses the CLI probe payload only, never API profile ids', () => {
+    // The CLI's own list. An API/LLM-profile id (e.g. litellm/orchestration)
+    // is a different namespace and must not appear unless the CLI listed it.
+    expect(
+      cliModelOptionsFor({
+        models: ['gpt-4o', 'o1-mini'],
+        warning: undefined,
+      }),
+    ).toEqual({ models: ['gpt-4o', 'o1-mini'], warning: null })
+  })
+
+  it('falls back to that CLI catalog presets when the probe is empty', () => {
+    expect(
+      cliModelOptionsFor(
+        { models: [], warning: 'agy: CLI not installed' },
+        ['gemini-3.8-flash-high', 'claude-sonnet-4-6'],
+      ),
+    ).toEqual({
+      models: ['gemini-3.8-flash-high', 'claude-sonnet-4-6'],
+      warning: 'agy: CLI not installed',
+    })
+  })
+
+  it('never invents a fallback when there are no presets', () => {
+    expect(cliModelOptionsFor({ models: [], warning: undefined })).toEqual({
+      models: [],
+      warning: null,
+    })
+  })
+
+  it('drops hidden routing labels and dedupes', () => {
+    expect(
+      cliModelOptionsFor({
+        models: ['gpt-4o', 'default', 'You', 'gpt-4o', ''],
+        warning: undefined,
+      }),
+    ).toEqual({ models: ['gpt-4o'], warning: null })
+  })
+})
+
 describe('apiModelOptionsFromProfiles', () => {
   it('lists profile ids and model fields, never default', () => {
     expect(
@@ -228,5 +271,62 @@ describe('apiModelOptionsFromProfiles', () => {
       { id: 'gpt-4o', label: 'gpt-4o' },
       { id: 'auxiliary', label: 'auxiliary' },
     ])
+  })
+
+  it('excludes CLI / remote / list_models namespaces from the API control', () => {
+    const options = apiModelOptionsFromProfiles([
+      {
+        id: 'auxiliary',
+        name: 'Auxiliary',
+        model: 'gpt-4o-mini',
+        source: 'config',
+        namespace: 'api',
+      },
+      { id: 'agy', name: 'agy', source: 'cli', namespace: 'cli' },
+      {
+        id: 'opencode-go/x',
+        model: 'opencode-go/x',
+        source: 'list_models',
+        namespace: 'cli',
+      },
+      { id: 'hermes', name: 'hermes', source: 'remote', namespace: 'remote' },
+      // Older server, no explicit namespace: source still excludes it.
+      { id: 'legacy-cli', name: 'legacy-cli', source: 'cli' },
+      // Config profile from an older server (no namespace/source) stays.
+      { id: 'custom', name: 'Custom' },
+    ])
+    expect(options.map((row) => row.id)).toEqual([
+      'auxiliary',
+      'gpt-4o-mini',
+      'custom',
+    ])
+  })
+})
+
+describe('designedCliSeat', () => {
+  const designs = [
+    { agent_id: 'hass-eng', name: 'hass-eng', cli: 'opencode', description: 'engineer' },
+    { agent_id: 'antigravity', name: 'AntiGravity', cli: 'agy', specialty: 'agy CLI' },
+    { agent_id: 'planner', name: 'Planner', description: 'api design' },
+  ]
+
+  it('resolves a designer-created CLI seat to its declared cli', () => {
+    expect(designedCliSeat('hass-eng', designs)).toEqual({
+      id: 'hass-eng',
+      name: 'hass-eng',
+      cli: 'opencode',
+      description: 'engineer',
+    })
+    // Rail id `antigravity` runs the `agy` catalog binary.
+    expect(designedCliSeat('antigravity', designs)?.cli).toBe('agy')
+    // `specialty` stands in for the description when `description` is absent.
+    expect(designedCliSeat('antigravity', designs)?.description).toBe('agy CLI')
+  })
+
+  it('returns null for API designs, unknown ids, blank ids, and no designs', () => {
+    expect(designedCliSeat('planner', designs)).toBeNull()
+    expect(designedCliSeat('missing', designs)).toBeNull()
+    expect(designedCliSeat('', designs)).toBeNull()
+    expect(designedCliSeat('hass-eng', null)).toBeNull()
   })
 })

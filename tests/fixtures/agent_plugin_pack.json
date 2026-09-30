@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "agent_plugin_pack",
+  "object": "agent_plugin_pack",
+  "plugins": [
+    {
+      "pluginId": "mcp:io.github.example/fetch",
+      "name": "fetch",
+      "description": "Fetch a URL as an MCP tool."
+    },
+    {
+      "pluginId": "web_search",
+      "name": "web_search",
+      "description": "Built-in catalog search tool."
+    }
+  ]
+}

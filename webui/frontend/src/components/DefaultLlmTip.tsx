@@ -1,7 +1,7 @@
 import { Settings, X } from 'lucide-react'
 import { Alert } from './DaisyUI'
 import { DEFAULT_LLM_TIP_BODY, DEFAULT_LLM_TIP_TITLE } from '../lib/defaultLlmTip'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 
 export interface DefaultLlmTipProps {
   onDismiss: () => void

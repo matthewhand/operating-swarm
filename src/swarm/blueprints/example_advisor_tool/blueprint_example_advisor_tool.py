@@ -50,6 +50,17 @@ _ADVISOR_PROMPT = (
     "your sources. You never address the end user directly."
 )
 
+#: The same advisor when it is addressed *directly* (this seat's own turn).
+#: Without it the persona is told it "never addresses the end user", which
+#: invites a briefing-style reply instead of an answer.
+_ADVISOR_TURN_INSTRUCTIONS = (
+    "You are a research advisor being asked a question directly. Investigate "
+    "with the tools you have, then answer that question in a few short "
+    "sentences. State your sources. If you have no research tools, say what "
+    "you know and mark anything uncertain as uncertain — do not restate the "
+    "question, and do not describe yourself or your role."
+)
+
 
 class ExampleAdvisorToolBlueprint(ApiKindBase):
     """Advisor recipe: a specialist published with agent.as_tool."""
@@ -65,7 +76,7 @@ class ExampleAdvisorToolBlueprint(ApiKindBase):
             "returns an answer. Read its source before copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "advisor", "as_tool", "research"],
         "required_mcp_servers": [],
         "env_vars": [],
@@ -81,12 +92,33 @@ class ExampleAdvisorToolBlueprint(ApiKindBase):
     #: should not need to change when you add one.
     ADVISOR_TOOLS: ClassVar[tuple[Any, ...]] = ()
 
+    def _advisor_model(self) -> Any:
+        """The seat's model instance, or ``None`` when the profile is unusable.
+
+        ``_get_model_instance`` raises when the resolved profile has no
+        credentials (an unset ``${LITELLM_API_KEY}``, a missing provider, …).
+        ``create_starting_agent`` runs *outside* ``ApiKindBase.run``'s error
+        handler, so letting that escape aborts the turn with no bubble at all.
+        Returning ``None`` leaves the agent on the SDK default instead, and the
+        turn then fails honestly through the normal path.
+        """
+        try:
+            return self._get_model_instance(self.llm_profile_name)
+        except Exception as exc:  # noqa: BLE001 — reported by the turn, not here
+            logger.warning(
+                "example_advisor_tool: LLM profile %r unusable (%s); "
+                "leaving the agent on the SDK default",
+                self.llm_profile_name,
+                exc,
+            )
+            return None
+
     def build_advisor_agent(self) -> Agent:
         """The specialist itself. Narrow prompt, narrow tools, no smalltalk."""
         return Agent(
             name="example_advisor",
             instructions=_ADVISOR_PROMPT,
-            model=self._get_model_instance(self.llm_profile_name),
+            model=self._advisor_model(),
             tools=list(self.ADVISOR_TOOLS),
         )
 
@@ -107,3 +139,24 @@ class ExampleAdvisorToolBlueprint(ApiKindBase):
                 "self-contained question; a written answer comes back."
             ),
         )
+
+    def create_starting_agent(self, mcp_servers: list[Any] | None = None):
+        """The seat's own turn agent: the advisor, answering directly.
+
+        Without this the seat inherits ``ApiKindBase.run``, which found no
+        starting agent and fell through to its final
+        ``"Agent example_advisor_tool ready."`` banner. The sweep read that
+        banner as a reply that was not one — the classic symptom of a recipe
+        that teaches ``as_tool`` composition but forgets the entry point.
+
+        An advisor is normally *consulted*, not addressed, so this is also the
+        honest minimal wiring: the advisor answers the turn itself, and
+        :meth:`build_advisor_tool` stays available for callers that want the
+        ``as_tool`` contract demonstrated from a coordinator of their own.
+        """
+        advisor = self.build_advisor_agent()
+        if mcp_servers:
+            advisor.mcp_servers = list(mcp_servers)
+        # Answer the user's question directly instead of narrating a brief.
+        advisor.instructions = _ADVISOR_TURN_INSTRUCTIONS
+        return advisor

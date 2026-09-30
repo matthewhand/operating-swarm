@@ -1,6 +1,6 @@
 # Jeeves Blueprint
 
-**Jeeves** is a multi-agent home and web orchestration blueprint for Open Swarm, demonstrating multi-agent delegation for web search and home automation, robust fallback for LLM/agent errors, and unified ANSI/emoji UX with spinner feedback.
+**Jeeves** is a multi-agent home and web orchestration blueprint for Operating Swarm, demonstrating multi-agent delegation for web search and home automation, robust fallback for LLM/agent errors, and unified ANSI/emoji UX with spinner feedback.
 
 ---
 

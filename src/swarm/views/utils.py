@@ -241,6 +241,14 @@ def _load_all_blueprint_metadata_sync():
                 "tags": tags,
                 "rail": bool(item.get("rail", True)),
                 "kind": item.get("kind", "api"),
+                "role": item.get("role") or "default",
+                "provider": item.get("provider") or "",
+                "model": item.get("model") or "",
+                "plugins": list(item.get("plugins") or []),
+                "required_mcp_servers": list(
+                    item.get("required_mcp_servers") or item.get("plugins") or []
+                ),
+                "instructions": item.get("instructions") or "",
             },
         }
 
@@ -327,7 +335,22 @@ async def get_blueprint_instance(blueprint_id: str, params: dict = None):
             reg = load_dynamic_registry()
             team_info = reg.get(blueprint_id)
             if team_info and team_info.get("llm_profile") and hasattr(instance, "llm_profile_name"):
-                instance.llm_profile_name = team_info["llm_profile"]
+                # Trigger only an API-namespace profile: a foreign (e.g. CLI)
+                # id must not overwrite the seat's resolved default.
+                from swarm.core.model_namespace import model_valid_for_provider
+
+                if model_valid_for_provider(
+                    "api",
+                    "",
+                    team_info["llm_profile"],
+                    config=getattr(instance, "_config", None),
+                ):
+                    instance.llm_profile_name = team_info["llm_profile"]
+                else:
+                    logger.warning(
+                        "Ignoring team llm_profile %r not valid for an API seat",
+                        team_info["llm_profile"],
+                    )
         except Exception:
             pass
         logger.info(f"Successfully instantiated blueprint: {blueprint_id}")

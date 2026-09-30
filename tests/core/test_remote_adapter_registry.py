@@ -1,11 +1,10 @@
-"""#812 (slice 1) — the RemoteAdapter base + registry, and the first two
-strangler migrations (TrueForge, Letta).
+"""#812 (slice 1) — the RemoteAdapter base + registry, and the first
+strangler migration (TrueForge).
 
-``operate()`` routes ``trueforge`` and ``letta`` through the adapter registry
-so the if/elif chain stops growing. The adapters forward to the same
-implementations the existing suites pin (``test_trueforge_remote.py``,
-``test_letta_remote.py``) — behavior unchanged, dispatch polymorphic.
-Unregistered kinds keep the legacy chain exactly as-is.
+``operate()`` routes ``trueforge`` through the adapter registry so the
+if/elif chain stops growing. The adapter forwards to the same implementation
+the existing suite pins (``test_trueforge_remote.py``) — behavior unchanged,
+dispatch polymorphic. Unregistered kinds keep the legacy chain exactly as-is.
 """
 
 import asyncio
@@ -17,11 +16,15 @@ from swarm.core.remotes import RemoteSpec
 
 
 def _spec(kind: str, rid: str | None = None) -> RemoteSpec:
+    # A stand-in address, never dialled (every test below patches the impl or
+    # the registry). It must not be a *placeholder* address: the catalog's
+    # documentation addresses and the discard port are refused up front as
+    # "not configured", which would stop the dispatch this file is pinning.
     return RemoteSpec(
         id=rid or kind,
         title=rid or kind,
         host_label=kind,
-        base_url="http://127.0.0.1:9" if kind != "herdr" else "",
+        base_url="http://127.0.0.1:1" if kind != "herdr" else "",
         kind=kind,
     )
 
@@ -30,10 +33,8 @@ class TestRegistry:
     def test_registry_holds_migrated_kinds(self):
         from swarm.remotes.registry import REMOTE_ADAPTER_REGISTRY
         from swarm.remotes.trueforge import TrueForgeAdapter
-        from swarm.remotes.letta import LettaAdapter
 
         assert REMOTE_ADAPTER_REGISTRY["trueforge"] is TrueForgeAdapter
-        assert REMOTE_ADAPTER_REGISTRY["letta"] is LettaAdapter
 
     def test_create_remote_adapter_returns_instance(self):
         from swarm.remotes.registry import create_remote_adapter
@@ -118,39 +119,6 @@ class TestTrueForgeAdapter:
         assert out == "ROUTINES"
 
 
-class TestLettaAdapter:
-    def test_list_forwards_with_query(self):
-        from swarm.core import remotes
-        from swarm.remotes.letta import LettaAdapter
-
-        spec = _spec("letta")
-        with patch.object(remotes, "_letta_list", return_value="LIST") as m:
-            out = LettaAdapter(spec).list(8.0, query="agents")
-        m.assert_called_once_with(spec, 8.0, query="agents")
-        assert out == "LIST"
-
-    def test_send_floors_short_timeouts(self):
-        from swarm.core import remotes
-        from swarm.remotes.letta import LettaAdapter
-
-        spec = _spec("letta")
-        with patch.object(remotes, "_letta_send", return_value="SENT") as m, \
-                patch.object(remotes, "_LETTA_SEND_TIMEOUT_S", 90.0):
-            LettaAdapter(spec).send("hi", 5.0, session_id="s1")
-        m.assert_called_once_with(
-            spec, "hi", 90.0, session_id="s1", target=""
-        )
-
-    def test_send_keeps_long_timeouts(self):
-        from swarm.core import remotes
-        from swarm.remotes.letta import LettaAdapter
-
-        spec = _spec("letta")
-        with patch.object(remotes, "_letta_send", return_value="SENT") as m:
-            LettaAdapter(spec).send("hi", 45.0, target="a1")
-        m.assert_called_once_with(spec, "hi", 45.0, session_id=None, target="a1")
-
-
 class TestOperateRouting:
     def test_trueforge_send_routes_through_registry(self):
         from swarm.core import remotes
@@ -163,17 +131,7 @@ class TestOperateRouting:
         assert out == "OK"  # adapter forwards the impl's result unchanged
         m.assert_called_once()
 
-    def test_letta_list_routes_through_registry(self):
-        from swarm.core import remotes
-
-        spec = _spec("letta")
-        with patch.object(remotes, "load_remote", return_value=spec), \
-                patch.object(remotes, "is_configured", return_value=True), \
-                patch.object(remotes, "_letta_list", return_value="OK") as m:
-            remotes.operate("letta", "list", timeout=8.0)
-        m.assert_called_once()
-
-    def test_unregistered_kind_keeps_legacy_chain(self):
+    def test_registered_kind_routes_through_registry(self):
         from swarm.core import remotes
 
         spec = _spec("omb")
@@ -390,7 +348,7 @@ class TestSlice2Operate:
         spec = _spec("omb")
         spec.id = "mystery"
         spec.kind = ""
-        spec.base_url = "http://127.0.0.1:9"
+        spec.base_url = "http://127.0.0.1:1"
         with patch.object(remotes, "load_remote", return_value=spec), \
                 patch.object(remotes, "is_configured", return_value=True):
             out = remotes.operate("mystery", "list", timeout=8.0)
@@ -437,8 +395,6 @@ class TestChainRemoval:
             "_hermes_send",
             "_anythingllm_list",
             "_anythingllm_send",
-            "_letta_list",
-            "_letta_send",
             "openwebui_list",
             "openwebui_send",
             "_flowise_list",
@@ -479,7 +435,6 @@ class TestSlice3AdapterStream:
     @pytest.mark.parametrize(
         "module,cls,impl",
         [
-            ("swarm.remotes.letta", "LettaAdapter", "iter_letta_chat"),
             ("swarm.remotes.anythingllm", "AnythingLLMAdapter", "iter_anythingllm_chat"),
             ("swarm.remotes.flowise", "FlowiseAdapter", "iter_flowise_chat"),
         ],
@@ -491,7 +446,7 @@ class TestSlice3AdapterStream:
 
         mod = importlib.import_module(module)
         adapter_cls = getattr(mod, cls)
-        spec = _spec("letta")
+        spec = _spec(module.rsplit(".", 1)[-1])
         with patch.object(remotes, impl, return_value=iter([])) as m:
             list(adapter_cls(spec).iter_chat("hi", session_id="s1", target="t1"))
         m.assert_called_once_with(spec, "hi", session_id="s1", target="t1")
@@ -509,7 +464,6 @@ class TestSlice3AdapterStream:
     @pytest.mark.parametrize(
         "module,cls,who,thing",
         [
-            ("swarm.remotes.letta", "LettaAdapter", "Letta", "agent session"),
             ("swarm.remotes.anythingllm", "AnythingLLMAdapter", "AnythingLLM", "workspace or thread session"),
             ("swarm.remotes.flowise", "FlowiseAdapter", "Flowise", "chatflow session"),
             ("swarm.remotes.openwebui", "OpenWebUIAdapter", "Open WebUI", "chat session"),
@@ -519,7 +473,7 @@ class TestSlice3AdapterStream:
         import importlib
 
         mod = importlib.import_module(module)
-        hint = getattr(mod, cls)(_spec("letta")).empty_reply_hint()
+        hint = getattr(mod, cls)(_spec(module.rsplit(".", 1)[-1])).empty_reply_hint()
         assert who in hint
         assert thing in hint
 
@@ -533,7 +487,7 @@ class TestSlice3AdapterStream:
     def test_registry_resolves_streaming_kinds(self):
         from swarm.remotes.registry import create_remote_adapter
 
-        for kind in ("letta", "anythingllm", "flowise", "openwebui"):
+        for kind in ("anythingllm", "flowise", "openwebui"):
             adapter = create_remote_adapter(_spec(kind))
             assert adapter is not None and hasattr(adapter, "iter_chat")
 
@@ -581,7 +535,7 @@ class TestSlice3BlueprintPolymorphic:
                 texts.append(msgs[0]["content"])
         return texts, chunks
 
-    @pytest.mark.parametrize("kind", ["letta", "anythingllm", "flowise", "openwebui"])
+    @pytest.mark.parametrize("kind", ["anythingllm", "flowise", "openwebui"])
     async def test_blueprint_streams_via_adapter(self, bp, kind):
         texts, chunks = await self._stream(bp, kind)
         assert "Hel" in texts
@@ -595,11 +549,9 @@ class TestSlice3BlueprintPolymorphic:
 
         source = inspect.getsource(brh)
         for legacy in (
-            "iter_letta_chat",
             "iter_openwebui_chat",
             "iter_flowise_chat",
             "iter_anythingllm_chat",
-            'if stream_kind == "letta"',
             'elif stream_kind == "openwebui"',
         ):
             assert legacy not in source, f"blueprint still branches on {legacy}"
@@ -607,9 +559,9 @@ class TestSlice3BlueprintPolymorphic:
 
 # ---------------------------------------------------------------------------
 # Slice 4: health dispatch joins the registry. Adapters own their health —
-# Herdr's CLI/SSH probe and Letta's alternate health paths move out of the
-# generic prober, which becomes kind-blind. Default adapter health forwards
-# to the shared prober, so HTTP kinds are unchanged.
+# Herdr's CLI/SSH probe moves out of the generic prober, which becomes
+# kind-blind. Default adapter health forwards to the shared prober, so HTTP
+# kinds are unchanged.
 # ---------------------------------------------------------------------------
 
 
@@ -672,15 +624,6 @@ class TestSlice4Health:
         m.assert_called_once_with(spec, 2.5, {"c": 1}, extra_health_paths=[])
         assert out == "PROBED"
 
-    def test_letta_extra_health_paths(self):
-        from swarm.remotes.letta import LettaAdapter
-
-        assert LettaAdapter(_spec("letta")).extra_health_paths() == [
-            "/v1/health",
-            "/v1/health/",
-            "/health",
-        ]
-
     def test_base_extra_health_paths_empty(self):
         from swarm.remotes.base import RemoteAdapter
 
@@ -693,7 +636,6 @@ class TestSlice4Health:
 
         source = inspect.getsource(remotes._check_health_spec)
         assert '"herdr"' not in source and "'herdr'" not in source
-        assert '"letta"' not in source and "'letta'" not in source
 
     def test_check_health_herdr_still_probes_cli_first(self):
         from swarm.core import remotes

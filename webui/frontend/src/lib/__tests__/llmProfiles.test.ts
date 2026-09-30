@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { LlmProfilesSettings } from '../api'
 import {
   LLM_PROBE_HINTS,
+  LLM_PROFILE_PROVIDERS,
+  SYSTEM1_API_KEY_ENV,
+  SYSTEM1_BASE_URL_ENV,
+  SYSTEM1_PROVIDER_ID,
   buildLlmProfileEntry,
+  defaultsForLlmProvider,
   effectiveTaskProfile,
   isKnownProfile,
   missingProfileWarning,
@@ -62,6 +67,17 @@ describe('llmProfiles helpers', () => {
     expect(missingProfileWarning('gpt-4o-mini', settings, 'gpt-5.6-terra')).toBeNull()
   })
 
+  it('lists mistral in the add-profile provider dropdown', () => {
+    expect(LLM_PROFILE_PROVIDERS).toContain('mistral')
+  })
+
+  it('prefills mistral base URL and MISTRAL_API_KEY from shared defaults', () => {
+    expect(defaultsForLlmProvider('mistral')).toEqual({
+      baseUrl: 'https://api.mistral.ai/v1',
+      apiKeyEnv: 'MISTRAL_API_KEY',
+    })
+  })
+
   it('builds a persistable llm upsert from the short add form', () => {
     expect(
       buildLlmProfileEntry({
@@ -73,9 +89,26 @@ describe('llmProfiles helpers', () => {
     ).toEqual({
       provider: 'groq',
       model: 'llama-3.1-8b',
+      // #1745: the model type is persisted with the profile, and a Groq chat
+      // model is explicitly `chat` rather than left untyped.
+      model_type: 'chat',
       api_key: '${GROQ_API_KEY}',
       base_url: 'https://api.groq.com/openai/v1',
     })
+  })
+
+  it('persists a System1 gate as the categorizer type with env-name credentials (#1745)', () => {
+    const entry = buildLlmProfileEntry({
+      provider: SYSTEM1_PROVIDER_ID,
+      model: 'system1-categorizer',
+      modelType: 'categorizer',
+      apiKeyEnv: SYSTEM1_API_KEY_ENV,
+      baseUrl: `\${${SYSTEM1_BASE_URL_ENV}}`,
+    })
+    expect(entry.model_type).toBe('categorizer')
+    expect(entry.api_key).toBe('${SYSTEM1_API_KEY}')
+    expect(entry.base_url).toBe('${SYSTEM1_BASE_URL}')
+    expect(JSON.stringify(entry)).not.toMatch(/sk-/)
   })
 
   it('omits collapsed advanced fields until they have values', () => {
@@ -127,5 +160,10 @@ describe('llmProfiles helpers', () => {
       'skipped list-models probe',
       'No CLI agents connected — add a CLI to list models',
     ])
+  })
+
+  it('offers Mistral as a first-class OpenAI-compatible API engine (#1325)', () => {
+    expect(LLM_PROFILE_PROVIDERS).toContain('mistral')
+    expect(LLM_PROFILE_PROVIDERS).toContain('openai')
   })
 })

@@ -1,8 +1,10 @@
-import { useCallback, useState, type DragEvent as ReactDragEvent } from 'react'
+import { useCallback, useMemo, useState, type DragEvent as ReactDragEvent } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { fetchBlueprints } from '../lib/api'
+import type { Blueprint } from '../lib/api/types'
+import { emptyArray } from '../lib/stableEmpty'
 import { agentMarkIndex } from '../lib/hiddenAgents'
 import {
   endAgentDrag,
@@ -35,7 +37,13 @@ export default function AgentPinGrid() {
     queryFn: fetchBlueprints,
     retry: 1,
   })
-  const agents = blueprintsQuery.data?.data ?? []
+  // `?? []` would allocate a fresh array every render while the query is empty,
+  // and `labelFor` below lists it in its dep list — so the callback would be
+  // rebuilt on every render and every memoized consumer of it with it.
+  const agents = useMemo(
+    () => blueprintsQuery.data?.data ?? emptyArray<Blueprint>(),
+    [blueprintsQuery.data],
+  )
 
   const labelFor = useCallback(
     (pin: PinnedAgent) => {
@@ -82,7 +90,7 @@ export default function AgentPinGrid() {
 
   return (
     <section
-      className={`os-agent-pin-grid ${over ? 'is-over' : ''} ${pins.length === 0 ? 'is-empty' : ''}`}
+      className={`os-agent-pin-grid grid grid-cols-[repeat(auto-fill,5.25rem)] justify-center gap-2 ${over ? 'is-over' : ''} ${pins.length === 0 ? 'is-empty' : ''}`}
       aria-label="Pinned agents"
       data-testid="agent-pin-grid"
       onDragEnter={onDragOver}

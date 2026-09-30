@@ -1,6 +1,6 @@
 """Remote agent-harness connectivity: Hermes, OpenMousBot (id omb), Rakazo, Herdr, nested swarm.
 
-Open Swarm is a harness *for* other harnesses. This module is the single
+Operating Swarm is a harness *for* other harnesses. This module is the single
 source of truth for:
 
 * persisted ``remotes`` config (base URL + auth)
@@ -12,12 +12,28 @@ LAN defaults are operator facts (dev-worker-gpu / Windows2). They are not
 invented cloud hosts. Do **not** point these remotes at Fly open-litellm;
 the LAN LLM for *this* swarm is ``http://198.51.100.30:8000/v1``.
 
+A **loopback** default is a *claim* that this product runs on this host at
+this port. On a dev box the claim is often false and actively harmful: a
+2026-09-28 probe of this repo's own host found ``127.0.0.1:3000`` answering
+with somebody's Next.js dashboard, ``:8080`` with a gateway that stamps
+``x-request-id`` on every path, ``:8088`` with a llama.cpp server, and
+``:8787`` with a web UI that returns 401 — so a "test" click answered with a
+stranger's error, or (worse) a healthy-looking verdict from the wrong
+product. A default that can be mistaken for a live instance is worse than no
+default. Every loopback default that this host does not verifiably answer as
+*itself* therefore points at RFC 5737 TEST-NET-1 (``192.0.2.1``), which can
+never route: "not configured" is the only reachable answer, and
+:func:`is_placeholder_base_url` turns it into an actionable gap instead of a
+probe. The product's real documented port is kept in the URL and in ``notes``
+so the operator still sees where to point it.
+
 The ``swarm`` kind (alias ``open-swarm``) is another open-swarm *process*
 reached over HTTP — own listen port, own local DB. Nesting is network
 remote, not in-process recursion. v1 refuses a swarm base URL that matches
 this server's listen URL. Do not auto-add this instance as its own remote;
 a child is not required to nest the parent. The catalog default is the
-unreachable stub ``http://127.0.0.1:9`` (not a LAN inventory).
+loopback discard port ``http://127.0.0.1:9`` (RFC 863) — a placeholder that
+can never be a service, not a LAN inventory.
 
 Auth is optional per remote. Missing auth is reported honestly; we never
 enable ``SWARM_ALLOW_ANONYMOUS`` and we never clone OpenMousBot source.
@@ -32,6 +48,7 @@ import logging
 import os
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -49,8 +66,8 @@ logger = logging.getLogger(__name__)
 
 # Operate / health adapters (PR 318 + REQ-57). Extra kinds are addable in
 # Settings (REQ-59). Herdr is opt-in (REQ-64): no baked LAN default.
-REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge")
-REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "letta", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge")
+REMOTE_IDS: tuple[str, ...] = ("hermes", "anythingllm", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge", "octop", "openmuse")
+REMOTE_KIND_IDS: tuple[str, ...] = ("hermes", "anythingllm", "openwebui", "flowise", "n8n", "omb", "rakazo", "herdr", "swarm", "trueforge", "octop", "openmuse")
 
 
 def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> str:
@@ -84,8 +101,6 @@ def kind_of_instance(remote_id: str, config: dict[str, Any] | None = None) -> st
         return "trueforge"
     if raw.startswith("anythingllm"):
         return "anythingllm"
-    if raw.startswith("letta"):
-        return "letta"
     if raw.startswith("openwebui") or raw.startswith("open-webui") or raw.startswith("open_webui"):
         return "openwebui"
     if raw.startswith("flowise"):
@@ -110,11 +125,10 @@ def _instance_slug(remote_id: str, kind: str | None = None) -> str:
     tail = raw[len(k) + 1 :] if (raw.startswith(k) and len(raw) > len(k) and raw[len(k)] in ("-", "_")) else raw
     return re.sub(r"[^a-z0-9]+", "_", tail).strip("_").upper()
 # Kinds that never appear until the user (or env) adds them.
-OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "letta", "openwebui", "flowise", "n8n"})
+OPT_IN_REMOTE_IDS: frozenset[str] = frozenset({"herdr", "anythingllm", "openwebui", "flowise", "n8n", "octop", "openmuse"})
 REMOTE_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "anythingllm": "AnythingLLM",
-    "letta": "Letta",
     "openwebui": "Open WebUI",
     "flowise": "Flowise",
     "n8n": "n8n",
@@ -123,6 +137,8 @@ REMOTE_KIND_LABELS: dict[str, str] = {
     "herdr": "Herdr",
     "swarm": "Swarm",
     "trueforge": "TrueForge",
+    "octop": "Tencent Octop",
+    "openmuse": "OpenMuse",
 }
 _KIND_ALIASES: dict[str, str] = {
     "openmausbot": "omb",
@@ -134,15 +150,19 @@ _KIND_ALIASES: dict[str, str] = {
     "open_swarm": "swarm",
     "true_forge": "trueforge",
     "true-forge": "trueforge",
+    "tencent-octop": "octop",
+    "tencentoctop": "octop",
+    "tencent_octop": "octop",
     "anything-llm": "anythingllm",
     "anything_llm": "anythingllm",
-    "memgpt": "letta",
     "open-webui": "openwebui",
     "open_webui": "openwebui",
     "owui": "openwebui",
     "flowiseai": "flowise",
     "flowise-ai": "flowise",
     "n8n-io": "n8n",
+    "open-muse": "openmuse",
+    "open_muse": "openmuse",
                     }
 
 # REQ-11 default roster. ``swarm`` is in the catalog but is not auto-placed
@@ -167,7 +187,6 @@ TEAM_VOCABULARY: dict[str, str] = {
 _TOOL_NAMES: dict[str, str] = {
     "hermes": "consult_hermes",
     "anythingllm": "consult_anythingllm",
-    "letta": "consult_letta",
     "openwebui": "consult_openwebui",
     "flowise": "consult_flowise",
     "n8n": "consult_n8n",
@@ -176,6 +195,11 @@ _TOOL_NAMES: dict[str, str] = {
     "herdr": "consult_herdr",
     "swarm": "consult_swarm",
     "trueforge": "consult_trueforge",
+    "octop": "consult_octop",
+    # No "openmuse" tool name yet: an as_tool specialist for it would have to
+    # be declared in blueprint_remote_harness.specialist_specs. Advertising a
+    # consult_openmuse that nothing registers would be a broken affordance, so
+    # OpenMuse runs through the shared remote_list / remote_send tools.
 }
 
 # Verified operator LAN facts (not reachable from every cloud VM).
@@ -250,6 +274,9 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "swarm": {
         "title": "Nested open-swarm",
         "host_label": "remote-swarm",
+        # RFC 863 discard port: a placeholder that can never be a service.
+        # Reported as "not configured" (never "down") until an operator points
+        # it at a real instance.
         "base_url": "http://127.0.0.1:9",
         "ui_url": "",
         "api_key": "${SWARM_REMOTE_API_KEY}",
@@ -269,6 +296,8 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "anythingllm": {
         "title": "AnythingLLM",
         "host_label": "anythingllm",
+        # Kept as loopback :3001 — verified live on this host: 403
+        # "No valid api key found." is AnythingLLM answering for itself.
         "base_url": "http://127.0.0.1:3001",
         "ui_url": "",
         "api_key": "${ANYTHINGLLM_API_KEY}",
@@ -284,41 +313,24 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "a new thread. Opt-in: not placed until + Add."
         ),
     },
-    "letta": {
-        "title": "Letta",
-        "host_label": "letta",
-        "base_url": "http://127.0.0.1:8283",
-        "ui_url": "",
-        "api_key": "${LETTA_API_KEY}",
-        # #489: the trailing slash is load-bearing. "/v1/health" answers 307
-        # with a port-less Location (http://host/v1/health/), and http_json()
-        # follows redirects — so the probe left the origin, got a 404 from
-        # whatever listens on :80, and reported a healthy server DEGRADED.
-        "health_path": "/v1/health/",
-        "version_path": "/v1/health/",
-        "notes": (
-            "Letta memory-agent backend (:8283, self-hosted). Point "
-            "LETTA_BASE_URL at your box; LETTA_API_KEY when the server "
-            "requires a password. GET /v1/agents/ lists agents as resumable "
-            "sessions (search via query_text / title filter). "
-            "POST /v1/agents/<id>/messages (or /messages/stream) chats into "
-            "that agent; send requires an existing agent session id and "
-            "never mints a new agent. Opt-in: not placed until + Add."
-        ),
-    },
     "openwebui": {
         "title": "Open WebUI",
         "host_label": "openwebui",
-        "base_url": "http://127.0.0.1:8080",
+        # Documentation address, not 127.0.0.1:8080 — on this host that port
+        # is a gateway (404 + x-request-id on every path), not Open WebUI.
+        "base_url": "http://192.0.2.1:8080",
         "ui_url": "",
         "api_key": "${OPENWEBUI_API_KEY}",
         "health_path": "/health",
         "version_path": "/api/models",
         "notes": (
-            "External Open WebUI instance (:8080 docker default). Not Operating "
-            "Swarm's own WebUI (os-webui) and never a replacement for it. API key "
-            "from Open WebUI → Settings → Account → API keys; point "
-            "OPENWEBUI_BASE_URL at your box. GET /api/v1/chats/ lists chats as "
+            "External Open WebUI instance (upstream docker default :8080). Not Operating "
+            "Swarm's own WebUI (os-webui) and never a replacement for it. The catalog "
+            "default is the documentation address 192.0.2.1, NOT 127.0.0.1:8080 — that "
+            "loopback port is commonly some other local gateway, and probing it answers "
+            "with a stranger's 404. API key from Open WebUI → Settings → Account → API "
+            "keys; set the base URL in Settings → Remotes or export OPENWEBUI_BASE_URL. "
+            "GET /api/v1/chats/ lists chats as "
             "resumable sessions; GET /api/v1/chats/search?text= filters when many. "
             "POST /api/chat/completions with chat_id resumes that chat (stream, "
             "sync fallback); POST /api/chat/completed persists the turn. Send "
@@ -329,14 +341,19 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "flowise": {
         "title": "Flowise",
         "host_label": "flowise",
-        "base_url": "http://127.0.0.1:3000",
+        # Documentation address, not 127.0.0.1:3000 — on this host that port
+        # is a Next.js dashboard, so every Flowise path 404s against it.
+        "base_url": "http://192.0.2.1:3000",
         "ui_url": "",
         "api_key": "${FLOWISE_API_KEY}",
         "health_path": "/api/v1/chatflows",
         "version_path": "/api/v1/chatflows",
         "notes": (
-            "Flowise low-code flows (:3000). API key from Flowise settings; "
-            "point FLOWISE_BASE_URL at your box. GET /api/v1/chatflows lists "
+            "Flowise low-code flows (upstream default :3000). The catalog default is the "
+            "documentation address 192.0.2.1, NOT 127.0.0.1:3000 — that loopback port is "
+            "commonly some other dev app, and probing it answers with a stranger's 404. "
+            "Set the base URL in Settings → Remotes or export FLOWISE_BASE_URL. API key "
+            "from Flowise settings. GET /api/v1/chatflows lists "
             "flows; GET /api/v1/chatmessage/<id> lists chat sessions under a "
             "flow. Resume key is flowId or flowId:chatId. POST "
             "/api/v1/prediction/<id> with chatId resumes that session and "
@@ -347,14 +364,20 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "n8n": {
         "title": "n8n",
         "host_label": "n8n",
-        "base_url": "http://127.0.0.1:5678",
+        # Documentation address, not 127.0.0.1:5678 — a bare loopback port is
+        # a claim this box runs n8n, and any other dev service can own it.
+        "base_url": "http://192.0.2.1:5678",
         "ui_url": "",
         "api_key": "${N8N_API_KEY}",
         "health_path": "/healthz",
         "version_path": "/healthz",
         "notes": (
-            "n8n workflow automation (:5678, self-hosted). API key from "
-            "Settings → n8n API; point N8N_BASE_URL at your box. "
+            "n8n workflow automation (upstream self-hosted default :5678). The catalog "
+            "default is the documentation address 192.0.2.1, NOT 127.0.0.1:5678 — a bare "
+            "loopback port is a claim this box runs n8n, and a silent bind to some other "
+            "local service reads as a healthy n8n. Set the base URL in Settings → Remotes "
+            "or export N8N_BASE_URL. API key from "
+            "Settings → n8n API. "
             "GET /api/v1/workflows lists chat/webhook flows as resumable "
             "sessions (resume key workflow:webhook). POST /webhook/<path> "
             "sends chatInput into that flow; send requires a listed session "
@@ -364,6 +387,8 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "trueforge": {
         "title": "TrueForge",
         "host_label": "trueforge",
+        # Kept as loopback :8791 — verified live on this host:
+        # {"status":"ok","version":"0.3.0-rc.0"} is TrueForge itself.
         "base_url": "http://127.0.0.1:8791",
         "ui_url": "",
         "api_key": "${TRUEFORGE_API_KEY}",
@@ -378,7 +403,89 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
             "Auth is optional Bearer token via TRUEFORGE_API_KEY."
         ),
     },
+    "octop": {
+        "title": "Tencent Octop",
+        "host_label": "octop",
+        # Documentation address, not 127.0.0.1:8088 — on this host that port
+        # is a llama.cpp server, so /api/health 404s against the wrong app.
+        "base_url": "http://192.0.2.1:8088",
+        "ui_url": "",
+        "api_key": "${OCTOP_API_KEY}",
+        "health_path": "/api/health",
+        "version_path": "/api/health",
+        "notes": (
+            "Tencent Octop self-hosted assistant (upstream default :8088). The catalog "
+            "default is the documentation address 192.0.2.1, NOT 127.0.0.1:8088 — that "
+            "loopback port is commonly a llama.cpp server, and probing it answers with a "
+            "stranger's 404. Set the base URL in Settings → Remotes or export "
+            "OCTOP_BASE_URL. Opt-in. "
+            "GET /api/health is public. GET /api/agents lists experts "
+            "(AgentTeams stay inside Octop — one remote, not OS seats). "
+            "GET /api/agents/{id}/threads lists dashboard threads. "
+            "Send is the dashboard WebSocket /api/agents/{id}/chat/ws. "
+            "Resume key is agent_id or agent_id:thread_id. "
+            "Auth is a Bearer JWT: export the access_token from "
+            "POST /api/auth/login as OCTOP_API_KEY. OS does not pin models "
+            "for this remote."
+        ),
+    },
+    "openmuse": {
+        "title": "OpenMuse",
+        "host_label": "openmuse",
+        # Documentation address, not 127.0.0.1:8787 — on this host that port
+        # answers 401 for a *different* web UI, i.e. a stranger's auth wall
+        # reported as this seat's auth gap.
+        "base_url": "http://192.0.2.1:8787",
+        "ui_url": "",
+        # Env var NAME only. OpenMuse is self-hosted; the default is a
+        # documentation address, not a verified instance — set the base URL.
+        "api_key": "${OPENMUSE_ACCESS_KEY}",
+        # Verified live 2026-09-28: /api/health is the one unauthenticated
+        # route (it answers {ok, mode, agentConfigured, browserConfigured}).
+        # The agent routes 404 on that build — there is no task index — so they
+        # are not a liveness signal.
+        "health_path": "/api/health",
+        "version_path": "/api/health",
+        "notes": (
+            "OpenMuse agent server (upstream default :8787, WORKSPACE_MODE "
+            "sample|live). The catalog default is the documentation address "
+            "192.0.2.1, NOT 127.0.0.1:8787 — that loopback port commonly "
+            "answers 401 for an unrelated web UI, and a stranger's auth wall "
+            "must not read as this seat's auth gap. Set the base URL in "
+            "Settings → Remotes or export OPENMUSE_BASE_URL. Opt-in. "
+            "POST /api/session mints a 24h session token "
+            "from OPENMUSE_ACCESS_KEY; every /api/* call then needs an "
+            "Authorization: Bearer <token> header. One OpenMuse task is one OS "
+            "remote session: POST /api/agent/tasks creates one, "
+            "GET /api/agent/tasks/{id} polls it, and "
+            "POST /api/agent/tasks/{id}/input {answer, fields?} answers a task's "
+            "pending question. Control is POST /api/agent/tasks/{id}/control "
+            "(pause|resume|cancel|retry). The verified build mounts NO task list "
+            "(GET /api/agent/tasks and /api/agent/ both 404), so the seat has "
+            "no enumerable sessions until that changes. Task status is the "
+            "TaskStatus enum; succeeded/failed/cancelled are terminal. "
+            "Files/browsers previews use a signed "
+            "?owner=&expires=&signature= query, not the bearer. The access key "
+            "is read from OPENMUSE_ACCESS_KEY — never stored in the config file."
+        ),
+    },
 }
+
+# ---------------------------------------------------------------------------
+# Placeholder base URLs — a default that can never be mistaken for an instance.
+#
+# RFC 5737 TEST-NET-1. Kept as a single host so "documentation address" is one
+# greppable fact, with each product's real documented port kept in the URL so
+# the operator still sees where to point it (see ``_DEFAULTS`` notes).
+#
+# Deliberately NOT the whole RFC 5737 space: 198.51.100.0/24 is TEST-NET-2 but
+# it is also the verified operator LAN for hermes / omb / rakazo, so treating
+# it as a placeholder would unconfigure three real remotes.
+# ---------------------------------------------------------------------------
+DOC_BASE_HOST = "192.0.2.1"
+# RFC 863 discard port. Nothing listens on it by definition, so it is a safe
+# "there is no instance here" marker (the ``swarm`` catalog default).
+_DISCARD_PORT = 9
 
 _ENV_BASE = {
     "hermes": "HERMES_BASE_URL",
@@ -388,10 +495,11 @@ _ENV_BASE = {
     "swarm": "SWARM_REMOTE_BASE_URL",
     "trueforge": "TRUEFORGE_BASE_URL",
     "anythingllm": "ANYTHINGLLM_BASE_URL",
-    "letta": "LETTA_BASE_URL",
     "openwebui": "OPENWEBUI_BASE_URL",
     "flowise": "FLOWISE_BASE_URL",
     "n8n": "N8N_BASE_URL",
+    "octop": "OCTOP_BASE_URL",
+    "openmuse": "OPENMUSE_BASE_URL",
 }
 _ENV_KEY = {
     "hermes": "HERMES_API_KEY",
@@ -401,10 +509,11 @@ _ENV_KEY = {
     "swarm": "SWARM_REMOTE_API_KEY",
     "trueforge": "TRUEFORGE_API_KEY",
     "anythingllm": "ANYTHINGLLM_API_KEY",
-    "letta": "LETTA_API_KEY",
     "openwebui": "OPENWEBUI_API_KEY",
     "flowise": "FLOWISE_API_KEY",
     "n8n": "N8N_API_KEY",
+    "octop": "OCTOP_API_KEY",
+    "openmuse": "OPENMUSE_ACCESS_KEY",
 }
 _ENV_UI = {"rakazo": "RAKAZO_UI_URL", "hermes": "HERMES_UI_URL"}
 _ENV_COOKIE = {"rakazo": "RAKAZO_SESSION_COOKIE"}
@@ -465,10 +574,15 @@ class RemoteSpec:
     provenance: dict[str, Any] = field(default_factory=dict)
     kind: str = ""
     timeout: float | None = None
-    # #1159: the agent this remote targets (trueforge/letta-style harnesses
+    # #1159: the agent this remote targets (trueforge-style harnesses
     # that need one to mint a session). Empty = not wired; the adapter then
     # keeps its kind default and refuses remote-id-as-agent.
     agent: str = ""
+    # #1317: Company attached when this remote was created as a new bot.
+    company_id: str = ""
+    company_slug: str = ""
+    company_name: str = ""
+    model: str = ""
 
     def origin(self) -> tuple[str, int]:
         parsed = urlparse(self.base_url)
@@ -476,11 +590,18 @@ class RemoteSpec:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         return host, int(port)
 
-    def public_dict(self) -> dict[str, Any]:
-        """JSON-safe view with secrets redacted."""
+    def public_dict(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        """JSON-safe view with secrets redacted.
+
+        ``config`` is an already-loaded config to reuse; callers inside this
+        module pass the one they hold so a list render is not one file read per
+        row. Omitting it reads the config file, which is what every API entry
+        point does.
+        """
         from swarm.core.remote_harness import capabilities_for
 
-        kind = self.kind or kind_of_instance(self.id)
+        cfg = config if isinstance(config, dict) else load_raw_config()[0]
+        kind = self.kind or kind_of_instance(self.id, cfg)
         is_instance = self.id != kind
         # #503: a configured title is the picker label for named instances —
         # two instances of one kind must be distinguishable without hand-reading
@@ -490,12 +611,25 @@ class RemoteSpec:
             label = (self.title or "").strip() or f"{kind_label(kind)} ({self.id})"
         else:
             label = kind_label(self.id)
+        # "configured" is the single question the UI/API must be able to answer
+        # without hand-reconstructing provenance. Two independent reasons to say
+        # no, and both are facts about *this* seat, not about the config file:
+        #   1. the operator never added it (persisted entry / env bootstrap), and
+        #   2. it was added but still has no instance address — its base_url is
+        #      a placeholder (documentation address or the discard port).
+        # A placeholder URL must never read as configured: a probe of it can only
+        # answer with a stranger's 404/401 or a timeout, never a real verdict.
+        added = is_configured(self.id, cfg)
+        base_url_placeholder = is_placeholder_base_url(self.base_url)
         payload: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
             "host_label": self.host_label,
             "base_url": self.base_url,
             "ui_url": self.ui_url,
+            # A ${ENV} reference is a *name to fill in*, not a credential: the
+            # default catalog key is exactly that string, and counting it as
+            # "set" is how a live probe gets told a key exists when none does.
             "api_key_set": bool(self.api_key and not _is_unresolved_placeholder(self.api_key)),
             "cookie_set": bool(self.cookie and not _is_unresolved_placeholder(self.cookie)),
             "health_path": self.health_path,
@@ -510,6 +644,11 @@ class RemoteSpec:
             "api_key_env": self.api_key_env,
             "session_cookie_env": self.session_cookie_env,
             "added": self.source in ("config", "env"),
+            "configured": added,
+            # Machine-readable half of the same answer: the base URL cannot be
+            # probed, so a renderer shows "not configured" instead of a verdict.
+            "base_url_placeholder": base_url_placeholder,
+            "usable": added and not base_url_placeholder,
             "provenance": dict(self.provenance),
             "capabilities": capabilities_for(kind).as_dict(),
             "member": {
@@ -519,6 +658,14 @@ class RemoteSpec:
                 "place_in": "Team (handoff members — not /teams/ profile aliases)",
             },
         }
+        if self.company_id:
+            payload["company_id"] = self.company_id
+        if self.company_slug:
+            payload["company_slug"] = self.company_slug
+        if self.company_name:
+            payload["company_name"] = self.company_name
+        if self.model:
+            payload["model"] = self.model
         if kind == "herdr":
             from swarm.herdr.remote import HOP_MODEL, resolve_herdr_mode
 
@@ -550,6 +697,10 @@ class HealthResult:
     version: Any = None
     latency_ms: int | None = None
     url: str = ""
+    # Machine-readable "this was never probed" code, mirroring OperateResult.gap
+    # (#494). A renderer's only honest options for these are "not configured"
+    # and a remedy link — never "down" / offline, because no request was sent.
+    gap: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -747,6 +898,41 @@ def _unreachable_detail(result: HttpResult, what: str) -> str:
 
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+
+
+def is_placeholder_base_url(url: str) -> bool:
+    """True when ``url`` is a baked *no instance here* marker, not an address.
+
+    Two shapes qualify, and nothing else:
+
+    * an RFC 5737 TEST-NET-1 documentation address (:data:`DOC_BASE_HOST`) —
+      reserved for documentation, so it can never route to a stranger; and
+    * the RFC 863 loopback discard port (:data:`_DISCARD_PORT`) — nothing may
+      listen there by definition.
+
+    Both are what unconfigured catalog defaults use instead of a bare loopback
+    port, because a bare ``127.0.0.1:<product port>`` silently binds to whatever
+    unrelated app owns that port on a busy dev host: a 404/HTML from a stranger,
+    or worse, a healthy-looking verdict from the wrong product. Probing a
+    placeholder can only ever waste a timeout, so callers fail fast with an
+    actionable "not configured" gap instead.
+
+    An operator-supplied URL never lands here (a documentation address is not a
+    usable endpoint), so this stays a pure function of the URL — no config
+    read, no state.
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw if "://" in raw else f"http://{raw}")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host == DOC_BASE_HOST:
+        return True
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return int(port) == _DISCARD_PORT and host in _LOOPBACK_HOSTS
+
 
 # REQ-916 / #515: container-gateway aliases in the wild. They only resolve
 # inside the container runtime's own network — from the LAN or from the
@@ -990,7 +1176,7 @@ def _opt_in_not_configured_message(remote_id: str) -> str:
 NOT_ADDED_MARKER = "not added as a remote"
 
 
-def _not_added_message(remote_id: str) -> str:
+def _not_added_message(remote_id: str, config: dict[str, Any] | None = None) -> str:
     """Actionable text when a catalog seat exists but the remote was never added.
 
     Non-opt-in remotes (hermes / omb / rakazo / swarm) carry LAN defaults, so
@@ -999,8 +1185,16 @@ def _not_added_message(remote_id: str) -> str:
     ``remote not added`` detail previously told the operator nothing about why
     or how to fix it (issue #129). The text contains ``NOT_ADDED_MARKER`` so
     renderers can drop the ``{remote} {op}: FAIL —`` prefix in chat replies.
+
+    ``config`` resolves named instances whose id is not ``<kind>-<suffix>``
+    (e.g. ``nemohermes`` → ``hermes``); without it ``_require_kind_id`` would
+    raise for such ids instead of producing an actionable message.
     """
-    rid = _require_kind_id(remote_id)
+    cfg = config if isinstance(config, dict) else load_raw_config()[0]
+    try:
+        rid = _require_kind_id(remote_id, cfg)
+    except RemoteError:
+        rid = normalize_instance_id(remote_id)
     label = kind_label(rid)
     env_base = _ENV_BASE.get(rid, "")
     env_key = _ENV_KEY.get(rid, "") or "API_KEY"
@@ -1015,6 +1209,50 @@ def _not_added_message(remote_id: str) -> str:
         f"placeholder. Add it in Settings → Remotes or run "
         f"`swarm-cli remotes set {rid} --base-url <url>{key_hint}`"
         f"{env_hint}."
+    )
+
+
+# Shared marker so renderers can present the never-pointed-anywhere case as a
+# sentence instead of a probe verdict. Deliberately distinct from
+# NOT_ADDED_MARKER: the remote IS added, it just has no instance address, so
+# "down" would be a lie — nothing was ever probed.
+NOT_POINTED_MARKER = "not configured — no instance URL"
+
+# HealthResult.gap codes for the two "nothing was probed" short-circuits. A UI
+# that only knows ok/not-ok renders both as offline, which is precisely the
+# misreport this closes.
+HEALTH_GAP_NOT_ADDED = "remote_not_added"
+HEALTH_GAP_NO_BASE_URL = "remote_base_url_placeholder"
+
+
+def _needs_base_url_message(
+    remote_id: str,
+    config: dict[str, Any] | None = None,
+    base_url: str = "",
+) -> str:
+    """Actionable text for a remote whose base URL is a placeholder address.
+
+    The catalog default is deliberately unprobeable (a documentation address or
+    the discard port) so an unconfigured seat can never answer with a stranger's
+    404/401/HTML. That honesty has to be paid back with copy that says which one
+    field to fill, names the address that was refused (so the operator can see
+    *what* would have been probed), and it must NOT be reported as a health
+    failure: nothing was contacted, so "down" would be a false verdict.
+    """
+    cfg = config if isinstance(config, dict) else load_raw_config()[0]
+    try:
+        rid = _require_kind_id(remote_id, cfg)
+    except RemoteError:
+        rid = normalize_instance_id(remote_id)
+    label = kind_label(rid)
+    env_base = _ENV_BASE.get(rid, "")
+    env_hint = f", or export {env_base}" if env_base else ""
+    where = f" {base_url}" if str(base_url or "").strip() else ""
+    return (
+        f"{label} is {NOT_POINTED_MARKER}{where}: that address is a placeholder, "
+        f"not a live instance. Set the base URL in "
+        f"Settings → Remotes or run `swarm-cli remotes set {rid} --base-url "
+        f"<url>`{env_hint}."
     )
 
 
@@ -1044,8 +1282,17 @@ def _require_kind_id(remote_id: str, config: dict[str, Any] | None = None) -> st
 
 
 def _require_id(remote_id: str, config: dict[str, Any] | None = None) -> str:
-    """Health/operate gate: accept bare kinds and named instances (REQ-856)."""
-    return _require_kind_id(remote_id, config)
+    """Health/operate gate: accept bare kinds and named instances (REQ-856).
+
+    A named instance whose id does not start with its kind (``nemohermes`` →
+    ``hermes``) resolves only through its config entry's explicit ``kind``, so
+    default the config to disk when the caller omits it — mirroring
+    :func:`load_remote` and :func:`_not_added_message`. Without this the API
+    health/operate views rejected every second Hermes remote as "Unknown
+    remote" before ``check_health`` could run.
+    """
+    cfg = config if isinstance(config, dict) else load_raw_config()[0]
+    return _require_kind_id(remote_id, cfg)
 
 
 def resolve_config_path(explicit: str | Path | None = None) -> Path:
@@ -1133,6 +1380,10 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             "ssh_user",
             "ssh_identity_env",
             "agent",  # #1159: wired agent for session-minting harnesses
+            "company_id",
+            "company_slug",
+            "company_name",
+            "model",
         ):
             if key in block and block[key] is not None:
                 setattr(spec, key, block[key])
@@ -1170,6 +1421,12 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
     # get_secret (process env is the secret-store). Never log values.
     env_key_name = f"{kind.upper()}_{inst_slug}_API_KEY" if inst_slug else (_ENV_KEY.get(kind) or "")
     kind_env_key_name = _ENV_KEY.get(kind) or ""
+    # An explicit ``api_key_env`` is operator intent and must win over the
+    # kind-level fallback. Otherwise a second instance of the same kind (e.g.
+    # ``nemohermes`` alongside ``hermes``) resolves to the kind variable and
+    # authenticates against the wrong seat. Capture it before the block below
+    # fills in derived defaults.
+    explicit_api_key_env = str(spec.api_key_env or "").strip()
     if not spec.api_key_env:
         # A kind default such as ${TRUEFORGE_API_KEY} is a fallback, not an
         # explicit choice: for a named instance the derived TRUEFORGE_2_API_KEY
@@ -1187,7 +1444,9 @@ def load_remote(remote_id: str, config: dict[str, Any] | None = None) -> RemoteS
             or _ENV_COOKIE.get(kind)
             or ""
         )
-    stored_key = get_secret(env_key_name)
+    stored_key = get_secret(explicit_api_key_env) if explicit_api_key_env else ""
+    if not stored_key:
+        stored_key = get_secret(env_key_name)
     if not stored_key and inst_slug:
         stored_key = get_secret(kind_env_key_name)
     if not stored_key:
@@ -1343,11 +1602,16 @@ def added_remote_ids(
 
 
 def is_configured(remote_id: str, config: dict[str, Any] | None = None) -> bool:
+    # Resolve cfg before validating the id: a named instance such as
+    # ``nemohermes`` (kind ``hermes``) is only recognizable via its config
+    # entry, so ``_require_kind_id`` must see the same config the configured
+    # ids come from.
+    cfg = config if isinstance(config, dict) else load_raw_config()[0]
     try:
-        _require_kind_id(remote_id, config)
+        _require_kind_id(remote_id, cfg)
     except RemoteError:
         return False
-    c_ids = configured_remote_ids(config)
+    c_ids = configured_remote_ids(cfg)
     normalized = normalize_instance_id(remote_id)
     return normalized in c_ids or remote_id in c_ids or (str(remote_id).strip().lower() in [c.lower() for c in c_ids])
 
@@ -1389,7 +1653,7 @@ def list_team_members(config: dict[str, Any] | None = None) -> list[dict[str, An
     placed = set(load_placed_members(cfg))
     members = []
     for spec in load_all_remotes(cfg).values():
-        pub = spec.public_dict()
+        pub = spec.public_dict(cfg)
         members.append(
             {
                 "id": spec.id,
@@ -1545,6 +1809,19 @@ def _apply_herdr_persist(
         raise RemoteError(HERDR_HTTP_REMOTE_REFUSED)
 
 
+_COMPANY_STAMP_KEYS = ("company_id", "company_slug", "company_name", "model")
+
+
+def _merge_company_stamp(entry: dict[str, Any], extra: dict[str, Any] | None) -> None:
+    """Copy a #1317 Company stamp onto a remote config entry. No other keys."""
+    if not extra:
+        return
+    for key in _COMPANY_STAMP_KEYS:
+        raw = extra.get(key)
+        if isinstance(raw, str) and raw.strip():
+            entry[key] = raw.strip()
+
+
 def persist_remote(
     remote_id: str,
     *,
@@ -1564,6 +1841,7 @@ def persist_remote(
     ssh_identity_env: str | None = None,
     ssh_agent: bool | str | None = None,
     config_path: str | Path | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> tuple[RemoteSpec, Path]:
     """Merge fields into ``remotes.<id>`` and write swarm_config.json."""
     cfg, path = load_raw_config(config_path)
@@ -1702,6 +1980,7 @@ def persist_remote(
             ssh_identity_env=ssh_identity_env,
             ssh_agent=ssh_agent,
         )
+    _merge_company_stamp(entry, extra)
     remotes[rid] = entry
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cfg, indent=4) + "\n", encoding="utf-8")
@@ -1789,7 +2068,109 @@ def _auth_headers(spec: RemoteSpec) -> dict[str, str]:
     return headers
 
 
+class RemoteCallCancelled(BaseException):
+    """A roster fan-out cancel asked this remote call to stop.
+
+    This is a ``BaseException`` so ``except Exception`` inside ``operate``
+    and the harness adapters cannot turn a stop into an ordinary error
+    result. The worker thread exits; the leg records ``cancelled``.
+    """
+
+
+_remote_cancel_local = threading.local()
+
+
+class remote_cancel_scope:
+    """Bind a :class:`threading.Event` for the current remote worker thread."""
+
+    def __init__(self, event: threading.Event | None) -> None:
+        self._event = event
+        self._previous: threading.Event | None = None
+
+    def __enter__(self) -> "remote_cancel_scope":
+        self._previous = getattr(_remote_cancel_local, "event", None)
+        _remote_cancel_local.event = self._event
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        _remote_cancel_local.event = self._previous
+        return False
+
+
+def _remote_cancel_event() -> threading.Event | None:
+    event = getattr(_remote_cancel_local, "event", None)
+    return event if isinstance(event, threading.Event) else None
+
+
+def raise_if_remote_cancelled() -> None:
+    event = _remote_cancel_event()
+    if event is not None and event.is_set():
+        raise RemoteCallCancelled("remote leg cancelled")
+
+
+def interruptible_sleep(seconds: float) -> None:
+    """Sleep, or return immediately by raising when the fan-out leg is cancelled."""
+    delay = max(float(seconds), 0.0)
+    event = _remote_cancel_event()
+    if event is None:
+        time.sleep(delay)
+        return
+    if event.wait(delay):
+        raise RemoteCallCancelled("remote leg cancelled")
+
+
 def http_json(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    body: Any = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> HttpResult:
+    """HTTP that never raises for network or HTTP errors.
+
+    Outside a cancel scope this is one shot and does not retry. Inside a
+    :func:`remote_cancel_scope`, a cancel is observed before the call and
+    between short GET slices, so a hung poll does not run out its full
+    timeout after the operator stops that leg. POST stays one-shot
+    (retrying it would duplicate the send).
+    """
+    raise_if_remote_cancelled()
+    event = _remote_cancel_event()
+    if event is None or str(method or "").upper() != "GET":
+        return _http_json_once(
+            method, url, headers=headers, body=body, timeout=timeout
+        )
+    deadline = time.monotonic() + max(float(timeout), 0.0)
+    last: HttpResult | None = None
+    while True:
+        raise_if_remote_cancelled()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if last is not None:
+                return last
+            return HttpResult(
+                status=None,
+                error="timed out",
+                url=url,
+                latency_ms=0,
+            )
+        last = _http_json_once(
+            method,
+            url,
+            headers=headers,
+            body=body,
+            timeout=min(0.25, remaining),
+        )
+        err = str(getattr(last, "error", "") or "").lower()
+        timed_out = last.status is None and (
+            "timed out" in err or "timeout" in err
+        )
+        if not timed_out:
+            return last
+
+
+def _http_json_once(
     method: str,
     url: str,
     *,
@@ -1896,7 +2277,27 @@ def check_health(remote_id: str, *, config: dict[str, Any] | None = None, timeou
         return HealthResult(remote=remote_id, ok=False, state="UNKNOWN", detail=str(exc))
 
     if not is_configured(spec.id, config):
-        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail=_not_added_message(spec.id))
+        return HealthResult(
+            remote=spec.id,
+            ok=False,
+            state="UNKNOWN",
+            detail=_not_added_message(spec.id, config),
+            gap=HEALTH_GAP_NOT_ADDED,
+        )
+
+    # An added remote whose base URL is still a catalog placeholder has no
+    # instance to talk to. UNKNOWN + "not configured", never DOWN/DEGRADED:
+    # nothing was contacted, so a reachability verdict would be fiction. Probing
+    # a documentation address could only surface a stranger's service (or burn
+    # the timeout), which is the failure this guard exists to prevent.
+    if is_placeholder_base_url(spec.base_url):
+        return HealthResult(
+            remote=spec.id,
+            ok=False,
+            state="UNKNOWN",
+            detail=_needs_base_url_message(spec.id, config, spec.base_url),
+            gap=HEALTH_GAP_NO_BASE_URL,
+        )
 
     from swarm.remotes.registry import create_remote_adapter
 
@@ -1936,14 +2337,14 @@ def remote_down_preflight(
 
     Returns user-facing copy when the remote is *down* (the seat must render it
     immediately instead of masking a sub-second failure behind the harness LLM
-    hop — the letta-demo spinner-forever report), and ``None`` when the turn
+    hop — the remote-demo spinner-forever report), and ``None`` when the turn
     should proceed as before. Never raises: a probe crash is a skip, not a
     veto. Unconfigured remotes short-circuit to ``None`` (their own send path
     produces the not-added copy).
     """
     try:
         spec = load_remote(remote_id, config)
-        if not is_configured(spec.id, config):
+        if not is_configured(spec.id, config) or is_placeholder_base_url(spec.base_url):
             return None
         health = check_health(remote_id, config=config, timeout=timeout)
     except Exception:  # noqa: BLE001 — probe failure must never veto a turn
@@ -1973,7 +2374,13 @@ def _check_health_once(
     and alternate probe paths arrive via adapter overrides (``health`` /
     ``extra_health_paths``), not kind branches here."""
     if not spec.base_url:
-        return HealthResult(remote=spec.id, ok=False, state="UNKNOWN", detail="base_url is empty")
+        return HealthResult(
+            remote=spec.id,
+            ok=False,
+            state="UNKNOWN",
+            detail="base_url is empty",
+            gap=HEALTH_GAP_NO_BASE_URL,
+        )
     if _looks_like_forbidden_llm_proxy(spec.base_url):
         return HealthResult(
             remote=spec.id,
@@ -2136,6 +2543,19 @@ def probe_candidate_remote(
     if ssh_agent is not None:
         spec.ssh_agent = bool(ssh_agent)
 
+    # "Test" with an empty (or still-placeholder) URL must not fall through to
+    # the catalog default and report whatever happens to own that port. Fail
+    # fast with the same actionable gap ``check_health`` uses, so the operator
+    # is told which field to fill instead of getting a stranger's 404/401.
+    if k != "herdr" and (not str(spec.base_url or "").strip() or is_placeholder_base_url(spec.base_url)):
+        return HealthResult(
+            remote=rid,
+            ok=False,
+            state="UNKNOWN",
+            detail=_needs_base_url_message(rid, base_url=spec.base_url),
+            gap=HEALTH_GAP_NO_BASE_URL,
+        )
+
     return _check_health_once(spec, timeout)
 
 
@@ -2157,6 +2577,50 @@ def check_all_health(*, config: dict[str, Any] | None = None, timeout: float = _
     return [check_health(rid, config=config, timeout=timeout) for rid in REMOTE_IDS]
 
 
+def _latest_trueforge_session(
+    spec: RemoteSpec, timeout: float | None, target: str = ""
+) -> dict[str, Any] | None:
+    """Newest resumable TrueForge session for *spec*, or ``None``.
+
+    TrueForge only continues a conversation when ``POST
+    /api/v1/sessions/{id}/turns`` carries that session's id; with no id it
+    mints a brand-new session. So a follow-up turn in the same chat started
+    from scratch and lost its TrueForge context. Reuse the newest existing
+    session instead of minting a second one.
+
+    Strictly scoped to this TrueForge instance (the list call goes to its
+    ``base_url`` only); when the spec wires an agent, only that agent's
+    sessions are eligible — a TrueForge seat never resumes another agent's
+    thread. Never raises: an unreachable or erroring session list returns
+    ``None`` and the caller starts a fresh session exactly as before.
+    """
+    # A send whose target is the remote's own name has no real agent wired:
+    # the adapter refuses before the wire (#1159). Don't probe the session
+    # list first — that HTTP call would violate the "no agent wired makes no
+    # request" contract and there is no agent to scope the resume to.
+    requested = str(target or "").strip()
+    if requested and requested.lower() == str(getattr(spec, "id", "") or "").lower():
+        return None
+    try:
+        rows = R._trueforge_sessions(spec, min(float(timeout or _OPERATE_TIMEOUT_S), 8.0))
+    except Exception:
+        logger.debug("trueforge session auto-resume list failed", exc_info=True)
+        return None
+    if not isinstance(rows, list):
+        return None
+    candidates = [row for row in rows if isinstance(row, dict) and str(row.get("id") or "").strip()]
+    wired = str(getattr(spec, "agent", "") or "").strip()
+    if wired:
+        candidates = [row for row in candidates if str(row.get("agent") or "").strip() == wired]
+    if not candidates:
+        return None
+
+    def _stamp(row: dict[str, Any]) -> str:
+        return str(row.get("updated_at") or row.get("created_at") or "")
+
+    return max(candidates, key=_stamp)
+
+
 def operate(
     remote_id: str,
     op: str,
@@ -2171,13 +2635,20 @@ def operate(
     """List or send a job. Never raises; never crash-loops.
 
     ``session_id`` is a stored remote thread (#369-style). REQ-65 on-mode
-    agents drop it so each task starts a new remote job. ``query`` filters
-    session-capable list results (Open WebUI chats, AnythingLLM threads, Letta agents).
-    List stays on the short operate bound; send (poll-for-reply) uses the
-    longer send bound so a real remote turn is not aborted as hung (#302).
+    agents drop it so each task starts a new remote job. When no session id
+    is available, a **TrueForge** send resumes the newest existing session
+    instead of minting a fresh one (#1358) — TrueForge drops history
+    otherwise. ``query`` filters session-capable list results (Open WebUI
+    chats, AnythingLLM threads). List stays on the short operate bound; send
+    (poll-for-reply) uses the longer send bound so a real remote turn is not
+    aborted as hung (#302).
     """
     try:
-        from swarm.core.session_policy import resume_remote_session_id
+        raise_if_remote_cancelled()
+        from swarm.core.session_policy import (
+            resume_remote_session_id,
+            should_resume_external_session,
+        )
 
         resume_id = resume_remote_session_id(remote_id, session_id)
         spec = load_remote(remote_id, config)
@@ -2202,7 +2673,7 @@ def operate(
         if action not in ("list", "send", "interrogate", "routines", "schedules"):
             return OperateResult(remote=rid, op=action, ok=False, detail=f"Unknown op '{op}'. Use list, send, or routines.")
         if not is_configured(rid, config):
-            return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid))
+            return OperateResult(remote=rid, op=action, ok=False, detail=_not_added_message(rid, config))
         # HTTP guards ahead of dispatch (unchanged order from the legacy
         # chain): routines/schedules are TrueForge-only, and the HTTP kinds
         # refuse a missing or forbidden base URL. Herdr (CLI/SSH) is exempt —
@@ -2217,6 +2688,8 @@ def operate(
         if not is_herdr:
             if not spec.base_url:
                 return OperateResult(remote=rid, op=action, ok=False, detail="base_url is empty")
+            if is_placeholder_base_url(spec.base_url):
+                return OperateResult(remote=rid, op=action, ok=False, detail=_needs_base_url_message(rid, config, spec.base_url))
             if _looks_like_forbidden_llm_proxy(spec.base_url):
                 return OperateResult(
                     remote=rid,
@@ -2236,7 +2709,32 @@ def operate(
             if action == "list":
                 return adapter.list(timeout, query=query or prompt)
             if action == "send":
-                return adapter.send(prompt, timeout, target=target, session_id=resume_id)
+                send_target = target
+                # #1358: no session id was supplied (fresh chat / no stored
+                # thread). TrueForge would mint a new session and drop the
+                # conversation, so resume its newest existing one. On-mode
+                # agents (REQ-65) still start fresh — auto-resume is gated on
+                # the same policy that drops an explicit resume key.
+                if (
+                    not resume_id
+                    and should_resume_external_session(rid)
+                    and (
+                        rkind == "trueforge"
+                        or spec.kind == "trueforge"
+                        or is_trueforge_remote(rid, config)
+                    )
+                    # #1159: a seat with no agent wired refuses before any
+                    # HTTP call. Listing sessions here would break that.
+                    and not R._trueforge_unwired_send(spec, send_target)
+                ):
+                    latest = _latest_trueforge_session(spec, timeout, target)
+                    latest_id = str((latest or {}).get("id") or "").strip()
+                    if latest_id:
+                        resume_id = latest_id
+                        # The session's own agent is the right name if the
+                        # turn 404s and TrueForge must mint a replacement.
+                        send_target = send_target or str(latest.get("agent") or "").strip()
+                return adapter.send(prompt, timeout, target=send_target, session_id=resume_id)
             if action == "interrogate":
                 return adapter.interrogate(target, timeout, config)
         return OperateResult(
@@ -2262,6 +2760,202 @@ def operate(
             detail=f"operate error: {exc}",
         )
 
+
+
+def pending_question(
+    remote_id: str,
+    result: OperateResult,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Operator question a paused send is waiting on, or None.
+
+    Dispatches through the remote's adapter so a new pause shape is one
+    adapter method, never a kind branch at the call site. Never raises.
+    """
+    try:
+        spec = load_remote(remote_id, config)
+        from swarm.remotes.registry import create_remote_adapter
+
+        adapter = create_remote_adapter(spec, config)
+        if adapter is None:
+            return None
+        return adapter.pending_question(result)
+    except Exception:
+        logger.debug("remotes.pending_question failed for %s", remote_id, exc_info=True)
+        return None
+
+
+def resume_remote(
+    remote_id: str,
+    *,
+    session_id: str,
+    pending_action: dict[str, Any],
+    answer: str,
+    config: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> OperateResult:
+    """Resume a paused remote send with the operator's answer. Never raises."""
+    try:
+        spec = load_remote(remote_id, config)
+        from swarm.remotes.registry import create_remote_adapter
+
+        adapter = create_remote_adapter(spec, config)
+        if adapter is None:
+            return OperateResult(
+                remote=str(remote_id),
+                op="send",
+                ok=False,
+                detail=f"{kind_label(remote_id)} cannot resume a pending question.",
+            )
+        return adapter.resume_with_answer(
+            session_id,
+            pending_action,
+            answer,
+            _OPERATE_SEND_TIMEOUT_S if timeout is None else float(timeout),
+        )
+    except NotImplementedError:
+        return OperateResult(
+            remote=str(remote_id),
+            op="send",
+            ok=False,
+            detail=f"{kind_label(remote_id)} cannot resume a pending question.",
+        )
+    except Exception as exc:  # never let a resume take down the process
+        logger.warning("remotes.resume_remote failed for %s: %s", remote_id, exc)
+        return OperateResult(
+            remote=str(remote_id),
+            op="send",
+            ok=False,
+            detail=f"operate error: {exc}",
+        )
+
+
+def _normalize_trueforge_catalog_agents(data: dict[str, Any]) -> list[dict[str, str]]:
+    """Compact ``{id, label, name}`` agent rows from a TrueForge list payload.
+
+    Never copies bulky fields. The rows are TrueForge **agents** — the resume
+    key for a send is always a *session id* (#425), so the picker can never
+    present an agent row as a resumable session.
+    """
+    rows: Any = data.get("agents")
+    if not isinstance(rows, list):
+        rows = data.get("data")
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        agent_id = str(row.get("id") or row.get("agent_id") or row.get("name") or "").strip()
+        if not agent_id or agent_id in seen:
+            continue
+        seen.add(agent_id)
+        label = str(row.get("name") or row.get("title") or row.get("label") or agent_id).strip()
+        out.append({"id": agent_id, "label": label or agent_id, "name": label or agent_id})
+    return out
+
+
+def _normalize_trueforge_catalog_sessions(rows: Any) -> list[dict[str, str]]:
+    """Validate the normalized session rows attached to a TrueForge list."""
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        session_id = str(row.get("id") or row.get("session_id") or "").strip()
+        if not session_id or session_id in seen:
+            continue
+        seen.add(session_id)
+        agent = str(row.get("agent") or "").strip()
+        out.append(
+            {
+                "id": session_id,
+                "title": str(row.get("title") or session_id).strip() or session_id,
+                "snippet": str(row.get("snippet") or agent).strip(),
+                "agent": agent,
+                "created_at": str(row.get("created_at") or "").strip(),
+                "updated_at": str(row.get("updated_at") or "").strip(),
+            }
+        )
+    return out
+
+
+def _trueforge_catalog_payload(
+    remote_id: str,
+    *,
+    ok: bool,
+    detail: str,
+    http_status: int | None = None,
+    agents: list[dict[str, str]] | None = None,
+    sessions: list[dict[str, str]] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "object": "trueforge.catalog",
+        "remote": remote_id,
+        "kind": "trueforge",
+        "ok": bool(ok),
+        "detail": str(detail or ""),
+        "http_status": http_status,
+        "rows_are": "agents",
+        "resume_key": "session_id",
+        "agents": list(agents or []),
+        "sessions": list(sessions or []),
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def trueforge_catalog(
+    remote_id: str,
+    *,
+    config: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """#1358 — the TrueForge navbar catalog: agents **and** sessions in one read.
+
+    Strictly scoped to a TrueForge instance: a non-TrueForge remote id returns
+    ``ok=False`` with ``error='not_trueforge'`` and empty lists, so a caller can
+    never fan out to another provider or the default inference profile. An
+    unconfigured remote or a down endpoint degrades to empty lists with an
+    honest ``detail`` — this function never raises.
+    """
+    rid = str(remote_id or "").strip()
+    if not rid:
+        return _trueforge_catalog_payload(rid, ok=False, detail="Provide a TrueForge remote id.")
+    try:
+        spec = load_remote(rid, config)
+        real_id = spec.id
+        rkind = spec.kind or kind_of_instance(real_id, config)
+    except RemoteError as exc:
+        return _trueforge_catalog_payload(rid, ok=False, detail=str(exc))
+    if not (rkind == "trueforge" or spec.kind == "trueforge" or is_trueforge_remote(real_id, config)):
+        return _trueforge_catalog_payload(
+            real_id,
+            ok=False,
+            detail=(
+                f"'{real_id}' is not a TrueForge remote — the TrueForge pickers never "
+                "fall back to another provider."
+            ),
+            error="not_trueforge",
+        )
+    kwargs: dict[str, Any] = {}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    result = operate(real_id, "list", config=config, **kwargs)
+    data = result.data if isinstance(result.data, dict) else {}
+    return _trueforge_catalog_payload(
+        real_id,
+        ok=result.ok,
+        detail=result.detail,
+        http_status=result.http_status,
+        agents=_normalize_trueforge_catalog_agents(data),
+        sessions=_normalize_trueforge_catalog_sessions(data.get("sessions")),
+    )
 
 
 # #812 slice 5: per-harness bodies live in ``remote_impls`` (see that

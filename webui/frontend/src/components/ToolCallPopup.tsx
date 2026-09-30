@@ -35,15 +35,23 @@ export function ToolStatusBadge({ status }: { status: ToolCallStatus }) {
 export interface ToolCallPopupProps {
   tool: ToolCallState
   onDecision?: (decision: ToolDecision) => void
+  /**
+   * #1764: when the under-message RunningStopBadge already names this call
+   * (`Running · <tool>`), hide the in-bubble status badge so one tool never
+   * paints two identical Running pills. Omitted / false keeps the badge
+   * (late frames, seats with no tool_phase, GenerationsPanel).
+   */
+  hideRunningBadge?: boolean
 }
 
 /** Assistant-message tool popup: coloured badge + Safety approval card. */
-export function ToolCallPopup({ tool, onDecision }: ToolCallPopupProps) {
+export function ToolCallPopup({ tool, onDecision, hideRunningBadge = false }: ToolCallPopupProps) {
+  const showStatusBadge = !(hideRunningBadge && tool.status === 'running')
   return (
     <div className="os-tool-popup mt-2" data-tool-name={tool.name} data-tool-status={tool.status}>
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs">{tool.name}</span>
-        <ToolStatusBadge status={tool.status} />
+        {showStatusBadge ? <ToolStatusBadge status={tool.status} /> : null}
       </div>
       {tool.needsApproval ? (
         <div

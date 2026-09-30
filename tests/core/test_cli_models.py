@@ -11,11 +11,13 @@ from pathlib import Path
 
 from swarm.core import cli_catalog
 from swarm.core.cli_models import (
+    ON_DEMAND_PROBE_TIMEOUT_S,
     PROBE_TIMEOUT_S,
     ListModelsResult,
     _remember,
     clear_probe_cache,
     list_models,
+    list_models_for_picker,
     list_models_many,
     parse_models_stdout,
     probe_list_models,
@@ -198,6 +200,28 @@ def test_missing_cli_falls_back_to_catalog_presets(monkeypatch):
     assert "not installed" in (result.warning or "")
 
 
+def test_claude_presets_prefer_latest_opus():
+    # #1326: the curated fallback (offline/signed-out) must offer the newest Opus.
+    presets = cli_catalog.CLI_MODELS["claude"]
+    assert presets[0] == "claude-opus-5-5"
+    # Previous-generation ids stay as fallbacks.
+    assert {"claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"} <= set(presets)
+
+
+def test_claude_opus_5_5_has_model_traits():
+    traits = cli_catalog.model_traits("claude-opus-5-5")
+    assert traits == {"intelligence": 0.98, "speed": 0.45, "cost": 0.20}
+    # Unknown ids still resolve to None (no invented traits).
+    assert cli_catalog.model_traits("not-a-model") is None
+
+
+def test_missing_claude_cli_fallback_exposes_opus_5_5(monkeypatch):
+    monkeypatch.setattr("swarm.core.cli_catalog.which_cli", lambda exe: None)
+    result = list_models("claude")
+    assert "claude-opus-5-5" in result.models
+    assert "not installed" in (result.warning or "")
+
+
 def test_stripped_path_probe_finds_user_local_grok(tmp_path, monkeypatch):
     """Daphne-stripped PATH still resolves ~/.local/bin/grok (C-H5)."""
     home = tmp_path / "home"
@@ -276,11 +300,13 @@ def test_catalog_presets_cover_all_dropdown_clis():
     for name in PRESET_CLIS:
         presets = cli_catalog.CLI_MODELS.get(name) or []
         assert presets, f"{name} must list catalog model presets"
+    # qwen presets must be ids the live gateway serves; the stale Ollama/Docker
+    # tags (qwen2.5-coder:32b, …) are rejected as "Invalid model name".
     assert cli_catalog.CLI_MODELS["qwen"] == [
-        "qwen2.5-coder:32b",
-        "qwen2.5-coder:7b",
-        "qwen2.5:72b",
+        "qwen3.8-27b-cf",
+        "qwen3.8-27b",
     ]
+    assert not any(":" in preset for preset in cli_catalog.CLI_MODELS["qwen"])
     assert cli_catalog.CLI_MODELS["omp"] == [
         "litellm/orchestration",
         "gemini-2.5-flash",
@@ -344,6 +370,55 @@ def test_missing_cli_presets_do_not_clobber_last_good():
 def test_default_probe_timeout_is_bounded():
     assert PROBE_TIMEOUT_S <= 1.5
     assert cli_catalog.LIST_MODELS_TIMEOUT <= 1.5
+
+
+def test_on_demand_picker_timeout_exceeds_profile_cap():
+    # #1278: the picker may wait longer than the 1.5s profile-hydration cap.
+    assert ON_DEMAND_PROBE_TIMEOUT_S > PROBE_TIMEOUT_S
+    assert ON_DEMAND_PROBE_TIMEOUT_S >= 5.0
+
+
+def test_on_demand_picker_outlasts_profile_cap(monkeypatch, tmp_path):
+    # A CLI slower than PROBE_TIMEOUT_S (opencode/agy take ~2s) still lists its
+    # models through the picker path but times out on the profile path (#1278).
+    script = tmp_path / "slow_probe.py"
+    script.write_text("import time\ntime.sleep(1.6)\nprint('slow-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    picker = list_models_for_picker("grok")
+    assert picker.models == ["slow-model"]
+    assert picker.warning is None
+
+
+def test_on_demand_picker_reprobes_cached_empty(monkeypatch, tmp_path):
+    # A prior short-timeout profile probe caches an empty result; the picker
+    # must not serve that empty list for the whole TTL (#1278).
+    clear_probe_cache()
+    _remember(ListModelsResult(cli="grok", models=[], warning="timed out"))
+    script = tmp_path / "fast_probe.py"
+    script.write_text("print('fresh-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    picker = list_models_for_picker("grok")
+    assert picker.models == ["fresh-model"]
+
+
+def test_on_demand_picker_serves_cached_good_models(monkeypatch, tmp_path):
+    # A cached real list is served without spawning the CLI again.
+    script = tmp_path / "probe.py"
+    script.write_text("print('cached-model')\n")
+    monkeypatch.setitem(cli_catalog.LIST_MODELS, "grok", [PY, str(script)])
+    clear_probe_cache()
+    assert list_models_for_picker("grok").models == ["cached-model"]
+    monkeypatch.setitem(
+        cli_catalog.LIST_MODELS, "grok", [PY, "-c", "import time; time.sleep(30)"]
+    )
+    assert list_models_for_picker("grok").models == ["cached-model"]
+
+
+def test_opencode_presets_include_opencode_go_models():
+    presets = cli_catalog.CLI_MODELS["opencode"]
+    assert "opencode-go/deepseek-v4.1-flash" in presets
+    assert "litellm/orchestration" in presets
 
 
 def test_concurrent_hanging_clis_do_not_stack_timeouts(monkeypatch):
@@ -426,4 +501,49 @@ def test_failed_refresh_keeps_last_good_models(monkeypatch, tmp_path):
     served = list_models_many(["grok"])
     assert served[0].models == ["keep-me"]
     assert "failed" in (served[0].warning or "").lower()
+
+
+def test_opencode_payload_excludes_app_gated_ids():
+    # Most ``opencode/*`` free ids only run inside the OpenCode app and must
+    # stay out of the picker. Allowlisted Space Bunny (#1747) and runnable
+    # ``opencode-go/*`` / litellm ids remain.
+    result = ListModelsResult(
+        cli="opencode",
+        models=[
+            "opencode/big-pickle",
+            "opencode/gpt-6-astra",
+            "opencode/space-bunny-free",
+            "opencode-go/deepseek-v4.1-flash",
+            "litellm/orchestration",
+        ],
+    )
+    # The raw probe/cache is untouched - only the public payload is filtered.
+    assert "opencode/big-pickle" in result.models
+    payload = result.as_dict()
+    assert payload["cli"] == "opencode"
+    assert payload["models"] == [
+        "opencode/space-bunny-free",
+        "opencode-go/deepseek-v4.1-flash",
+        "litellm/orchestration",
+    ]
+
+
+
+def test_app_gated_filter_is_opencode_only():
+    # Another CLI that lists an ``opencode/*`` id is not app-gated by that id.
+    result = ListModelsResult(cli="agy", models=["opencode/big-pickle"])
+    assert result.as_dict()["models"] == ["opencode/big-pickle"]
+
+
+def test_parse_drops_grok_reserved_routing_labels():
+    # grok's list prints pseudo-rows ``You`` / ``Default``; the frontend hides
+    # them but the API must never surface them either.
+    raw = "You are using the grok CLI\nDefault\ngrok-4.6\ngrok-4.5\n"
+    assert parse_models_stdout(raw) == ["grok-4.6", "grok-4.5"]
+
+
+def test_parse_drops_reserved_labels_in_json():
+    assert parse_models_stdout('["You", "Default", "GROK-4.6"]') == ["GROK-4.6"]
+    assert parse_models_stdout('{"models": [{"id": "You"}, {"id": "Default"}]}') == []
+
 

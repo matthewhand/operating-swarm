@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" role="img" aria-label="Open Swarm — CLI, API, Remote, Team, Blueprint">
-  <title>Open Swarm</title>
-  <desc>Geometric Open Swarm mark surrounded by worker bees. Speech bubbles: CLI, API, Remote, Team, Blueprint.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 560" role="img" aria-label="Operating Swarm — CLI, API, Remote, Team, Blueprint">
+  <title>Operating Swarm</title>
+  <desc>Geometric Operating Swarm mark surrounded by worker bees. Speech bubbles: CLI, API, Remote, Team, Blueprint.</desc>
   <defs>
     <pattern id="os-honey" width="6" height="5.2" patternUnits="userSpaceOnUse">
       <path d="M3 0.35 L5.7 1.9 V4.3 L3 5.85 L0.3 4.3 V1.9 Z" fill="none" stroke="#C48A1C" stroke-width="0.45"/>

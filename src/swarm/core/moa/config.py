@@ -70,7 +70,7 @@ DEFAULT_MOA_BLOCK: dict[str, Any] = {
 
 # Open WebUI / OpenAI-compatible client preset (document + export helper).
 OPENWEBUI_MOA_CONNECTION: dict[str, Any] = {
-    "name": "Open Swarm MoA",
+    "name": "Operating Swarm MoA",
     "model": "moa",
     "base_url": "http://localhost:8000/v1",
     "api_key": "${SWARM_API_KEY}",

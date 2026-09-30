@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Failure, Retry &amp; Recovery · Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Flow · Operating Swarm</p>
+    <h1>Failure, Retry &amp; Recovery</h1>
+
+    <svg viewBox="0 0 1000 748" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="fail-title fail-desc">
+      <title id="fail-title">Failure, retry and recovery decision flow</title>
+      <desc id="fail-desc">Decision flow for a seat turn: unresolved blueprint returns 404; a timeout triggers cooperative turn cancellation and 504; a seat or panel error fails over to the next participant or returns 502; otherwise the turn streams and persists durably. An out-of-band recovery panel covers database fail-fast exit 78, systemd restart exemption, compose restart policy, and restart-durable responses.</desc>
+      <defs>
+        <pattern id="dots-fail" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="fail-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="fail-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-fail)" opacity="0.55"/>
+
+      <!-- Spine connectors -->
+      <line x1="240" y1="96" x2="240" y2="120" stroke="#f08a59" stroke-width="1.6" marker-end="url(#fail-arrow-accent)"/>
+      <line x1="240" y1="180" x2="240" y2="220" stroke="#f08a59" stroke-width="1.6" marker-end="url(#fail-arrow-accent)"/>
+      <line x1="240" y1="280" x2="240" y2="320" stroke="#f08a59" stroke-width="1.6" marker-end="url(#fail-arrow-accent)"/>
+      <line x1="240" y1="380" x2="240" y2="420" stroke="#f08a59" stroke-width="1.6" marker-end="url(#fail-arrow-accent)"/>
+      <line x1="240" y1="460" x2="240" y2="500" stroke="#f08a59" stroke-width="1.6" marker-end="url(#fail-arrow-accent)"/>
+      <!-- Branch connectors -->
+      <line x1="336" y1="150" x2="520" y2="150" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#fail-arrow)"/>
+      <line x1="336" y1="250" x2="520" y2="250" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#fail-arrow)"/>
+      <line x1="336" y1="350" x2="520" y2="350" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#fail-arrow)"/>
+
+      <!-- Start -->
+      <rect x="120" y="56" width="240" height="40" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+      <text x="240" y="81" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Request → seat turn</text>
+
+      <!-- D1 -->
+      <polygon points="144,150 240,120 336,150 240,180" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+      <text x="240" y="154" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Blueprint resolved?</text>
+      <rect x="308" y="132" width="26" height="12" rx="2" fill="#2d3142"/>
+      <text x="321" y="141" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">NO</text>
+
+      <!-- D2 -->
+      <polygon points="144,250 240,220 336,250 240,280" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+      <text x="240" y="254" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Timeout exceeded?</text>
+      <rect x="308" y="232" width="32" height="12" rx="2" fill="#2d3142"/>
+      <text x="324" y="241" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">YES</text>
+
+      <!-- D3 -->
+      <polygon points="144,350 240,320 336,350 240,380" fill="#353a4e" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+      <text x="240" y="354" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Seat / panel error?</text>
+      <rect x="308" y="332" width="32" height="12" rx="2" fill="#2d3142"/>
+      <text x="324" y="341" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">YES</text>
+
+      <!-- Outcomes -->
+      <rect x="520" y="124" width="456" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+      <text x="540" y="146" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">404 · model_not_found</text>
+      <text x="540" y="164" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">resolve_chat_blueprint_id → no seat for that id</text>
+
+      <rect x="520" y="224" width="456" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+      <text x="540" y="246" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Timeout → cooperative cancel_turn → 504</text>
+      <text x="540" y="264" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">agent_run_timeout (default 600s) · terminate orphan CLI run</text>
+
+      <rect x="520" y="324" width="456" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+      <text x="540" y="346" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Failover to next participant, else 502</text>
+      <text x="540" y="364" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">moa/fusion failover chain · honest error, no silent swallow</text>
+
+      <!-- Success -->
+      <rect x="120" y="420" width="240" height="40" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+      <text x="240" y="445" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Stream tokens · persist turn</text>
+      <rect x="120" y="500" width="240" height="40" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+      <text x="240" y="525" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Record durable · restart-safe</text>
+      <text x="240" y="466" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">SSE / JSON to caller</text>
+      <text x="240" y="546" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">queued / in_progress resume on poll</text>
+
+      <!-- Recovery panel -->
+      <line x1="24" y1="592" x2="976" y2="592" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="612" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">OUT-OF-BAND · PROCESS &amp; INFRASTRUCTURE RECOVERY</text>
+      <g transform="translate(24,624)">
+        <rect width="220" height="96" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">DB unreachable</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">boot-time fail-fast</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">exit 78 (EX_CONFIG)</text>
+        <text x="16" y="80" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">redacted operator message</text>
+      </g>
+      <g transform="translate(264,624)">
+        <rect width="220" height="96" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">systemd restart cap</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">RestartPreventExitStatus=78</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">unit stays failed, no loop</text>
+        <text x="16" y="80" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">transient crashes still restart</text>
+      </g>
+      <g transform="translate(504,624)">
+        <rect width="220" height="96" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Compose restart policy</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">base: on-failure:5 (fail fast)</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">dev overlay: unless-stopped</text>
+        <text x="16" y="80" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">docker stop = manual, no restart</text>
+      </g>
+      <g transform="translate(744,624)">
+        <rect width="232" height="96" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600">Caller-side recovery</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">429 + Retry-After on throttle</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">WS anonymous → close 4401</text>
+        <text x="16" y="80" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">SPA re-sign-in CTA</text>
+      </g>
+      <text x="24" y="736" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/core/agent_run_timeout.py · src/swarm/core/moa/orchestrator.py · docs/ASYNC_RESPONSES.md · docs/RUNBOOK_NEON_QUOTA_CRASH_LOOP.md</text>
+    </svg>
+  </div>
+</body>
+</html>

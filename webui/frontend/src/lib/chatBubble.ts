@@ -5,9 +5,15 @@
 export const CHAT_BUBBLE_COMPLETE = 'os-chat-bubble--complete'
 export const CHAT_BUBBLE_STREAMING = 'os-chat-bubble--streaming'
 
-/** Hover / a11y name for in-bubble typing dots (not inter-bot hops). */
+import { humanizeAgentSlug } from './humanizeSlug'
+
+/** Hover / a11y name for in-bubble typing dots (not inter-bot hops).
+ *  #1240: the name is humanized here — the working indicator must say
+ *  'Starter Admin is working', not the raw catalog slug. Scoped to this
+ *  label only: rail/navbar a11y names keep the catalog strings that their
+ *  pins assert. */
 export function workingLabel(agentName?: string | null): string {
-  const name = (agentName || '').trim()
+  const name = humanizeAgentSlug((agentName || '').trim())
   return name ? `${name} is working` : 'Working'
 }
 

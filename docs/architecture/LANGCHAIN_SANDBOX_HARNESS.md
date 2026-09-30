@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-As Open Swarm coordinates multi-agent graphs across CLI, API, Blueprints, and Remotes, agents frequently require tool capabilities to execute code (Python REPL), invoke shell scripts (Bash), and read/write workspace artifacts.
+As Operating Swarm coordinates multi-agent graphs across CLI, API, Blueprints, and Remotes, agents frequently require tool capabilities to execute code (Python REPL), invoke shell scripts (Bash), and read/write workspace artifacts.
 
 Without execution harnesses and sandboxing:
 - Arbitrary code execution threatens host stability, security, and secret isolation (e.g. LLM API keys present in host environment variables).
@@ -27,7 +27,7 @@ This RFC establishes:
 
 ## 2. Comparative Analysis: OpenManus vs LangChain Sandbox Approaches
 
-| Dimension | OpenManus / OpenMousBot | LangChain Sandbox Harness | Open Swarm Hybrid Model |
+| Dimension | OpenManus / OpenMousBot | LangChain Sandbox Harness | Operating Swarm Hybrid Model |
 | :--- | :--- | :--- | :--- |
 | **Primary Focus** | Autonomous agent turn loop + built-in bash/python tools | Standardized modular execution tools and harness abstractions | Core `openai-agent()` reasoning + LangChain/local sandbox harness |
 | **Isolation Mechanism** | Subprocess containment, optional Docker wrapper, E2B microVMs | `PythonAstREPLTool`, Docker tools, E2B data analysis wrappers | Pluggable `SandboxBackend`: Local bare metal (sanitized env), LangChain REPL, Mock, Docker (roadmap) |
@@ -59,7 +59,7 @@ flowchart TD
         C --> E[Multi-Agent Handoffs]
     end
 
-    subgraph Tool Boundary ["Open Swarm Tool Adapter"]
+    subgraph Tool Boundary ["Operating Swarm Tool Adapter"]
         D --> F[function_tool Callables]
         F --> G[SandboxManager.as_function_tools]
     end
@@ -74,8 +74,8 @@ flowchart TD
 ```
 
 ### Why Not Replace `openai-agent()` with LangChain?
-1. **Handoff & Agent Graph Integrity**: Open Swarm's orchestration leverages `openai-agents` native `handoff(...)` graphs and `agent-as-tool` primitives. Replacing the core loop with LangChain `AgentExecutor` would break graph determinism, persona definitions, and consensus panels.
-2. **Schema & Streaming Parity**: Open Swarm's WebUI and `/v1/chat/completions` API rely on exact token-by-token streaming, tool call deltas, and state transitions emitted by `agents.Runner`.
+1. **Handoff & Agent Graph Integrity**: Operating Swarm's orchestration leverages `openai-agents` native `handoff(...)` graphs and `agent-as-tool` primitives. Replacing the core loop with LangChain `AgentExecutor` would break graph determinism, persona definitions, and consensus panels.
+2. **Schema & Streaming Parity**: Operating Swarm's WebUI and `/v1/chat/completions` API rely on exact token-by-token streaming, tool call deltas, and state transitions emitted by `agents.Runner`.
 3. **Granular Fusion**: Orchestrating agents can select when to reach for sandboxed evaluation without shifting the entire reasoning runtime to another framework.
 
 ---
@@ -164,7 +164,7 @@ coding_agent = Agent(
 
 ## 6. Roadmap: Containerized & MicroVM Sandboxing
 
-While the current implementation provides bare-metal and LangChain REPL harnesses, the pluggable `SandboxBackend` interface directly prepares Open Swarm for future containerized backends:
+While the current implementation provides bare-metal and LangChain REPL harnesses, the pluggable `SandboxBackend` interface directly prepares Operating Swarm for future containerized backends:
 
 1. **Docker Container Backend (`DockerSandbox`)**:
    - Spawns an isolated container per session or worker (`docker run --rm -v ...`).

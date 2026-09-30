@@ -55,7 +55,7 @@
       <li><strong>Session Explorer</strong> — with API auth on, may also list token-owned sessions (operator bridge; REST IDOR stays same-principal).</li>
     </ul>
     <span class="os-meta">Full map: see <code>docs/AUTH.md</code> in the repo, or
-      <a href="https://github.com/matthewhand/open-swarm/blob/main/docs/AUTH.md" rel="noopener noreferrer" target="_blank">GitHub</a>.
+      <a href="https://github.com/matthewhand/operating-swarm/blob/main/docs/AUTH.md" rel="noopener noreferrer" target="_blank">GitHub</a>.
     </span>
   </div>
 
@@ -66,8 +66,8 @@
       <div>
         <h2 class="dashboard-title" id="chat-retention-title">Chat persistence</h2>
         <p class="dashboard-subtitle mb-0">
-          One JSON file per agent. Switching agents or reloading Chat restores that thread.
-          Retention stays on this page — not in the Chat chrome.
+          The database is the canonical chat history. Switching agents or reloading Chat restores that thread.
+          Retention and trash stay on this page — not in the Chat chrome.
         </p>
       </div>
       <div class="settings-stats">
@@ -86,9 +86,9 @@
       </div>
     </div>
     <p class="os-meta mt-3 mb-2">
-      Files: <code>{{ chat_stats.store_dir }}</code>
+      Canonical store: Django <code>ChatMessage</code>.
+      JSON cache: <code>{{ chat_stats.store_dir }}</code>
       (<code>active/&lt;user&gt;/&lt;agent&gt;.json</code>).
-      Format: JSON.
       Auto-move to trash after <strong>{{ chat_stats.max_age_days }}</strong> days
       (set <code>{{ chat_stats.env_max_age }}</code>; <code>0</code> disables).
       Override the directory with <code>{{ chat_stats.env_dir }}</code>.
@@ -107,7 +107,7 @@
         <span class="os-action-card__icon" aria-hidden="true"><i class="fas fa-trash"></i></span>
         <span>
           <span class="os-action-card__title">Empty trash</span>
-          <span class="os-action-card__desc">Permanently delete archived chat files. This cannot be undone.</span>
+          <span class="os-action-card__desc">Permanently delete archived chats. This cannot be undone.</span>
         </span>
       </button>
     </div>
@@ -158,7 +158,7 @@
           3D robot is a WebGL bot on the chat header (static SVG if WebGL is unavailable).
           Existing users keep their current theme; Bee and 3D robot are never auto-applied.
           The choice stays in this browser and does not rewrite blueprints.
-          <a href="https://github.com/matthewhand/open-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md">3D robot (ADR-008)</a>
+          <a href="https://github.com/matthewhand/operating-swarm/blob/main/docs/adr/008-3d-robot-avatar-theme.md">3D robot (ADR-008)</a>
         </p>
       </div>
     </div>
@@ -489,7 +489,7 @@
           <button type="button" class="btn-close" aria-label="Close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div id="envContent">Loading...</div>
+          <div id="envContent"></div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" disabled

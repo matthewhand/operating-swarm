@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 
 import pytest
+from helpers.private_net import assert_no_private_ip
 
 from swarm.herdr.ssh import (
     SSH_NOT_CONFIGURED,
@@ -28,7 +29,7 @@ def test_require_ssh_target_missing_host_or_user():
         require_ssh_target(host="", user="herdr")
     with pytest.raises(SSHNotConfiguredError, match="ssh_host"):
         require_ssh_target(host="herdr.example.test", user="")
-    assert "10.0.0." not in SSH_NOT_CONFIGURED
+    assert_no_private_ip(SSH_NOT_CONFIGURED)
     assert "OpenMousBot" in SSH_NOT_CONFIGURED
 
 
@@ -91,7 +92,7 @@ def test_stub_transport_never_opens_ssh():
     assert result.returncode == 0
     assert seen[0][0] == "ssh"
     assert remote_command_from_ssh_argv(seen[0]) == ["herdr", "agent", "list"]
-    assert "10.0.0." not in " ".join(seen[0])
+    assert_no_private_ip(" ".join(seen[0]))
 
 
 def test_no_agent_and_no_identity_is_clear_error():

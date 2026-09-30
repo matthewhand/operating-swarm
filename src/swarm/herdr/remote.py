@@ -6,7 +6,7 @@ other-host.
 
 REQ-100 hop model
 -----------------
-* **Local Herdr:** Open Swarm talks to Herdr on this host (official ``herdr``
+* **Local Herdr:** Operating Swarm talks to Herdr on this host (official ``herdr``
   CLI; no SSH). Herdr drives the local CLIs it wraps (agy / pi / grok / …).
   A localhost HTTP base is optional and only when the user chose that
   (REQ-64 health/list ``GET /health``, ``GET /agents`` still fit).
@@ -70,7 +70,7 @@ HERDR_HTTP_REMOTE_REFUSED = (
 HERDR_SSH_NOT_CONFIGURED = SSH_NOT_CONFIGURED
 
 HOP_MODEL = (
-    "One hop: Open Swarm SSHs to the Herdr host, then talks to Herdr on that "
+    "One hop: Operating Swarm SSHs to the Herdr host, then talks to Herdr on that "
     "host (official herdr CLI). Herdr wraps the CLIs it manages there "
     "(agy / pi / grok / …). Local Herdr skips SSH and talks to Herdr on "
     "this host. Distinct from HTTP remotes (OpenMousBot / Hermes / Rakazo)."

@@ -31,6 +31,13 @@
       "model": "${LITELLM_MODEL}",
       "base_url": "${LITELLM_BASE_URL}",
       "api_key": "${LITELLM_API_KEY}"
+    },
+    "system1-filter": {
+      "provider": "system1",
+      "model": "system1-categorizer",
+      "model_type": "categorizer",
+      "base_url": "${SYSTEM1_BASE_URL}",
+      "api_key": "${SYSTEM1_API_KEY}"
     }
   },
   "settings": {

@@ -1,6 +1,19 @@
 import { test, expect } from '@playwright/test'
 
-const ROLE_ACCENT_COLORS = ['#3d8f8a', '#c47a3a', '#7a6b9b', '#4f8ec9', '#c9a227', '#8a5a9b']
+const ROLE_ACCENT_COLORS = [
+  '#3d8f8a',
+  '#c47a3a',
+  '#7a6b9b',
+  '#4f8ec9',
+  '#c9a227',
+  '#8a5a9b',
+  // Current dark-theme badge colours (default theme). Row chrome must not use them.
+  '#6fc2bc',
+  '#f9a038',
+  '#daab82',
+  '#b8b0c9',
+  '#90b8dd',
+]
 
 const BLUEPRINTS = {
   object: 'list',
@@ -80,6 +93,7 @@ function assertNoRoleAccent(boxShadow: string, background: string, outline: stri
 test('REQ-67: role colour is the badge only; selected/hover stay', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('swarm_hidden_agents', '[]')
+    localStorage.setItem('swarm_theme', 'dark')
   })
   await stubAgentApis(page)
   await page.goto('/chat?blueprint=codey')
@@ -139,7 +153,7 @@ test('REQ-67: role colour is the badge only; selected/hover stay', async ({ page
   const supportBadgeColor = await support.locator('.os-agent-role-badge').evaluate((el) => {
     return getComputedStyle(el).color
   })
-  expect(supportBadgeColor).toBe('rgb(61, 143, 138)') // #3d8f8a
+  expect(supportBadgeColor).toBe('rgb(111, 194, 188)') // #6fc2bc, dark-theme support badge
 
   await expect(codey).toHaveClass(/os-agent-row--active/)
   await expect(support).not.toHaveClass(/os-fav-tile--active/)

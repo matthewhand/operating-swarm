@@ -92,6 +92,8 @@ describe('PluginsServersPane', () => {
 
     renderPane()
     expect(await screen.findByText(/No servers configured yet/i)).toBeInTheDocument()
+    expect(screen.getByTestId('os-plugin-pack-pane')).toHaveTextContent(/plugin-id/i)
+    expect(screen.getByTestId('os-plugin-pack-pane').textContent).not.toMatch(/sk-|bearer /i)
 
     fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
     expect(await screen.findByRole('list', { name: 'Configured MCP servers' })).toHaveTextContent('Fetch')

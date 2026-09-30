@@ -611,7 +611,12 @@ async def test_api_backend_keeps_swarm_and_flattens_cli(blueprint, monkeypatch):
     blueprint._agents["grok"] = cli_bot
     seen: list[str] = []
 
-    async def fake_swarm(agent, user_content):
+    # Mirrors the real engine signature:
+    #   RouterEnginesMixin._run_swarm_agent(self, agent, user_content, messages=None)
+    # ``messages`` carries the per-turn Settings → About me card and is passed
+    # to ``apply_operator_profile_to_agent`` for the coordinator *and* every
+    # persona, so a two-argument fake is a stale double, not a valid stub.
+    async def fake_swarm(agent, user_content, messages=None):
         seen.append(f"swarm:{agent.kind}")
         yield {"content": "SWARM_OK", "role": "assistant", "agent": agent.name}
 
@@ -639,6 +644,150 @@ async def test_api_backend_keeps_swarm_and_flattens_cli(blueprint, monkeypatch):
     chunks = [c async for c in blueprint._run_agent(cli_bot, messages)]
     assert "cli:" not in "".join(seen)
     assert chunks[0]["content"] == "LLM_OK"
+
+
+@pytest.mark.asyncio
+async def test_blueprint_param_does_not_steal_cli_or_remote_seat(blueprint, monkeypatch):
+    """#1437 — a blueprint param is an API recipe, not a seat reclassification.
+
+    Empty backend plus ``blueprint`` used to dispatch CLI and remote agents
+    through ``_run_blueprint_agent`` before their own engines ran.
+    """
+    import swarm.blueprints.agent_router.blueprint_agent_router as mod
+    from swarm.blueprints.agent_router.blueprint_agent_router import DesignedAgent
+
+    monkeypatch.setattr(mod, "HAS_AGENTS", False)
+
+    def _spec(agent_id, name, kind, **extra):
+        return {
+            "agent_id": agent_id,
+            "name": name,
+            "kind": kind,
+            "specialty": kind,
+            "color": "#6366f1",
+            "icon": "🤖",
+            "group": "tools",
+            "type": "specialist",
+            **extra,
+        }
+
+    cli_bot = DesignedAgent(_spec("grok", "Grok", "cli", cli="grok"))
+    remote_bot = DesignedAgent(_spec("hermes", "Hermes", "remote", framework="hermes"))
+    bp_bot = DesignedAgent(_spec("codey", "Codey", "blueprint", blueprint_id="codey"))
+    seen: list[str] = []
+
+    async def fake_cli(agent, user_content, cli_name=None):
+        seen.append(f"cli:{cli_name or agent.cli}")
+        yield {"content": "CLI_OK", "role": "assistant", "agent": agent.name}
+
+    async def fake_remote(agent, messages, user_content):
+        seen.append("remote")
+        yield {"content": "REMOTE_OK", "role": "assistant", "agent": agent.name}
+
+    async def fake_bp(agent, messages, user_content):
+        seen.append(f"blueprint:{getattr(agent, 'blueprint_id', '')}")
+        yield {"content": "BP_OK", "role": "assistant", "agent": agent.name}
+
+    async def fake_canned(agent, user_content):
+        seen.append("llm")
+        yield {"content": "LLM_OK", "role": "assistant", "agent": agent.name}
+
+    blueprint._run_cli_agent = fake_cli
+    blueprint._run_remote_agent = fake_remote
+    blueprint._run_blueprint_agent = fake_bp
+    blueprint._canned_specialist = fake_canned
+    blueprint._run_cli_fallback = fake_canned
+    messages = [{"role": "user", "content": "hi"}]
+
+    blueprint.set_params({"blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(cli_bot, messages)]
+    assert chunks[0]["content"] == "CLI_OK"
+    assert seen == ["cli:grok"]
+
+    seen.clear()
+    blueprint.set_params({"blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(remote_bot, messages)]
+    assert chunks[0]["content"] == "REMOTE_OK"
+    assert seen == ["remote"]
+
+    seen.clear()
+    blueprint.set_params({"blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(bp_bot, messages)]
+    assert chunks[0]["content"] == "BP_OK"
+    assert seen == ["blueprint:support"]
+
+    # Explicit API backend still flattens a CLI voice, and still must not
+    # detour through the blueprint recipe.
+    seen.clear()
+    blueprint.set_params({"backend": "api", "blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(cli_bot, messages)]
+    assert chunks[0]["content"] == "LLM_OK"
+    assert "blueprint:" not in "".join(seen)
+
+
+@pytest.mark.asyncio
+async def test_herdr_kind_stays_on_the_remote_engine(blueprint, monkeypatch):
+    """Stored kind ``herdr`` is a remote seat.
+
+    The blueprint guard treats it as remote, so a blueprint param no
+    longer selects a recipe. The engine switch must follow that seat
+    instead of falling through to the LLM. An explicit API backend still
+    flattens it.
+    """
+    import swarm.blueprints.agent_router.blueprint_agent_router as mod
+    from swarm.blueprints.agent_router.blueprint_agent_router import DesignedAgent
+
+    monkeypatch.setattr(mod, "HAS_AGENTS", False)
+    herdr_bot = DesignedAgent(
+        {
+            "agent_id": "herdr-desk",
+            "name": "Herdr Desk",
+            "kind": "herdr",
+            "framework": "herdr",
+            "transport": "herdr",
+            "specialty": "herdr",
+            "color": "#6366f1",
+            "icon": "🛰️",
+            "group": "remote",
+            "type": "specialist",
+        }
+    )
+    seen: list[str] = []
+
+    async def fake_remote(agent, messages, user_content):
+        seen.append("remote")
+        yield {"content": "REMOTE_OK", "role": "assistant", "agent": agent.name}
+
+    async def fake_bp(agent, messages, user_content):
+        seen.append("blueprint")
+        yield {"content": "BP_OK", "role": "assistant", "agent": agent.name}
+
+    async def fake_canned(agent, user_content):
+        seen.append("llm")
+        yield {"content": "LLM_OK", "role": "assistant", "agent": agent.name}
+
+    blueprint._run_remote_agent = fake_remote
+    blueprint._run_blueprint_agent = fake_bp
+    blueprint._canned_specialist = fake_canned
+    blueprint._run_cli_fallback = fake_canned
+    messages = [{"role": "user", "content": "hi"}]
+
+    blueprint.set_params({"blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(herdr_bot, messages)]
+    assert chunks[0]["content"] == "REMOTE_OK"
+    assert seen == ["remote"]
+
+    seen.clear()
+    blueprint.set_params({})
+    chunks = [c async for c in blueprint._run_agent(herdr_bot, messages)]
+    assert chunks[0]["content"] == "REMOTE_OK"
+    assert seen == ["remote"]
+
+    seen.clear()
+    blueprint.set_params({"backend": "api", "blueprint": "support"})
+    chunks = [c async for c in blueprint._run_agent(herdr_bot, messages)]
+    assert chunks[0]["content"] == "LLM_OK"
+    assert seen == ["llm"]
 
 
 @pytest.mark.django_db

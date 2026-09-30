@@ -1,6 +1,6 @@
 # ComfyUI Setup for Avatar Generation
 
-This document explains how to set up ComfyUI for generating avatar images for blueprints in Open Swarm.
+This document explains how to set up ComfyUI for generating avatar images for blueprints in Operating Swarm.
 
 ## Prerequisites
 

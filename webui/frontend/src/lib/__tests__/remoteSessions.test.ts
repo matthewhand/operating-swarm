@@ -28,6 +28,12 @@ describe('remoteSessions (issue #88 AnythingLLM)', () => {
     ])
   })
 
+  it('treats Octop seats as session-list remotes, including named instances', () => {
+    expect(remoteListsSessions({ id: 'octop', kind: 'octop' })).toBe(true)
+    expect(remoteListsSessions({ id: 'octop-lab', kind: 'octop-lab' })).toBe(true)
+    expect(remoteListsSessions({ id: 'tencent-octop', kind: 'tencent-octop' })).toBe(true)
+  })
+
   it('treats AnythingLLM as a session-list remote', () => {
     expect(remoteListsSessions({ id: 'anythingllm', kind: 'anythingllm' })).toBe(true)
     expect(
@@ -88,76 +94,6 @@ describe('remoteSessions (issue #88 AnythingLLM)', () => {
       '/chat?remote=anythingllm&session=docs%3Aabc',
     )
     expect(sessions[1].memberId).toBe('docs:abc')
-  })
-})
-
-describe('remoteSessions (issue #89 Letta)', () => {
-  it('treats Letta as a session-list remote', () => {
-    expect(remoteListsSessions({ id: 'letta', kind: 'letta' })).toBe(true)
-    expect(
-      remoteListsSessions({ id: 'box', kind: 'letta', capabilities: { sessions: true } }),
-    ).toBe(true)
-  })
-
-  it('puts the Letta resume key on chat send params', () => {
-    expect(remoteChatTurnParams('letta')).toEqual({
-      remote: 'letta',
-      name: 'letta',
-      op: 'send',
-    })
-    expect(remoteChatTurnParams('letta', 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')).toEqual({
-      remote: 'letta',
-      name: 'letta',
-      op: 'send',
-      session_id: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-      target: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-    })
-  })
-
-  it('reads Letta operate list sessions and is searchable', () => {
-    const result = {
-      remote: 'letta',
-      op: 'list',
-      ok: true,
-      detail: 'listed',
-      data: {
-        sessions: [
-          {
-            id: 'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-            title: 'Memory clerk',
-            snippet: 'long-term memory agent',
-            channel: 'memgpt_agent',
-          },
-          {
-            id: 'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
-            title: 'Onboarding flow',
-            snippet: 'workflow for new hires',
-            channel: 'workflow_agent',
-          },
-        ],
-      },
-    }
-    const rows = sessionsFromOperateResult(result)
-    expect(rows.map((row) => row.id)).toEqual([
-      'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-      'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
-    ])
-    expect(filterRemoteSessionRows(rows, 'onboarding').map((row) => row.id)).toEqual([
-      'agent-bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
-    ])
-    expect(filterRemoteSessionRows(rows, 'memory').map((row) => row.id)).toEqual([
-      'agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-    ])
-
-    const sessions = memberSessionsFromRemoteOperate(
-      { id: 'letta', kind: 'letta', title: 'Letta' },
-      result,
-    )
-    expect(sessions).toHaveLength(2)
-    expect(sessions[0].href).toBe(
-      '/chat?remote=letta&session=agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
-    )
-    expect(sessions[0].memberId).toBe('agent-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
   })
 })
 
@@ -259,6 +195,75 @@ describe('#852 — most recent session auto-select', () => {
 
   it('returns null for empty lists instead of throwing', () => {
     expect(mostRecentRemoteSession([])).toBeNull()
+  })
+})
+
+// #hermes — sessions ride a nested envelope and stamp epoch-seconds activity.
+describe('hermes sessions', () => {
+  const payload = {
+    remote: 'hermes',
+    op: 'list',
+    ok: true,
+    detail: 'listed Hermes models/sessions/jobs (missing slices stay null)',
+    data: {
+      models: { object: 'list', data: [{ id: 'hermes-agent' }] },
+      sessions: {
+        object: 'list',
+        data: [
+          {
+            id: 'run_a',
+            title: 'Reply with exactly OK #5',
+            preview: 'Reply with exactly: OK',
+            started_at: 1790461952.0102215,
+            last_active: 1790461955.230066,
+            message_count: 2,
+          },
+          {
+            id: 'run_b',
+            title: 'Run host task list 500 files summarize #2',
+            preview: '[f60012a8] Run a long host task: list 500 files...',
+            started_at: 1790450864.0696745,
+            last_active: 1790452871.3685114,
+            message_count: 13,
+          },
+        ],
+      },
+      jobs: { jobs: [] },
+    },
+  } as never
+
+  it('reads session rows nested under data.sessions.data', () => {
+    const rows = sessionsFromOperateResult(payload)
+    expect(rows.map((r) => r.id)).toEqual(['run_a', 'run_b'])
+    expect(rows[0].title).toBe('Reply with exactly OK #5')
+    expect(rows[0].snippet).toBe('Reply with exactly: OK')
+  })
+
+  it('maps the nested data.models list onto navbar agent options', () => {
+    expect(remoteAgentsFromOperate((payload as { data: unknown }).data)).toEqual([
+      { id: 'hermes-agent', label: 'hermes-agent' },
+    ])
+  })
+
+  it('lands each row on ?remote=hermes&session=<id>', () => {
+    const sessions = memberSessionsFromRemoteOperate(
+      { id: 'hermes', kind: 'hermes', title: 'Hermes' },
+      payload,
+    )
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0].memberId).toBe('run_a')
+    expect(sessions[0].href).toBe('/chat?remote=hermes&session=run_a')
+  })
+
+  it('turns epoch-seconds last_active into a real (non-1970) startedAt', () => {
+    const sessions = memberSessionsFromRemoteOperate(
+      { id: 'hermes', kind: 'hermes', title: 'Hermes' },
+      payload,
+    )
+    // `last_active` is epoch seconds (~1.79e9), not ms — a naive pass-through
+    // would render 1970. The parser normalises it to ms.
+    expect(sessions[0].startedAt).toBe(Date.parse('2026-09-26T22:32:35.230Z'))
+    expect(sessions[0].startedAt).toBeGreaterThan(Date.parse('2026-01-01T00:00:00Z'))
   })
 })
 

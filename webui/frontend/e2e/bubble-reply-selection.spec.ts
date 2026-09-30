@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
 import { installMockInference } from './helpers/mockInference'
+import { artifactsDir } from './helpers/artifacts'
 
 test.describe('#578 bubble reply action and selection quote', () => {
   test('bubble row has Reply action and context menu supports Reply with selection', async ({
@@ -29,7 +31,7 @@ test.describe('#578 bubble reply action and selection quote', () => {
 
     // Capture screenshot of hover actions containing Reply button
     await page.screenshot({
-      path: '/app/webui/frontend/e2e-screenshots/578-bubble-row-actions.png',
+      path: path.join(artifactsDir(), '578-bubble-row-actions.png'),
     })
 
     // 2. Right-click on the bubble: context menu opens with Reply and Copy
@@ -44,7 +46,7 @@ test.describe('#578 bubble reply action and selection quote', () => {
 
     // Capture screenshot of context menu with Reply and Copy
     await page.screenshot({
-      path: '/app/webui/frontend/e2e-screenshots/578-bubble-context-menu.png',
+      path: path.join(artifactsDir(), '578-bubble-context-menu.png'),
     })
 
     // 3. Click Reply from the context menu
@@ -58,7 +60,7 @@ test.describe('#578 bubble reply action and selection quote', () => {
 
     // Capture screenshot of composer with reply strip armed
     await page.screenshot({
-      path: '/app/webui/frontend/e2e-screenshots/578-composer-reply-armed.png',
+      path: path.join(artifactsDir(), '578-composer-reply-armed.png'),
     })
 
     // 5. Send a reply

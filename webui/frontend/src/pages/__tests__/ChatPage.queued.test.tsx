@@ -192,7 +192,7 @@ describe('ChatPage queued sends (REQ-90 / #447)', () => {
   })
 
   it('#885: queueing on a remote seat renders the pane (inside the dock) while the harness turn runs', async () => {
-    renderChat('/chat?remote=letta')
+    renderChat('/chat?remote=openwebui')
     const ws = await openSocket()
     await act(async () => {
       startStreaming(ws)
@@ -433,23 +433,153 @@ describe('ChatPage queued sends (#198 enter-to-interrupt)', () => {
       code: 'Enter',
     })
 
-    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(1)
-    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
-      type: 'cancel_turn',
+    // #1226: the interrupt is acknowledged locally — cancel_turn goes out AND
+    // the queued row promotes immediately, instead of the old
+    // remove→re-enqueue→remove bounce while the server's turn_finished was
+    // still in flight.
+    await waitFor(() => {
+      expect(
+        ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"')),
+      ).toHaveLength(2)
     })
+    const chatFrames = ws.send.mock.calls
+      .map((c) => String(c[0]))
+      .filter((s) => !s.includes('"kind":"subscribe"'))
+    expect(JSON.parse(chatFrames[0])).toMatchObject({ type: 'cancel_turn' })
+    expect(JSON.parse(chatFrames[1])).toMatchObject({ message: 'jump the queue' })
 
-    // Server closes the interrupted turn with a final partial; the drain
-    // effect then promotes the queued message.
+    // The interrupted turn still closes server-side; no further sends.
     await act(async () => {
       finishStreaming(ws, 'message-response-abc123', 'Interrupted.')
     })
+    expect(
+      ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"')),
+    ).toHaveLength(2)
+  })
+})
+
+describe('#1276 queue FIFO + optimistic promotion rendering', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    Element.prototype.scrollIntoView = vi.fn()
+    clearAllQueuedSends()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.includes('/v1/cli-agents/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              rail: [{ id: 'codey', name: 'Codey', kind: 'cli', cli: 'qwen' }],
+            }),
+          } as Response
+        }
+        if (url.includes('/v1/blueprints')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [{ id: 'support', name: 'Support', description: 'Support agent' }],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] }),
+        } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearAllQueuedSends()
+    resetConversationThreads()
+  })
+
+  it('a composer send joins the queue while ANY queued row exists (FIFO, no bypass)', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    // Row A enqueues mid-generation (serial seat).
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'first queued' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('first queued')
+
+    // The turn closes — the drain promotes row A and its chat frame goes out.
+    await act(async () => {
+      finishStreaming(ws, 'message-response-abc123', 'turn one done')
+    })
     await waitFor(() => {
-      // Mux era: call[0] is the singleton's subscribe envelope — count chat frames.
-      expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))).toHaveLength(2)
+      expect(
+        ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"')),
+      ).toHaveLength(1)
     })
-    expect(JSON.parse(String(ws.send.mock.calls.map((c) => String(c[0])).find((s) => s.includes('"message"') && !s.includes('"kind":"subscribe"')) as string))).toMatchObject({
-      message: 'jump the queue',
+
+    // Row A is now mid-flight (assistant_start has not arrived). Defect 1:
+    // a NEW send must join the BACK of the queue, never bypass it.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'second queued' },
     })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+
+    const chatFrames = ws.send.mock.calls
+      .map((c) => String(c[0]))
+      .filter((s) => !s.includes('"kind":"subscribe"'))
+    expect(chatFrames).toHaveLength(1)
+    expect(JSON.parse(chatFrames[0])).toMatchObject({ message: 'first queued' })
+    const row = screen.getByTestId('queued-row')
+    expect(row).toHaveAttribute('data-status', 'queued')
+    expect(row).toHaveTextContent('second queued')
+  })
+
+  it('interrupt-promotion renders the promoted message optimistically before any server frame', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'jump the queue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    expect(screen.getByTestId('queued-row')).toHaveTextContent('jump the queue')
+
+    // Enter over an empty composer: cancel + promote.
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Chat message' }), {
+      key: 'Enter',
+      code: 'Enter',
+    })
+
+    // Defect 2: the promoted send must appear in the transcript IMMEDIATELY
+    // (optimistic pending row), before the server's user_echo arrives.
+    const transcript = document.querySelector('[data-testid="chat-messages-container"]')
+    expect(transcript).not.toBeNull()
+    expect(transcript!.textContent).toContain('jump the queue')
+
+    // The server echo then upgrades the same row instead of duplicating it:
+    // still exactly one occurrence of the promoted text after the echo.
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ kind: 'user_echo', text: 'jump the queue' }),
+        }),
+      )
+    })
+    expect(transcript!.textContent?.split('jump the queue').length - 1).toBe(1)
   })
 })
 
@@ -502,14 +632,38 @@ describe('ChatPage stop button (#223)', () => {
     renderChat()
     const ws = await openSocket()
 
-    // Idle: no stop affordance.
+    // Idle: no stop affordance and no Running badge (#1371).
     expect(screen.queryByTestId('agent-row-stop')).toBeNull()
+    expect(screen.queryByTestId('running-status-badge')).toBeNull()
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
 
     await act(async () => {
       startStreaming(ws)
     })
 
+    // #1371: the badge slot is the standing chrome; the stop stays hidden
+    // until it is hovered.
+    const badge = screen.getByTestId('running-status-badge')
+    expect(badge).toHaveAttribute('data-revealed', 'false')
+    // #1684: this is a CLI seat (`kind: 'cli'`, qwen). The turn-phase
+    // `tool_status` frames are produced only on the API path
+    // (`kind_bases.py` attaches the hooks in `ApiKindBase.run`), so a CLI
+    // turn emits no phase — and the badge must therefore stay hidden rather
+    // than be faked from `streaming`. The badge *pill* is gone from this
+    // assertion on purpose: it is the "a tool call is in flight" mark now,
+    // not a second view of the flag that animates the eye-dots.
+    expect(screen.queryByTestId('running-badge-pill')).toBeNull()
+    expect(badge.querySelector('.loading-spinner')).toBeNull()
+    // The eye-dots are the working mark for a plain streaming turn.
+    expect(screen.getByTestId('composer-working-indicator')).toBeTruthy()
     const stop = screen.getByTestId('agent-row-stop')
+    expect(stop).toHaveAttribute('data-visible', 'false')
+    expect(screen.queryByTestId('composer-stop')).toBeNull()
+
+    fireEvent.mouseEnter(badge)
+    expect(badge).toHaveAttribute('data-revealed', 'true')
+    expect(stop).toHaveAttribute('data-visible', 'true')
+
     fireEvent.click(stop)
     // #1096/#1097 ADR-017 PR-2: the stop is agent-scoped (no bookend seen
     // yet in this mock, so the registry fallback names the agent only).
@@ -533,6 +687,24 @@ describe('ChatPage stop button (#223)', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('agent-row-stop')).toBeNull()
     })
+  })
+
+  // #1096 placement: the stop tracks the END of the streaming message, so it
+  // must follow the assistant bubble in document order rather than sitting
+  // before/beside the avatar at the start of the row.
+  it('renders the stop affordance after the assistant bubble content', async () => {
+    renderChat()
+    const ws = await openSocket()
+    await act(async () => {
+      startStreaming(ws)
+    })
+
+    const bubble = screen.getByTestId('chat-bubble')
+    const stop = screen.getByTestId('agent-row-stop')
+    const position = bubble.compareDocumentPosition(stop)
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(bubble.contains(stop)).toBe(false)
+    expect(screen.getByTestId('agent-row-stop-slot')).toBeInTheDocument()
   })
 
   it('stop leaves queued sends intact (stop ≠ clear)', async () => {

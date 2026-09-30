@@ -31,6 +31,8 @@ export interface CliSessionHopResult {
   empty: boolean
   status: string
   export_warning: string | null
+  /** #1324: destination lost declared capabilities. Null/absent when nothing is lost. */
+  capability_warning?: string | null
   /** Where the seeded context came from: native export, the #901 DB mirror, or the swarm thread. */
   import: 'transcript' | 'swarm' | 'db_mirror'
   injection: {
@@ -128,6 +130,52 @@ export interface CrossKindHopSpec {
   toAgent: string
   toLabel: string
   fromLabel?: string
+}
+
+/**
+ * True when both ends name the same backend. `hop_backend` rejects that
+ * (`from_cli` and `to_cli` must differ) before it writes a pending seed.
+ * A CLI provider-profile pick is this case: the profile is only a banner
+ * label, and posting the hop would 400 without changing the adapter.
+ */
+export function reconfigureHopIsIdentity(spec: { fromCli: string; toCli: string }): boolean {
+  const from = spec.fromCli.trim().toLowerCase()
+  const to = spec.toCli.trim().toLowerCase()
+  return from.length > 0 && from === to
+}
+
+/**
+ * #1436 / #1437 — a provider-profile pick reconfigures the current seat.
+ * The hop kind is that seat (cli / remote / api), never a hardcoded `api`.
+ * CLI destinations stay keyed by the current CLI; remote and api destinations
+ * stay keyed by the seat record id. `profile` is only the banner label.
+ * When `reconfigureHopIsIdentity` is true the caller shows the provider
+ * notice instead of posting a hop the server will reject.
+ */
+export function reconfigureHopForSeat(input: {
+  seatKind: 'api' | 'cli' | 'remote' | 'team'
+  seatId: string
+  conversationId: string
+  profile: string
+  currentCli?: string
+  currentRemoteId?: string
+}): CrossKindHopSpec {
+  const hopKind: 'cli' | 'api' | 'remote' =
+    input.seatKind === 'remote' ? 'remote' : input.seatKind === 'cli' ? 'cli' : 'api'
+  const cliName = (input.currentCli || '').trim()
+  const remoteId = (input.currentRemoteId || '').trim()
+  const backendId =
+    hopKind === 'cli' ? cliName || input.profile : hopKind === 'remote' ? remoteId || input.seatId : input.profile
+  const fromCli =
+    hopKind === 'cli' ? cliName || 'prior' : hopKind === 'remote' ? remoteId || 'prior' : 'api'
+  return crossKindHopForReconfigure({
+    seatId: input.seatId,
+    conversationId: input.conversationId,
+    fromCli,
+    toCli: input.profile,
+    toKind: hopKind,
+    toBackendId: backendId,
+  })
 }
 
 /**

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Swarm">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Operating Swarm">
   <!-- Mono of webui-geometric.svg. currentColor silhouette for masks. -->
-  <title>Open Swarm</title>
+  <title>Operating Swarm</title>
   <g fill="currentColor" transform="rotate(-38 32 33)">
     <path d="M18 18 C8 8 4 22 16 28 C20 24 22 20 18 18 Z"/>
     <path d="M22 14 C16 2 6 10 18 22 C24 18 26 16 22 14 Z"/>

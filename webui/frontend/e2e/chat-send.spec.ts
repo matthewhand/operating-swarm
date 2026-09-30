@@ -29,7 +29,7 @@ async function awaitComposerReady(page: import('@playwright/test').Page) {
   await expect(conversation).toBeVisible()
   const composer = page.getByRole('textbox', { name: 'Chat message' })
   await expect(composer).toBeEnabled()
-  await expect(composer).toHaveAttribute('placeholder', /Message …/)
+  await expect(composer).toHaveAttribute('placeholder', /^Message /)
   return { conversation, composer }
 }
 

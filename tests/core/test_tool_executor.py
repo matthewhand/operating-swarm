@@ -450,7 +450,11 @@ class TestHandleToolCalls:
 
     @pytest.mark.asyncio
     async def test_safety_denies_concerned_api_tool(self):
-        from swarm.core.safety import SafetySession, install_safety_session, reset_safety_session
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
 
         tool_call = make_tool_call("call-deny", "wipe", "{}")
 
@@ -469,6 +473,215 @@ class TestHandleToolCalls:
         finally:
             reset_safety_session(token)
         assert "DENIED" in response.messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_command_allowlist_denies_before_dispatch(self, tmp_path, monkeypatch):
+        """#1312: a denied command is blocked server-side; the tool never runs."""
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+        store.update_settings(
+            "cli_agent",
+            {"command_allowlist": {"allow": ["git status"], "deny": ["rm"]}},
+        )
+
+        ran: list[str] = []
+
+        def execute_shell_command(command):
+            ran.append(command)
+            return "ran"
+
+        tool_call = make_tool_call(
+            "call-cmd", "execute_shell_command", '{"command": "rm -rf /"}'
+        )
+        session = SafetySession(agent_id="cli_agent")
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        payload = json.loads(response.messages[0]["content"])
+        assert payload["code"] == "COMMAND_DENIED"
+        assert ran == []
+
+    @pytest.mark.asyncio
+    async def test_command_allowlist_permits_allowlisted_command(self, tmp_path, monkeypatch):
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+        store.update_settings("cli_agent", {"command_allowlist": {"allow": ["git status"]}})
+
+        def execute_shell_command(command):
+            return f"ran: {command}"
+
+        tool_call = make_tool_call("call-ok", "execute_shell_command", '{"command": "git status"}')
+        session = SafetySession(agent_id="cli_agent")
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        assert response.messages[0]["content"] == "ran: git status"
+
+    @pytest.mark.asyncio
+    async def test_no_allowlist_preserves_prior_behavior(self, tmp_path, monkeypatch):
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+
+        def execute_shell_command(command):
+            return f"ran: {command}"
+
+        tool_call = make_tool_call("call-free", "execute_shell_command", '{"command": "rm -rf /"}')
+        session = SafetySession(agent_id="cli_agent")
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        assert response.messages[0]["content"] == "ran: rm -rf /"
+
+    @pytest.mark.asyncio
+    async def test_ask_rule_routes_to_elicitation(self, tmp_path, monkeypatch):
+        """#1312: an `ask` rule prompts even without an assigned safety role."""
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+        store.update_settings("codey", {"command_allowlist": {"ask": ["pytest"]}})
+
+        prompted: list[str] = []
+
+        def execute_shell_command(command):
+            return f"ran: {command}"
+
+        tool_call = make_tool_call("call-ask", "execute_shell_command", '{"command": "pytest -q"}')
+        session = SafetySession(
+            agent_id="codey",
+            safety_assigned=False,
+            elicit_fn=lambda name, _args: (prompted.append(name), "allow")[1],
+        )
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        assert prompted == ["execute_shell_command"]
+        assert response.messages[0]["content"] == "ran: pytest -q"
+
+    @pytest.mark.asyncio
+    async def test_ask_rule_denied_when_elicitation_denies(self, tmp_path, monkeypatch):
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+        store.update_settings("codey", {"command_allowlist": {"ask": ["pytest"]}})
+
+        ran: list[str] = []
+
+        def execute_shell_command(command):
+            ran.append(command)
+            return "ran"
+
+        tool_call = make_tool_call("call-ask2", "execute_shell_command", '{"command": "pytest -q"}')
+        session = SafetySession(
+            agent_id="codey",
+            safety_assigned=False,
+            elicit_fn=lambda _n, _a: "deny",
+        )
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        assert "DENIED" in response.messages[0]["content"]
+        assert ran == []
+
+    @pytest.mark.asyncio
+    async def test_deny_survives_always_allow(self, tmp_path, monkeypatch):
+        """#1312 acceptance: an `always allow` memory cannot override a deny rule."""
+        from swarm.core import agent_settings as store
+        from swarm.core.safety import (
+            AlwaysAllowStore,
+            SafetySession,
+            install_safety_session,
+            reset_safety_session,
+        )
+
+        monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "s.json"))
+        store.reset_agent_settings_cache()
+        store.update_settings("codey", {"command_allowlist": {"deny": ["rm"]}})
+
+        always_allow = AlwaysAllowStore(path=tmp_path / "always.json")
+        always_allow.allow("codey", "execute_shell_command")
+
+        ran: list[str] = []
+
+        def execute_shell_command(command):
+            ran.append(command)
+            return "ran"
+
+        tool_call = make_tool_call("call-aa", "execute_shell_command", '{"command": "rm -rf /"}')
+        session = SafetySession(
+            agent_id="codey",
+            safety_assigned=True,
+            classify_fn=lambda _n, _a: False,
+            elicit_fn=lambda _n, _a: "always",
+            always_allow=always_allow,
+        )
+        token = install_safety_session(session)
+        try:
+            response = await handle_tool_calls(
+                [tool_call], [execute_shell_command], {}, debug=False
+            )
+        finally:
+            reset_safety_session(token)
+            store.reset_agent_settings_cache()
+        assert "COMMAND_DENIED" in response.messages[0]["content"]
+        assert ran == []
 
     @pytest.mark.asyncio
     async def test_cli_safety_session_does_not_block_tool(self):

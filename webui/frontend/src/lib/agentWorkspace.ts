@@ -111,6 +111,21 @@ export function saveAgentWorkspace(
   return next
 }
 
+/** #1257: the rightmost path segment is what tells a filesystem location
+ *  apart, so the navbar keeps the tail and leads with an ellipsis. */
+export const NAVBAR_SUBTITLE_PATH_MAX = 32
+
+/** #1257: leading-ellipsis truncation — `...` + the rightmost `maxLength`
+ *  characters. Short paths are returned untouched. */
+export function truncatePathLeading(
+  path: string,
+  maxLength: number = NAVBAR_SUBTITLE_PATH_MAX,
+): string {
+  const value = path ?? ''
+  if (value.length <= maxLength) return value
+  return `...${value.slice(-maxLength)}`
+}
+
 /** Navbar subtitle: `folder — branch: main`. Empty when nothing is bound. */
 export function formatNavbarWorkspaceSubtitle(input: {
   folder?: string | null
@@ -125,6 +140,22 @@ export function formatNavbarWorkspaceSubtitle(input: {
   return ''
 }
 
+/** #1257: display form — leading-truncates only the path segment so a
+ *  trailing `— branch: x` suffix stays fully readable. */
+export function formatNavbarWorkspaceSubtitleDisplay(input: {
+  folder?: string | null
+  workspace?: string | null
+  branch?: string | null
+}): string {
+  const path = (input.folder || input.workspace || '').trim()
+  const branch = (input.branch || '').trim()
+  const shownPath = truncatePathLeading(path)
+  if (shownPath && branch) return `${shownPath} — branch: ${branch}`
+  if (shownPath) return shownPath
+  if (branch) return `branch: ${branch}`
+  return ''
+}
+
 /** Live subtitle for the selected agent, from Folder / GitHub repo / last git branch. */
 export function navbarWorkspaceSubtitle(agentId: string): string {
   if (!agentId) return ''
@@ -135,6 +166,22 @@ export function navbarWorkspaceSubtitle(agentId: string): string {
     workspace: ws.githubRepo,
     branch,
   })
+}
+
+/** #1257: the navbar shows the truncated display while the tooltip/aria keeps
+ *  the complete path. One load yields both so the two can never disagree. */
+export function navbarWorkspaceSubtitleParts(agentId: string): {
+  full: string
+  display: string
+} {
+  if (!agentId) return { full: '', display: '' }
+  const ws = loadAgentWorkspace(agentId)
+  const branch = (loadAgentEdit(agentId).gitBranch || '').trim()
+  const input = { folder: ws.folder, workspace: ws.githubRepo, branch }
+  return {
+    full: formatNavbarWorkspaceSubtitle(input),
+    display: formatNavbarWorkspaceSubtitleDisplay(input),
+  }
 }
 
 /** Persist cwd/branch from a CLI session select so the navbar can update. */

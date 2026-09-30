@@ -3,6 +3,36 @@
   themes: dark --default, light;
 }
 
+/* Hack — self-hosted code/monospace typeface (Source Foundry, MIT).
+   woff2 only; see src/assets/fonts/hack/Hack-LICENSE.md. */
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/hack-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/hack-bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hack';
+  src: url('./assets/fonts/hack/hack-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Map Tailwind's `font-mono` utility onto the code-font variable so inputs
+   and arbitrary `.font-mono` surfaces resolve to Hack as well. */
+@theme inline {
+  --font-mono: var(--os-font-mono);
+}
+
 /*
  * Operating Swarm chrome — Grok/OMB-like dark metal, not DaisyUI cupcake / rainbow
  * operator skin. Accents stay small (icons, focus, status dots). Category
@@ -82,6 +112,19 @@
   /* #560: the top chrome band — the chat header and the rail's search strip
      both consume it, so they share one baseline instead of two guesses. */
   --os-top-chrome-h: 3.5rem;
+  /* #1701: the navbar band's GLASS surface. `backdrop-filter` only shows
+     through a TRANSLUCENT colour — a solid `--color-base-100` blurs nothing —
+     so the tint is a `color-mix` of the theme's own base with `transparent`,
+     which re-derives itself for light and dark instead of pinning one literal.
+     The light theme overrides the mix percentage below, because a light
+     surface needs more of itself behind the text to keep contrast. */
+  --os-navbar-glass-tint: 78%;
+  --os-navbar-glass-blur: 12px;
+  --os-navbar-glass-bg: color-mix(
+    in srgb,
+    var(--color-base-100) var(--os-navbar-glass-tint),
+    transparent
+  );
   /* REQ-101: Grok chrome colour tokens */
   --os-grok-rail: #111111;
   --os-grok-tile-selected: #313131;
@@ -90,6 +133,31 @@
   --os-grok-composer: #262626;
   --os-grok-code-inline: #ff5667;
   --os-grok-link: #4194eb;
+  /* #1227: interface font family — the Omarchy-compatible default: JetBrains
+     Mono Nerd Font on hosts that ship it, system UI sans elsewhere.
+     fontFamily.ts overrides this inline on documentElement for other presets. */
+  --os-font-family: 'JetBrainsMono Nerd Font', 'JetBrains Mono', system-ui,
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Code / monospace stack — Hack is the default for code blocks, `<pre>`,
+     `<code>` and monospace inputs. Independent of --os-font-family (UI). */
+  --os-font-mono: 'Hack', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  /* #1411: reaction pills and reaction-only bubbles. Dark values live here;
+     light overrides them under [data-theme="light"]. */
+  --os-reaction-bg: #2a2a2a;
+  --os-reaction-fg: #f4f4f5;
+  --os-reaction-border: #4a4a4a;
+  --os-reaction-own-bg: #3d5a40;
+  --os-reaction-own-fg: #f3f8f5;
+  --os-reaction-own-border: #6d9a74;
+}
+
+/* Code surfaces use the code stack regardless of the selected UI font. */
+pre,
+code,
+kbd,
+samp {
+  font-family: var(--os-font-mono);
 }
 
 /* Paint the document chrome near-black so a DaisyUI/user-agent light
@@ -97,6 +165,7 @@
 html, body, #root {
   margin: 0;
   min-height: 100%;
+  font-family: var(--os-font-family);
   background-color: #0c0c0c;
 }
 html[data-theme="light"],
@@ -111,9 +180,18 @@ html[data-theme="light"] #root {
 
 [data-theme="light"] {
   --os-chrome-sidebar: #ececee;
+  /* #1701: more of the light base behind the navbar text — the dark mode's
+     78% mix is legible on a dark page but loses contrast on a light one. */
+  --os-navbar-glass-tint: 92%;
   /* Same #464 token names — light-readable variants, not a second theme system */
   --os-grok-code-inline: #c43d4e;
   --os-grok-link: var(--color-primary);
+  --os-reaction-bg: #f4f4f5;
+  --os-reaction-fg: #27272a;
+  --os-reaction-border: #d4d4d8;
+  --os-reaction-own-bg: #dbe7f5;
+  --os-reaction-own-fg: #1e3a5f;
+  --os-reaction-own-border: #7aa0c8;
 }
 
 /* REQ-101: Grok colour parity for dark chrome */
@@ -127,7 +205,7 @@ html:not([data-theme="light"]) .os-fav-tile--active,
 html:not([data-theme="light"]) .os-agent-row--active,
 [data-theme="dark"] .os-agent-row--active {
   background: var(--os-grok-tile-selected, #313131) !important;
-  color: #f2f2f2;
+  color: var(--color-base-content);
 }
 
 html:not([data-theme="light"]) .chat-start .chat-bubble,
@@ -135,7 +213,7 @@ html:not([data-theme="light"]) .chat-start .chat-bubble,
 html:not([data-theme="light"]) [data-message-role="assistant"] > div > div.rounded-2xl,
 [data-theme="dark"] [data-message-role="assistant"] > div > div.rounded-2xl {
   background-color: var(--os-grok-assistant-bubble, #262626) !important;
-  color: #f2f2f2 !important;
+  color: var(--color-base-content) !important;
 }
 
 html:not([data-theme="light"]) .chat-end .chat-bubble,
@@ -143,12 +221,55 @@ html:not([data-theme="light"]) .chat-end .chat-bubble,
 html:not([data-theme="light"]) [data-message-role="user"] > div > div.rounded-2xl,
 [data-theme="dark"] [data-message-role="user"] > div > div.rounded-2xl {
   background-color: var(--os-grok-user-bubble, #5a5a5a) !important;
-  color: #ffffff !important;
+  color: var(--color-base-content) !important;
 }
 
 html:not([data-theme="light"]) .os-composer,
 [data-theme="dark"] .os-composer {
   background: var(--os-grok-composer, #262626);
+}
+
+/* #1411: reaction chrome follows light/dark tokens, not a hard-coded badge. */
+.os-reaction-pill.badge {
+  background-color: var(--os-reaction-bg);
+  color: var(--os-reaction-fg);
+  border-color: var(--os-reaction-border);
+}
+.os-reaction-pill.badge[data-user-reacted="true"] {
+  background-color: var(--os-reaction-own-bg);
+  color: var(--os-reaction-own-fg);
+  border-color: var(--os-reaction-own-border);
+  opacity: 1;
+}
+html:not([data-theme="light"]) .chat-start .chat-bubble.os-reaction-only-bubble,
+[data-theme="dark"] .chat-start .chat-bubble.os-reaction-only-bubble,
+[data-theme="light"] .chat-start .chat-bubble.os-reaction-only-bubble,
+.chat-bubble.os-reaction-only-bubble {
+  background-color: var(--os-reaction-bg) !important;
+  color: var(--os-reaction-fg) !important;
+  border: 1px solid var(--os-reaction-border);
+  width: auto;
+  min-height: 0;
+}
+.os-reaction-only {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+/* The pill row hides until hover. Inside a reaction-only bubble that
+   row is the whole reply, so it stays visible and clickable. */
+.os-reaction-only .os-message-reactions {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  margin-top: 0;
+}
+.os-reaction-only .os-reaction-pill.badge {
+  opacity: 1 !important;
+  background: transparent;
+  border-color: transparent;
+  color: var(--os-reaction-fg);
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
 }
 
 
@@ -212,6 +333,121 @@ html:not([data-theme="light"]) .os-composer,
   border-left: 3px solid color-mix(in srgb, var(--color-base-content) 28%, transparent);
   background: color-mix(in srgb, var(--color-base-content) 5%, transparent);
   color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
+}
+
+/* #1322: voice notes render as compact audio bubbles (not a file caption). */
+.chat-md .os-msg-audio,
+.os-chat-md .os-msg-audio,
+.os-msg-audio-stack .os-msg-audio,
+.os-voice-note-offer .os-msg-audio {
+  display: block;
+  width: 16rem;
+  max-width: 100%;
+  min-width: 12rem;
+  height: 2.25rem;
+  margin: 0.35rem 0;
+  border-radius: 999px;
+  accent-color: var(--color-primary);
+  /* Native controls stay readable on the dark theme. */
+  color-scheme: light;
+  background: var(--color-base-100);
+}
+
+.os-msg-audio-stack {
+  min-width: 12rem;
+}
+
+.os-voice-note-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0.25rem 0 0.35rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--color-base-content) 6%, var(--color-base-100));
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+}
+
+.os-voice-note-offer__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--color-base-content);
+}
+
+/* REQ-1320: inline tool/MCP/sandbox images plus click-to-expand lightbox. */
+.chat-md .os-msg-image,
+.os-chat-md .os-msg-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5rem 0;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+  cursor: zoom-in;
+}
+
+.os-msg-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--color-neutral) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.os-msg-lightbox__img {
+  width: auto;
+  height: auto;
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+  cursor: default;
+}
+
+.os-msg-lightbox__close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  background: color-mix(in srgb, var(--color-base-100) 85%, transparent);
+  color: var(--color-base-content);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.os-msg-lightbox__close:hover {
+  background: var(--color-base-200);
+}
+
+/* REQ-1321: KaTeX in the transcript. Display math scrolls rather than
+   overflowing narrow/mobile bubbles; parse errors use the theme error token. */
+.chat-md .katex-display,
+.os-chat-md .katex-display {
+  margin: 0.5rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chat-md .katex-error,
+.os-chat-md .katex-error {
+  color: var(--color-error);
 }
 
 /* #565: the reply quote. `line-clamp` would put an ellipsis inside the fade, so
@@ -363,10 +599,10 @@ html:not([data-theme="light"]) .os-composer,
   background: var(--os-chrome-sidebar);
   border-right: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
   container-type: inline-size;
-  /* #820: the scroller reserves a stable scrollbar gutter; the pinned grid
-     and Hidden Agents row offset by the same amount so the right edges of
-     every rail region align. Reset to 0 in avatar-only mode (no gutter). */
-  --os-rail-gutter: 0.55rem;
+  /* #1261: the reserved scrollbar gutter is owned by the scroll container via
+     `scrollbar-gutter: stable` (see `.os-rail-scroller`), not by a hand-tuned
+     padding token. The old `--os-rail-gutter` padding was permanent dead space
+     whether or not a scrollbar was showing and never shift-compensated. */
 }
 
 /* Relative positioning only on desktop: on mobile the rail is a fixed
@@ -374,6 +610,20 @@ html:not([data-theme="light"]) .os-composer,
 @media (min-width: 1024px) {
   .os-agent-sidebar {
     position: relative;
+  }
+}
+
+/* #1355: the in-flow rail slides between detents instead of jumping. The
+   width is driven inline by useRailResize, so animating `width` alone is
+   enough; the pane keeps `overflow: hidden` box behaviour and the flex row
+   reflows smoothly. Kept off the mobile drawer (the class is only stamped
+   when `!narrow`) because the drawer animates `transform` instead. */
+.os-agent-sidebar--animated {
+  transition: width 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-agent-sidebar--animated {
+    transition: none;
   }
 }
 
@@ -419,13 +669,10 @@ html:not([data-theme="light"]) .os-composer,
   outline: none;
 }
 
-/* #555: the collapse/expand pill rides the divider. It overlays the edge
-   rather than taking width from the pane, so revealing it cannot shift the
-   chat pane. Concealed it is `opacity: 0` + `pointer-events: none` — never
-   `display: none`, so it stays in the tab order and keeps its height. */
-/* #741: hover/focus/active also draws a full-height structural spine along
-   the divider, so the pill reads as a notch in the rail's edge, not a
-   detached floating chip. */
+/* REQ-116: the resizer draws a full-height structural spine on hover/focus,
+   so the rail's edge reads as a draggable divider. The floating mid-divider
+   pill was retired in #1246 — collapse/expand now live in the pane header and
+   at the top of the spine. */
 .os-rail-resizer {
   --os-rail-spine: transparent;
 }
@@ -452,36 +699,79 @@ html:not([data-theme="light"]) .os-composer,
     transparent
   );
 }
-.os-rail-divider-pill {
-  position: absolute;
-  top: 40%;
-  /* #754: ride on the chat side of the divider (immediately right of the
-     border line) instead of centered on it — the pill no longer sits in the
-     drag hit-zone, and reads as belonging to the transcript it controls.
-     #1147: the widened hit-zone (18px) now reaches 8px past the border, so
-     the pill's own 6px overhang is fully overlapped — hovering the pill
-     keeps the divider :hover alive and the pill revealed. */
-  left: 100%;
-  transform: translate(0, -50%);
+
+/* #1349: the ultra-compact (avatar-only) expand control is hoisted to the
+   pane top, above the stacked search row. Centred on the rail axis so it
+   reads the same in either dock, and lifted above the resizer's hit-zone the
+   same way the search row is. */
+.os-rail-top-toggle {
+  position: relative;
+  z-index: 51;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.375rem 0.125rem;
-  border-radius: 9999px;
-  background: var(--color-base-100, #ffffff);
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
-  z-index: 60;
-  opacity: 0;
+  /* #1655: symmetric vertical padding — the 2.25rem expand control shares
+     one centerline with the search row beneath it, instead of the old
+     top-heavy 0.4/0.15 band that floated it above the rail's icon axis. */
+  padding: 0.4rem 0.35rem;
+}
+/* Rail hit-targets: the resizer's 18px hit-zone (z-index 50, 8px over the chat pane) is
+   taller than the pane and covers the top-right chrome where the collapse
+   control lives. When the rail is narrow the search row's min-content sticks
+   the control under the handle, so a real click hit the resizer instead of the
+   button. Lift the search row above the handle (same stacking context — both
+   are positioned children of the aside) so its controls win the hit-test. The
+   row itself is transparent to pointer events so dragging still works over the
+   header's empty padding; only the buttons/inputs opt back in. */
+.os-rail-search-row {
+  position: relative;
+  z-index: 51;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+}
+.os-rail-search-row > * {
+  pointer-events: auto;
 }
 
-.os-rail-divider-pill .btn {
-  min-height: 1.5rem;
-  min-width: 1.5rem;
-  height: 1.5rem;
-  width: 1.5rem;
+/* #1246: the expansion affordance for the fully-collapsed (0px) pane. It rides
+   the top of the divider, immediately left of the chat header's agent avatar,
+   instead of the retired mid-pane pill. It is visible without hover — at 0px
+   it is the only way back — and mirrors to the content side when the rail is
+   right-docked. */
+.os-rail-collapsed-expand {
+  position: absolute;
+  top: 0.4rem;
+  left: 100%;
+  margin-left: 0.4rem;
+  z-index: 60;
+}
+.os-agent-sidebar--right .os-rail-collapsed-expand {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 0.4rem;
+}
+
+/* #1348: at desktop widths the fully-collapsed rail's expand affordance sits
+   at left:100% of the 0px rail — immediately left of the chat header's agent
+   avatar. Nudge the identity (avatar + label) clear of it, and slide a touch
+   further when the affordance is hovered. The shift is a transform (no
+   reflow), never applies on narrow/mobile (the rail is a fixed drawer there,
+   and the root carries data-narrow-viewport), and is suppressed under
+   reduced motion. Scoping through the layout root avoids any prop plumbing:
+   the rail state and the header are siblings under the themed root. */
+.os-chat-header__identity {
+  transition: transform 0.18s ease;
+}
+[data-theme]:not([data-narrow-viewport='true']):has(.os-agent-sidebar--collapsed) .os-chat-header__identity {
+  transform: translateX(2.25rem);
+}
+[data-theme]:not([data-narrow-viewport='true']):has(.os-rail-collapsed-expand:hover) .os-chat-header__identity {
+  transform: translateX(2.5rem);
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-chat-header__identity {
+    transition: none;
+  }
 }
 
 /* #1148: while recording, the mic control renders as a stop button — red
@@ -498,30 +788,6 @@ html:not([data-theme="light"]) .os-composer,
   background: currentColor;
 }
 
-/* #1147: right-docked rail — the pill mirrors to the LEFT of the divider
-   (chat side is left when the rail hugs the right edge). */
-.os-rail-resizer--right .os-rail-divider-pill {
-  left: auto;
-  right: 100%;
-}
-
-/* Reveal on divider hover, on keyboard focus anywhere inside the pill, and on
-   the divider's own focus ring. Hover-only would be unreachable by keyboard
-   and invisible on touch — the same trap #553 describes in reverse. */
-.os-rail-resizer:hover .os-rail-divider-pill,
-.os-rail-resizer:focus-visible .os-rail-divider-pill,
-.os-rail-resizer:focus-within .os-rail-divider-pill {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-@media (hover: none) {
-  .os-rail-divider-pill {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
 .os-agent-avatar {
   display: block;
   flex: 0 0 auto;
@@ -532,8 +798,23 @@ html:not([data-theme="light"]) .os-composer,
 .os-agent-avatar--active {
   overflow: visible;
 }
+/* #1244: bundled/custom image faces are static <img> elements — give them an
+   ambient breath while idle and the shared working pulse while active so every
+   seat kind reads as alive, not just the vector theme faces. */
+.os-agent-avatar--idle {
+  animation: os-agent-avatar-float var(--wt, 2.6s) ease-in-out var(--wd, 0s) infinite;
+}
+@keyframes os-agent-avatar-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1.5px) scale(1.02); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-avatar-motion='always']) .os-agent-avatar--idle {
+    animation: none;
+  }
+}
 
-/* #747: themed remote faces (Letta, Slack, AnythingLLM, …). Monochrome
+/* #747: themed remote faces (Slack, AnythingLLM, …). Monochrome
    glyph tinted with the platform accent, breathing pulse while the remote
    turn is in flight so an operator can tell the round-trip is live. */
 .os-remote-face {
@@ -563,6 +844,21 @@ html:not([data-theme="light"]) .os-composer,
 .os-remote-face--active {
   animation: os-remote-pulse 1.6s ease-in-out infinite;
 }
+/* #1244: idle remote faces get a slow breath so they read as a live seat even
+   when no turn is running; working swaps to the faster pulse above. */
+.os-remote-face--idle {
+  animation: os-remote-breathe 3.4s ease-in-out infinite;
+}
+@keyframes os-remote-breathe {
+  0%, 100% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.045);
+  }
+}
 @keyframes os-remote-pulse {
   0%, 100% {
     filter: drop-shadow(0 0 0 color-mix(in srgb, currentColor 0%, transparent));
@@ -574,7 +870,12 @@ html:not([data-theme="light"]) .os-composer,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-remote-face--active {
+  /* #1244: system reduce still wins by default; the operator can opt avatar
+     motion back in (Settings → Aesthetics → Animate avatars), which sets
+     `html[data-avatar-motion='always']` and makes these selectors stop
+     matching so the base animations resume. */
+  html:not([data-avatar-motion='always']) .os-remote-face--active,
+  html:not([data-avatar-motion='always']) .os-remote-face--idle {
     animation: none;
   }
 }
@@ -604,6 +905,34 @@ html:not([data-theme="light"]) .os-composer,
 .os-agent-avatar--md { width: 2rem; height: 2rem; }
 .os-agent-avatar--lg { width: 2.5rem; height: 2.5rem; }
 .os-agent-avatar--xl { width: 4rem; height: 4rem; }
+
+/* #1389: storefront avatar shape / color chrome on rail + header faces. */
+.os-avatar-shape-circle .os-agent-avatar,
+.os-avatar-shape-circle .os-bland-avatar,
+.os-avatar-shape-circle .os-blob-avatar {
+  border-radius: 9999px;
+}
+.os-avatar-shape-rounded .os-agent-avatar,
+.os-avatar-shape-rounded .os-bland-avatar,
+.os-avatar-shape-rounded .os-blob-avatar {
+  border-radius: 0.55rem;
+}
+.os-avatar-shape-square .os-agent-avatar,
+.os-avatar-shape-square .os-bland-avatar,
+.os-avatar-shape-square .os-blob-avatar {
+  border-radius: 0.15rem;
+}
+.os-avatar-shape-hexagon .os-agent-avatar,
+.os-avatar-shape-hexagon .os-bland-avatar,
+.os-avatar-shape-hexagon .os-blob-avatar {
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+}
+.avatar[data-avatar-color] .os-agent-avatar,
+.avatar[data-avatar-color] .os-bland-avatar,
+.avatar[data-avatar-color] .os-blob-avatar {
+  box-shadow: 0 0 0 2px var(--os-avatar-color, var(--color-primary));
+}
 
 .os-agent-dot {
   width: 0.7rem;
@@ -689,6 +1018,121 @@ html:not([data-theme="light"]) .os-composer,
     transition: none;
   }
   .os-stacked-avatar--pulse {
+    animation: none;
+  }
+}
+
+/* #1362 — group-chat avatar. Up to three member faces sit on a circle (1
+   centred, 2 on a diagonal, 3 in a triangle); extras collapse to a `+N` badge
+   in the middle of the ring. The frame is a fixed square so rail (`sm`) and
+   navbar (`lg`) sizes never shift layout. Theme tokens only. */
+.os-group-avatar {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-base-200) 82%, var(--color-base-300));
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.os-group-avatar[data-size='xs'] { width: 1.5rem; height: 1.5rem; }
+.os-group-avatar[data-size='sm'] { width: 2rem; height: 2rem; }
+.os-group-avatar[data-size='md'] { width: 2.5rem; height: 2.5rem; }
+.os-group-avatar[data-size='lg'] { width: 3rem; height: 3rem; }
+
+.os-group-avatar__face {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-base-100);
+  border: 1px solid var(--color-base-100);
+}
+/* Fill the frame with whatever AgentAvatar rendered (custom <img> or SVG). */
+.os-group-avatar__face > *,
+.os-group-avatar__face .os-agent-avatar,
+.os-group-avatar__face img,
+.os-group-avatar__face svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+/* 1 member — centred. */
+.os-group-avatar[data-count='1'] .os-group-avatar__face {
+  top: 50%;
+  left: 50%;
+  width: 72%;
+  height: 72%;
+}
+/* 2 members — diagonal. */
+.os-group-avatar[data-count='2'] .os-group-avatar__face {
+  width: 56%;
+  height: 56%;
+}
+.os-group-avatar[data-count='2'] .os-group-avatar__face[data-face-index='0'] {
+  top: 32%;
+  left: 32%;
+}
+.os-group-avatar[data-count='2'] .os-group-avatar__face[data-face-index='1'] {
+  top: 68%;
+  left: 68%;
+}
+/* 3 members — triangle. */
+.os-group-avatar[data-count='3'] .os-group-avatar__face {
+  width: 52%;
+  height: 52%;
+}
+.os-group-avatar[data-count='3'] .os-group-avatar__face[data-face-index='0'] {
+  top: 27%;
+  left: 50%;
+}
+.os-group-avatar[data-count='3'] .os-group-avatar__face[data-face-index='1'] {
+  top: 71%;
+  left: 28%;
+}
+.os-group-avatar[data-count='3'] .os-group-avatar__face[data-face-index='2'] {
+  top: 71%;
+  left: 72%;
+}
+
+.os-group-avatar__remainder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40%;
+  height: 40%;
+  padding: 0 0.12rem;
+  border-radius: 999px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-base-content);
+  background: color-mix(in srgb, var(--color-base-300) 92%, var(--color-base-100));
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+}
+
+.os-group-avatar__face--working {
+  animation: os-group-avatar-pulse 1.4s ease-out infinite;
+}
+@keyframes os-group-avatar-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 0.18rem transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-group-avatar__face {
+    transition: none;
+  }
+  .os-group-avatar__face--working {
     animation: none;
   }
 }
@@ -886,7 +1330,7 @@ html:not([data-theme="light"]) .os-composer,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-blob-waiting-dot {
+  html:not([data-avatar-motion='always']) .os-blob-waiting-dot {
     animation: none;
   }
 }
@@ -913,10 +1357,10 @@ html:not([data-theme="light"]) .os-composer,
   50% { transform: rotate(8deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-blob-avatar[data-eye-state="active"] .os-blob-eyes,
-  .os-blob-avatar[data-eye-state="active"] .os-blob-body,
+  html:not([data-avatar-motion='always']) .os-blob-avatar[data-eye-state="active"] .os-blob-eyes,
+  html:not([data-avatar-motion='always']) .os-blob-avatar[data-eye-state="active"] .os-blob-body,
   /* #110: idle motion is decoration too — it must stop with the rest. */
-  .os-blob-avatar[data-eye-state="idle"] .os-blob-eyes {
+  html:not([data-avatar-motion='always']) .os-blob-avatar[data-eye-state="idle"] .os-blob-eyes {
     animation: none;
   }
 }
@@ -1052,21 +1496,21 @@ html:not([data-theme="light"]) .os-composer,
   75% { transform: rotate(6deg) scaleX(1.03); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-bee-avatar,
-  .os-bee-avatar[data-eye-state="active"],
-  .os-bee-avatar .os-bee-wings,
-  .os-bee-avatar[data-bee-blink="true"] .os-bee-eyelid {
+  html:not([data-avatar-motion='always']) .os-bee-avatar,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-eye-state="active"],
+  html:not([data-avatar-motion='always']) .os-bee-avatar .os-bee-wings,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-blink="true"] .os-bee-eyelid {
     animation: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-bee-avatar[data-eye-state="active"] .os-bee-pupils,
-  .os-bee-avatar[data-bee-variant="side-on"][data-eye-state="active"] .os-bee-body,
-  .os-bee-avatar[data-bee-variant="flying"][data-eye-state="active"] .os-bee-body,
-  .os-bee-avatar[data-bee-variant="bumblebee"][data-eye-state="active"] .os-bee-body,
-  .os-bee-avatar[data-bee-variant="top-down"][data-eye-state="active"] .os-bee-body,
-  .os-bee-avatar[data-bee-variant="face-only"][data-eye-state="active"],
-  .os-bee-avatar[data-bee-variant="honeycell"][data-eye-state="active"] {
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-eye-state="active"] .os-bee-pupils,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="side-on"][data-eye-state="active"] .os-bee-body,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="flying"][data-eye-state="active"] .os-bee-body,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="bumblebee"][data-eye-state="active"] .os-bee-body,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="top-down"][data-eye-state="active"] .os-bee-body,
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="face-only"][data-eye-state="active"],
+  html:not([data-avatar-motion='always']) .os-bee-avatar[data-bee-variant="honeycell"][data-eye-state="active"] {
     animation: none;
   }
 }
@@ -1126,16 +1570,9 @@ html:not([data-theme="light"]) .os-composer,
     transform: translate(17.4px, 16.8px);
   }
 }
-.os-bland-avatar[data-eye-state="active"] {
-  animation: os-bland-pulse var(--wt, 1.6s) ease-in-out var(--wd, 0s) infinite;
-}
-@keyframes os-bland-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.06); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .os-bland-avatar[data-eye-state="active"] .os-bland-eyes,
-  .os-bland-avatar[data-eye-state="active"] {
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"] .os-bland-eyes,
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"] {
     animation: none;
   }
 }
@@ -1233,8 +1670,8 @@ html:not([data-theme="light"]) .os-composer,
   50% { transform: translate(0.8px, -0.8px) scale(1.15); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
-  [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
+  html:not([data-avatar-motion='always']) .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
+  html:not([data-avatar-motion='always']) [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
     animation: none;
   }
 }
@@ -1272,9 +1709,9 @@ html:not([data-theme="light"]) .os-composer,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-avatar-theme="robot3d"][data-eye-state="active"] .os-robot3d-pupils,
-  .os-robot3d-fallback[data-eye-state="active"] .os-robot3d-pupils,
-  [data-avatar-theme="robot3d"][data-robot3d-status="working"] .os-robot3d-fallback {
+  html:not([data-avatar-motion='always']) [data-avatar-theme="robot3d"][data-eye-state="active"] .os-robot3d-pupils,
+  html:not([data-avatar-motion='always']) .os-robot3d-fallback[data-eye-state="active"] .os-robot3d-pupils,
+  html:not([data-avatar-motion='always']) [data-avatar-theme="robot3d"][data-robot3d-status="working"] .os-robot3d-fallback {
     animation: none;
   }
 }
@@ -1380,31 +1817,176 @@ html:not([data-theme="light"]) .os-composer,
   outline: none;
 }
 
+/* #1674 — the `+` opens the Add-bot menu: create actions on top, the rail's own
+   agent list under a filter. Anchored to the trigger (left-aligned, growing
+   into the chat) so a 17rem panel never clips past the viewport left edge. Theme
+   tokens only, so dark/light both work. */
+.os-add-bot-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.os-add-bot-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  /* Open into the chat column. right:0 grew left of a ~16rem rail and clipped
+     the panel (~17rem) + shadow off the viewport (#1674 Skeptic amendment). */
+  left: 0;
+  right: auto;
+  z-index: 70;
+  width: 17rem;
+  max-width: min(17rem, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: var(--color-base-100);
+  /* filter (not box-shadow) so overflow:hidden below does not eat the glow */
+  filter:
+    drop-shadow(0 10px 18px color-mix(in srgb, var(--color-base-content) 22%, transparent))
+    drop-shadow(0 1px 2px color-mix(in srgb, var(--color-base-content) 14%, transparent));
+  overflow: hidden;
+  text-align: left;
+}
+.os-add-bot-menu__search-slot {
+  padding: 0.4rem 0.4rem 0.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+.os-add-bot-menu__search {
+  width: 100%;
+  height: 1.9rem;
+  padding: 0 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: color-mix(in srgb, var(--color-base-200) 60%, transparent);
+  color: inherit;
+  font-size: 0.8125rem;
+  outline: none;
+}
+.os-add-bot-menu__search:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+.os-add-bot-menu__scroll {
+  max-height: min(60vh, 22rem);
+  overflow-y: auto;
+  padding: 0.3rem;
+  overscroll-behavior: contain;
+}
+.os-add-bot-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+.os-add-bot-menu__heading {
+  margin: 0.15rem 0 0.2rem;
+  padding: 0 0.4rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-base-content) 45%, transparent);
+}
+.os-add-bot-menu__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.os-add-bot-menu__row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 2.1rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease-in-out;
+}
+.os-add-bot-menu__row:hover,
+.os-add-bot-menu__row--active {
+  background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
+.os-add-bot-menu__row--active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+.os-add-bot-menu__icon {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+.os-add-bot-menu__label {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.2;
+}
+.os-add-bot-menu__row[data-active-agent='true'] .os-add-bot-menu__label {
+  font-weight: 600;
+}
+.os-add-bot-menu__empty {
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+}
+/* Ultra-compact rail: the `+` sits centered under the search circle, so a
+   right-anchored panel would grow off the left edge of the viewport. Flip it
+   to open towards the chat instead. */
+.os-agent-sidebar--avatar-only .os-add-bot-menu__panel {
+  right: auto;
+  left: 0;
+}
+
 .os-fav-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* #1262 revert: fixed-width tracks keep the tile geometry width-independent
+     so a rail resize never re-flows fluid 1fr columns (which read as wobble).
+     Left-anchored, not centred: `justify-content: center` makes a tile's x a
+     function of container width — x(i) = (W - tracks)/2 + i*(track+gap) — so
+     every pixel of resize slid the tiles sideways and each 1->2->3 column
+     change jumped them. With `start`, x(i) = margin + i*(track+gap) depends
+     only on the tile's index, so a column change appends/removes tracks at the
+     trailing edge and tiles 1 and 2 never move. Measured with
+     `scripts/measure-pinned-grid.mjs` (jsdom has no layout engine). #1683:
+     this is the precondition for the rail free-tracking above the topmost
+     column detent — see `railSnapThresholdForPins`. */
+  grid-template-columns: repeat(auto-fill, 5.25rem);
   gap: 0.5rem;
   min-height: 4.75rem;
   margin: 0.35rem 0.75rem 0.5rem;
-  /* #820: right-edge alignment with the scroller's reserved gutter. */
-  padding-right: var(--os-rail-gutter);
-  /* #829: even distribution of the fixed squares in the available space. */
-  justify-content: space-evenly;
+  /* #1261: no permanent reserved gutter — the scroll container reserves the
+     scrollbar gutter itself, so the grid keeps its full width when the rail
+     content fits and never shifts when a scrollbar appears. */
+  justify-content: start;
+  justify-items: center;
+  /* #1250: this is the *expanded* rail's capsule — the dashed affordance on the
+     empty pinned pool (#729) and nothing else, so it has no fill. The
+     ultra-compact capsule is a different, shared rule (see the avatar-only
+     `.os-fav-grid, .os-rail-section--grouped` pair near the section styles) so
+     the pinned box and the section boxes cannot drift apart again. Do not fold
+     the two: outside avatar-only this one must stay exactly as it is. */
   border-radius: 0.75rem;
   border: 1px dashed color-mix(in srgb, var(--color-base-content) 12%, transparent);
 }
 
-/* REQ-206: Responsive pinned favourites grid (1, 2, or 3 columns based on sidepane width) */
+/* REQ-206: the fixed auto-fill tracks own the column count now; the narrow
+   guard only tightens the gap. Kept so the column-count guard test still
+   finds the container rule. */
 @container (max-width: 200px) {
   .os-fav-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, 5.25rem);
     gap: 0.35rem;
   }
 }
 
 @container (min-width: 320px) {
   .os-fav-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, 5.25rem);
   }
 }
 .os-fav-grid--active {
@@ -1443,7 +2025,9 @@ html:not([data-theme="light"]) .os-composer,
   position: relative;
   display: flex;
   flex-direction: column;
+  /* #1262 revert: centre the tile's content inside its fixed track. */
   align-items: center;
+  text-align: center;
   justify-content: center;
   gap: 0.3rem;
   /* #829/#902: fixed-width squares. The tile must NOT derive its height from
@@ -1458,6 +2042,7 @@ html:not([data-theme="light"]) .os-composer,
      names grow the tile to fit. */
   width: 5.25rem;
   min-height: 5.25rem;
+  /* #1262 revert: the tile centres in its fixed 5.25rem track. */
   justify-self: center;
   flex: 0 0 auto;
   padding: 0.45rem 0.3rem 0.4rem;
@@ -1527,6 +2112,14 @@ html:not([data-theme="light"]) .os-composer,
 .os-rail-attention {
   color: var(--color-warning);
   font-weight: 650;
+}
+/* --color-error (#7a4040) is about 1.6:1 on the dark rail (#313131).
+   Dark theme uses the light error ink; light theme uses the dark error ink. */
+.os-rail-error-preview {
+  color: var(--color-error-content);
+}
+[data-theme="light"] .os-rail-error-preview {
+  color: var(--color-error);
 }
 .os-fav-tile__shortcut {
   position: absolute;
@@ -1671,12 +2264,19 @@ html:not([data-theme="light"]) .os-composer,
    so the row's intrinsic width grew exactly when the pointer was over the rail,
    and nothing in the chain established paint containment. */
 .os-agent-row__label-col {
-  min-width: 0;
+  /* #1309: a sensible floor so the label column cannot be crushed to the
+     24px the laptop default produced. The name inside still clips via
+     `overflow: hidden`, but it now always has room for a readable run. */
+  min-width: 2.75rem;
   flex: 1 1 0%;
   overflow: hidden;
 }
 /* #556: the name is cut with a fade, not an ellipsis — a mask over an ellipsis
-   glyph reads as a smudge. `title` on the span keeps the full value reachable. */
+   glyph reads as a smudge. `title` on the span keeps the full value reachable.
+   #1309: the fade stop must always leave an opaque region. The old fixed
+   `100% - 1.25rem` stop went negative on the 18px name the laptop default
+   produced, fading the whole label to nothing. Cap the fade at a fraction of
+   the element so at least 60% of even a very narrow name stays opaque. */
 .os-rail-row-name {
   display: block;
   min-width: 0;
@@ -1684,10 +2284,14 @@ html:not([data-theme="light"]) .os-composer,
   white-space: nowrap;
   -webkit-mask-image: linear-gradient(
     to right,
-    #000 calc(100% - 1.25rem),
+    #000 calc(100% - min(0.5rem, 40%)),
     transparent
   );
-  mask-image: linear-gradient(to right, #000 calc(100% - 1.25rem), transparent);
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - min(0.5rem, 40%)),
+    transparent
+  );
 }
 button.os-agent-row {
   width: 100%;
@@ -1702,6 +2306,38 @@ button.os-agent-row {
 .os-agent-row--active {
   background: color-mix(in srgb, var(--color-base-300) 70%, transparent);
   color: var(--color-base-content);
+}
+/* #1705: multi-selected row.
+ *
+ * Selection is NOT role colour — role paint stays on `.os-agent-role-badge`
+ * (AGENTS.md), so this uses the neutral accent and never a role hue. It also
+ * must not rely on colour alone (the issue's dark-mode requirement), so the
+ * state carries a check glyph (`.os-rail-selected-check`, rendered by the row)
+ * AND an outline. An `outline` (not a background/border) is used on purpose:
+ * it composites over whatever the row already paints — hover, active seat, or
+ * a role-less selection — instead of fighting it, and it never reflows. */
+.os-agent-row[data-selected='true'] {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  /* A neutral tint so selection also survives a greyscale/high-contrast
+     rendering, where the accent outline and the glyph are all that is left. */
+  background: color-mix(in srgb, var(--color-base-content) 6%, transparent);
+}
+/* #1705: the row was focusable with no visible ring — keyboard users could not
+   tell where they were in the rail. Neutral accent, inset so it never reflows
+   the row, and never a role hue. */
+.os-agent-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.os-rail-selected-check {
+  flex-shrink: 0;
+  color: var(--color-primary);
+}
+/* The compact rail has no room for a glyph beside the face, so the outline
+   carries the state there — and the check would otherwise be a 1px sliver. */
+.os-agent-sidebar--avatar-only .os-rail-selected-check {
+  display: none;
 }
 .os-rail-timestamp {
   font-size: 0.7rem;
@@ -1723,10 +2359,17 @@ button.os-agent-row {
   align-items: center;
   gap: 0.375rem;
 }
-/* The name wins the remaining space and is cut with the #556 fade. */
+/* The name wins the remaining space and is cut with the #556 fade. #1309:
+   it also holds a floor so a wide slot (timestamp/role badge) can never push
+   the name to zero — the slot clips inside the label column instead. */
 .os-rail-name-line .os-rail-row-name {
   flex: 1 1 0%;
-  min-width: 0;
+  min-width: 2.5rem;
+}
+/* #1309: an empty slot must not claim its flex gap — at the laptop default
+   that gap alone ate a third of the name's width. */
+.os-rail-slot:empty {
+  display: none;
 }
 .os-rail-slot {
   position: relative;
@@ -1783,6 +2426,25 @@ button.os-agent-row {
     display: none;
   }
 }
+/* #1309: at the compact laptop rail (118px) the row's own chrome — 0.65rem
+   avatar gap, 0.5rem padding and the 6px name-line gap — left only ~24px for
+   the label column once the scrollbar gutter was reserved, so agent names were
+   unreadable. Tighten the chrome just below the laptop default so the name
+   keeps a real run; wider rails are untouched. */
+@container (max-width: 160px) {
+  .os-agent-row {
+    gap: 0.375rem;
+    padding: 0.375rem;
+  }
+  .os-agent-row__avatar-slot {
+    width: 2rem;
+    min-width: 2rem;
+    max-width: 2rem;
+  }
+  .os-rail-name-line {
+    gap: 0.25rem;
+  }
+}
 .os-agent-row-wrap {
   display: flex;
   align-items: flex-start;
@@ -1810,30 +2472,33 @@ button.os-agent-row {
   outline-offset: 2px;
   background: color-mix(in srgb, var(--color-base-300) 40%, transparent);
 }
-/* #562: the rail's scrolling body. `scrollbar-gutter: stable` reserves the
-   gutter even when nothing overflows, so revealing the scrollbar cannot reflow
-   the pane. Without it, a classic (Linux/Windows) scrollbar takes its width out
-   of the content box and every row jumps left — worst in avatar-only mode where
-   the rail is 68–96px wide. Avatar-only reclaims the gutter instead, since a
-   permanently reserved 15px there is a large slice of the pane. */
+/* #562/#1261: the rail's scrolling body owns the reserved scrollbar gutter.
+   `scrollbar-gutter: stable` reserves it inside the scroll container, so
+   revealing the scrollbar cannot reflow the pane and the hand-tuned
+   `--os-rail-gutter` padding is gone. Without it, a classic (Linux/Windows)
+   scrollbar takes its width out of the content box and every row jumps left —
+   worst in avatar-only mode where the rail is 68–96px wide. Avatar-only
+   reclaims the gutter instead, since a reserved 15px there is a large slice
+   of the pane. */
 .os-rail-scroller {
   scrollbar-gutter: stable;
+  /* #1309: a classic 15px gutter is 13% of the 118px laptop rail and starves
+     the label column. A thin scrollbar keeps the no-reflow guarantee while
+     returning ~4px to the rows. Avatar-only mode overrides this with `none`. */
+  scrollbar-width: thin;
 }
 .os-agent-sidebar--avatar-only .os-rail-scroller {
   scrollbar-gutter: auto;
   scrollbar-width: none;
-}
-/* #820: avatar-only reclaims the gutter, so the compensations reset. */
-.os-agent-sidebar--avatar-only {
-  --os-rail-gutter: 0px;
 }
 .os-agent-sidebar--avatar-only .os-rail-scroller::-webkit-scrollbar {
   width: 0;
 }
 
 /* #765: fully collapsed (0px, divider-only). The pane body folds away and
-   what remains is the border spine with the expand pill riding it. The pill
-   must be visible *without hover* here — it is the only way back. */
+   what remains is the border spine with the top-of-divider expand control
+   (#1246). The control is visible *without hover* here — it is the only way
+   back. */
 .os-agent-sidebar--collapsed {
   overflow: visible;
   border-right-width: 1px;
@@ -1849,24 +2514,19 @@ button.os-agent-row {
 .os-agent-sidebar--collapsed [data-testid='sidebar-footer-container'] {
   display: none !important;
 }
-.os-agent-sidebar--collapsed .os-rail-divider-pill,
-.os-agent-sidebar--collapsed .os-rail-resizer:hover .os-rail-divider-pill,
-.os-agent-sidebar--collapsed .os-rail-resizer:focus-within .os-rail-divider-pill,
-.os-agent-sidebar--avatar-only .os-rail-divider-pill,
-.os-agent-sidebar--avatar-only .os-rail-resizer:hover .os-rail-divider-pill,
-.os-agent-sidebar--avatar-only .os-rail-resizer:focus-within .os-rail-divider-pill {
-  opacity: 1;
-  pointer-events: auto;
-}
 /* The resizer is positioned at the pane's edge; at 0px the pane is flush
    with the viewport edge, so pin the hit-zone to the outside. */
 .os-agent-sidebar--collapsed .os-rail-resizer {
   right: -5px;
   width: 10px;
 }
-.os-agent-sidebar--collapsed.os-rail-side-right-target .os-rail-resizer {
+/* #1308 follow-up: a right-docked collapsed rail is flush with the *right*
+   viewport edge, so the generic outside pin (right:-5px) hung 5px off-screen
+   and gave the document a horizontal scroll. Mirror the hit-zone into the
+   content side instead: its outer edge lands exactly on the divider. */
+.os-agent-sidebar--collapsed.os-agent-sidebar--right .os-rail-resizer {
   right: auto;
-  left: -5px;
+  left: -10px;
 }
 
 /* REQ-99: Left-rail fade above Plugins footer (scroll soft-edge) */
@@ -1914,24 +2574,70 @@ button.os-agent-row {
   outline: 1px solid currentColor;
   outline-offset: 1px;
 }
-.os-agent-role-badge[data-role="support"] { color: #3d8f8a; }
+/* D3 (#a11y): role-badge foreground is small text (0.55–0.62rem) and must
+   clear WCAG AA 4.5:1. The badge surface is `base-content` at 8% over the
+   pane behind it. The default theme is dark, so the unscoped colours below
+   are the light-on-dark set (worst case: the active rail, #313131). The
+   light-theme overrides further down are the dark-on-light set (worst case:
+   a hovered/active pin on the light rail). One solid colour cannot clear
+   4.5:1 on both. Role colour stays only on this badge (AGENTS.md). */
+.os-agent-role-badge[data-role="support"] { color: #6fc2bc; }
 .os-agent-role-badge[data-role="admin"] {
-  color: #d97706;
+  color: #f9a038;
   font-weight: 600;
 }
 .os-agent-role-badge[data-role="gate"],
-.os-agent-role-badge[data-role="belay"] { color: #c47a3a; }
-.os-agent-role-badge[data-role="skeptic"] { color: #7a6b9b; }
-.os-agent-role-badge[data-role="advisor"] { color: #8a7a4a; }
+.os-agent-role-badge[data-role="belay"] { color: #daab82; }
+.os-agent-role-badge[data-role="skeptic"] { color: #b8b0c9; }
+.os-agent-role-badge[data-role="advisor"] { color: #c1b38a; }
 .os-agent-role-badge[data-role="chief_of_staff"] {
-  color: #4f8ec9;
+  color: #90b8dd;
   text-transform: none;
   letter-spacing: 0.06em;
   font-weight: 700;
 }
-.os-agent-role-badge[data-role="suggestions"] { color: #5a8a6b; }
-.os-agent-role-badge[data-role="engineer"] { color: #5c7a8a; }
-.os-agent-role-badge[data-kind="team"] { color: #6b7c8a; }
+.os-agent-role-badge[data-role="suggestions"] { color: #98bca5; }
+.os-agent-role-badge[data-role="engineer"] { color: #a2b7c1; }
+.os-agent-role-badge[data-kind="team"] { color: #abb5bd; }
+/* #1745 — System1 rows in Settings. A gate is *not* a chat LLM, so it is
+   drawn as a distinct dashed surface rather than borrowing the role badge
+   colours (role colour belongs only to .os-agent-role-badge). Tokens only. */
+.os-system1-row {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-base-content) 28%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 4%, transparent);
+}
+.os-system1-badge {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 35%, transparent);
+}
+[data-theme="light"] .os-agent-role-badge[data-role="support"] { color: #23514f; }
+[data-theme="light"] .os-agent-role-badge[data-role="admin"] { color: #703e03; }
+[data-theme="light"] .os-agent-role-badge[data-role="gate"],
+[data-theme="light"] .os-agent-role-badge[data-role="belay"] { color: #69411f; }
+[data-theme="light"] .os-agent-role-badge[data-role="skeptic"] { color: #504566; }
+[data-theme="light"] .os-agent-role-badge[data-role="advisor"] { color: #534a2d; }
+[data-theme="light"] .os-agent-role-badge[data-role="chief_of_staff"] { color: #234d74; }
+[data-theme="light"] .os-agent-role-badge[data-role="suggestions"] { color: #34503e; }
+[data-theme="light"] .os-agent-role-badge[data-role="engineer"] { color: #3a4d58; }
+[data-theme="light"] .os-agent-role-badge[data-kind="team"] { color: #414c54; }
+/* #1202 follow-up: the navbar role badge is a slim, single-line pill that
+   stacks directly under the agent name. Geometry only — role colour stays on
+   the base `.os-agent-role-badge[data-role]` rules above (AGENTS.md). */
+.os-agent-role-badge--slim {
+  align-self: flex-start;
+  height: 0.95rem;
+  padding: 0 0.35rem;
+  font-size: 0.55rem;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
 
 /* REQ-116: Avatar-only rail mode when width <= AVATAR_ONLY_THRESHOLD */
 /* REQ-196: Collapsed sidepane — Support-role unpinned row vertically aligned with peers */
@@ -2010,6 +2716,13 @@ button.os-agent-row {
   flex-direction: column;
   padding-left: 0.35rem;
   padding-right: 0.35rem;
+  /* The row's `pt-3` (0.75rem) exists to centre its content inside the fixed
+     3.5rem chrome strip. Once the row grows to its stacked content, `justify-
+     content: center` has no free space to distribute and that 12px becomes
+     dead space stacked on `.os-rail-top-toggle`'s own 0.4rem bottom padding —
+     an 18.4px hole, ~half a button height, between the expander and search.
+     The toggle band already supplies the leading space. */
+  padding-top: 0;
   justify-content: center;
   gap: 0.25rem;
 }
@@ -2018,9 +2731,101 @@ button.os-agent-row {
   display: none;
 }
 .os-agent-sidebar--avatar-only .os-rail-search {
-  padding: 0.4rem;
+  /* Ultra-compact: match the Add agent button — a 2.25rem circle, not a
+     pill/rect. Padding collapses so the icon centres in the round hit-area. */
+  padding: 0;
   justify-content: center;
   flex: none;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+}
+/* #1648: the one-column pinned-grid detent (118px — ONE_COL_RAIL_WIDTH in
+   lib/railResize.ts; keep the bound in sync) is too narrow for the expanded
+   text-field pill, so it mirrors the ultra-compact circle chrome above.
+   Keyed on the rail's inline size (the pane is `container-type: inline-size`),
+   not a class toggle: drag-snapping into 1-col restyles the control without
+   a re-render, and the collapsed (0px) / avatar-only (88px) widths below the
+   bound already render their own chrome (hidden / avatar-only circle). */
+@container (max-width: 118px) {
+  .os-agent-sidebar .os-rail-search-row {
+    height: auto;
+    min-height: var(--os-top-chrome-h);
+    flex-direction: column;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+    /* Same as the avatar-only rule above: the chrome-strip centring padding is
+       dead space once the row is auto-height. */
+    padding-top: 0;
+    justify-content: center;
+    gap: 0.25rem;
+  }
+  .os-agent-sidebar .os-rail-search__input,
+  .os-agent-sidebar .os-rail-search__kbd {
+    display: none;
+  }
+  .os-agent-sidebar .os-rail-search {
+    padding: 0;
+    justify-content: center;
+    flex: none;
+    width: 2.25rem;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 999px;
+  }
+
+  /* #1683: the collapse control is the third child of this row (search, Add,
+     collapse) and it does NOT fit beside them at the row's default rhythm —
+     36 + 36 + 36 + two 6px gaps + the row's 24px padding is 144px, so every
+     width from 89px (the first above the avatar-only line) to the 118px bound
+     overflows and the row wraps. #1683 turned the wrap into a two-row grid;
+     #1711 then found the consequence: the collapse control still never shared
+     the row with Search, so at the 1-col detent the pane's only way back was
+     a separate circle parked under `+` (its own vertical slot), which is
+     exactly the orphan the detent exists to avoid.
+     Fix the row, not the flag: below the bound the three-control row becomes
+     ONE wrapping row — same direction as it has at every wider detent — with
+     the gap and side padding squeezed to 0.125rem. That is the whole budget:
+     three 2.25rem controls (108px) + two 2px gaps + two 2px side paddings is
+     116px, and the row's content box at the 118px detent is 117px (the pane's
+     1px border is outside it), so the trio fits on one line. Keyed on the row
+     actually carrying three children (`:has(> :nth-child(3))`), the geometric
+     fact, NOT on the `isAvatarOnly` width threshold: at ultra-compact the
+     collapse control is hoisted out of the row into `.os-rail-top-toggle`
+     entirely, so the two-control column stack above stays exactly as it is
+     today (it is correct there).
+     Measured in a real renderer (Chrome, built CSS) by
+     `scripts/measure-rail-chrome.mjs`, which is the acceptance gate. Before
+     (#1683): 118px → search alone on row 1, add + conceal on row 2, row 85px.
+     After (#1711): 118px → one band, search + collapse + `+` side by side,
+     row 56px — the same height the pill header has at 210/302/394/420.
+     210/302/394/420 are untouched (single 56px row, no overflow). */
+  .os-agent-sidebar .os-rail-search-row:has(> :nth-child(3)) {
+    /* `row` + `wrap` replaces the #1683 two-row grid: the trio is one control
+       group that wraps as a group, so the header keeps the horizontal band it
+       has at every wider detent. `align-content: center` re-centres the group
+       inside the 3.5rem chrome floor when the wrap costs a second line. */
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    /* 0.125rem, not 0.25rem: 108 + 2*4 + 2*4 = 124px does not fit 117px, and
+       108 + 2*2 + 2*2 = 116px does (see the measurement above). */
+    gap: 0.125rem;
+    padding-left: 0.125rem;
+    padding-right: 0.125rem;
+  }
+  /* #1711: the wrap has to break AFTER the collapse control, not after `+` —
+     the issue's acceptance is that collapse never lands alone on a row of its
+     own. Source order is search, Add, collapse, so a plain wrap orphans it
+     from 89px to 115px; pulling it ahead of Add keeps it welded to Search
+     across the whole band, and at the 118px detent (where nothing wraps) the
+     order is purely cosmetic. Keyed on the class the rail's own collapse
+     control carries, so the 2.25rem button keeps the search/`+` rhythm. */
+  .os-agent-sidebar .os-rail-search-row:has(> :nth-child(3)) > .os-rail-conceal {
+    order: -1;
+  }
 }
 /* #764: the Add agent button remains visible (stacked under search) in
    avatar-only mode — see the search-row rule above. */
@@ -2066,10 +2871,18 @@ button.os-agent-row {
    avatar-only threshold. Pin the height the label was providing instead:
    py-1.5 (0.75rem) + text-sm line-height (1.25rem) = 2rem. */
 /* #783: the drag-state bin fills the same height as the idle menu cluster
-   (Teams + Plugins + Routines + hostname row ≈ 10rem), so toggling the drag
-   never re-flows the sections above. */
+   (Teams + Plugins + Routines + hostname row), so toggling the drag never
+   re-flows the sections above.
+   #1724 §2: the height is read from `--os-footer-cluster-h`, which the rail
+   component publishes on this element, instead of a second `10rem` literal
+   here. Two copies of one number is the drift the footer-cluster rules were
+   consolidated to kill: the stylesheet's copy would keep matching the comment
+   long after the component's had moved. The `10rem` fallback keeps the reserve
+   if the inline custom property is ever dropped — an unguarded `var()` would
+   resolve to nothing and the drag would jolt the rail, which is the exact
+   regression the reserve exists to prevent. */
 .os-recycle-bin {
-  min-height: 10rem;
+  min-height: var(--os-footer-cluster-h, 10rem);
 }
 /* #784: in compact (avatar-only) mode every footer control shares the rail's
    center axis — the container drops its expanded padding and centers, and the
@@ -2096,8 +2909,104 @@ button.os-agent-row {
   justify-content: center;
   padding-inline: 0;
 }
+/* #1650: avatar-only footer mini-icons are bare glyphs — the #1351 bordered
+   pill read as chrome noise at 88px. The #1351 sizing stays so hit-areas and
+   the #1067 shared centred axis are untouched; hover keeps a token-tinted
+   background (no border) as the affordance. Scoped to avatar-only, so the
+   expanded footer's full-width rows are unchanged. Theme tokens only. */
+.os-agent-sidebar--avatar-only .os-rail-icon-badge {
+  width: 1.9rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  min-height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+  /* Issue 1695: the compact rail CENTRES these pills on one axis, so the
+     expanded mode's 0.25rem column offset (which exists only to line the glyph
+     up with the `px-1` sibling rows) must not survive the threshold. */
+  margin-left: 0;
+}
+.os-agent-sidebar--avatar-only .os-rail-icon-badge:hover,
+.os-agent-sidebar--avatar-only .os-rail-icon-badge:focus-visible {
+  background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
+}
 .os-agent-sidebar--avatar-only [data-testid="rail-update-chrome"] {
   display: none;
+}
+
+/* #1705: the rail's bulk-action bar.
+ *
+ * ALWAYS visible (never a hover reveal) — a selection the pointer has to find
+ * is the "silent selection" the issue is about. It sits at the top of the
+ * footer, which is the pane's last flex child, so appearing here shrinks the
+ * scroller above instead of shifting rows. Theme tokens only. */
+.os-rail-bulk-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+  padding: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-base-300) 55%, transparent);
+}
+.os-rail-bulk-bar__count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--color-base-content) 85%, transparent);
+  padding-inline: 0.15rem;
+}
+.os-rail-bulk-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.os-rail-bulk-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-rail-bulk-bar__btn {
+    transition: none;
+  }
+}
+.os-rail-bulk-bar__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+  color: var(--color-base-content);
+}
+.os-rail-bulk-bar__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.os-rail-bulk-bar__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* The avatar-only rail is one glyph wide: the count is the only honest
+   summary there, and the three actions would wrap into a stack of nothing. */
+.os-agent-sidebar--avatar-only .os-rail-bulk-bar__actions,
+.os-agent-sidebar--avatar-only .os-rail-bulk-bar__btn-label {
+  display: none;
+}
+.os-agent-sidebar--avatar-only .os-rail-bulk-bar {
+  align-items: center;
 }
 
 .os-identity-btn {
@@ -2158,7 +3067,7 @@ button.os-agent-row {
   max-height: min(36rem, 70vh);
   padding: 0.9rem 1rem;
   border-radius: 0.6rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--os-font-mono);
   font-size: 0.78rem;
   line-height: 1.5;
   white-space: pre;
@@ -2177,8 +3086,8 @@ button.os-agent-row {
 
 .os-hidden-bots {
   margin: 0 0.5rem 0.15rem;
-  /* #820: align the row's right boundary with the agent rows above. */
-  margin-right: calc(0.5rem + var(--os-rail-gutter, 0.55rem));
+  /* #1261: the row spans the rail's full width. The scroll container owns the
+     scrollbar gutter (`scrollbar-gutter: stable`), so no manual compensation. */
   border-radius: 0.45rem;
   transition: background-color 0.15s ease;
 }
@@ -2389,6 +3298,47 @@ button.os-agent-row {
 .os-agent-sidebar--avatar-only .os-rail-section-empty {
   display: none;
 }
+
+/* #1250: in ultra-compact (avatar-only) mode the section headers are gone, so
+   the remaining avatars blend into one undifferentiated stream. Enclose only
+   the sections that actually carry rows in the same subtle capsule as the
+   pinned grid (`.os-fav-grid`), so each group reads as a cluster. Empty
+   sections get no `--grouped` class and therefore no orphaned box. */
+.os-agent-sidebar--avatar-only .os-rail-section--grouped {
+  border: 1px dashed color-mix(in srgb, var(--color-base-content) 10%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--color-base-content) 2%, transparent);
+  margin: 0.35rem 0.25rem;
+  padding: 0.25rem 0.15rem;
+}
+
+/* #1247: faint directional scroll indicators for the avatar-only column, whose
+   native scrollbar is concealed. They sit over the top/bottom edge of the
+   scroller and scroll by one avatar tile on click. */
+.os-rail-scroll-chevron {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-base-content) 40%, transparent);
+  cursor: pointer;
+}
+.os-rail-scroll-chevron:hover,
+.os-rail-scroll-chevron:focus-visible {
+  color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
+}
+.os-rail-scroll-chevron--up {
+  top: 0.15rem;
+}
+.os-rail-scroll-chevron--down {
+  bottom: 0.15rem;
+}
 .os-rail-menu-submenu {
   margin-left: 0.5rem;
   padding-left: 0.25rem;
@@ -2409,12 +3359,33 @@ button.os-agent-row {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .os-chat-header__identity .os-navbar-edit-btn {
+  /* #1676: the pencil moved out of the left lead slot and into the centered
+     agent pill, so the reveal now hangs off the pill — the element that
+     actually contains the control. */
+  .os-agent-pill .os-navbar-edit-btn {
     opacity: 0;
+    /* #1724 §1: a hidden control must also STOP TAKING CLICKS. `opacity: 0`
+       alone leaves the button hit-testable, so the pill's right ~68px handed
+       every click to an invisible icon whose handler `stopPropagation`s —
+       opening the agent editor where the pill's own `onClick` opens the
+       config pane. `pointer-events` is the same gate `opacity` is, so it
+       belongs on the same two rules; it is instant, never transitioned. */
+    pointer-events: none;
   }
-  .os-chat-header__identity:hover .os-navbar-edit-btn,
-  .os-chat-header__identity:focus-within .os-navbar-edit-btn {
+  .os-agent-pill:hover .os-navbar-edit-btn,
+  .os-agent-pill:focus-within .os-navbar-edit-btn {
     opacity: 1;
+    pointer-events: auto;
+  }
+  /* #1724 §1: the action shells go transparent to the pointer with their
+     buttons, so a click on the reserved strip reaches the pill surface itself
+     instead of landing on an invisible control's tooltip wrapper. */
+  .os-agent-pill .os-agent-pill__action {
+    pointer-events: none;
+  }
+  .os-agent-pill:hover .os-agent-pill__action,
+  .os-agent-pill:focus-within .os-agent-pill__action {
+    pointer-events: auto;
   }
 }
 
@@ -2427,12 +3398,27 @@ button.os-agent-row {
 @media (hover: hover) and (pointer: fine) {
   .os-cli-agent-row .os-cli-settings-btn {
     opacity: 0;
+    /* #1801: `opacity: 0` hides the glyph but leaves the button in the
+      hit-test tree, so a pointer aimed at the row's empty right edge landed on
+      an invisible control instead of the row. This is the same two-rule shape
+      as `.os-agent-pill .os-agent-pill__action` further up this sheet, which
+      already had the gate. `pointer-events` is the same gate `opacity` is, so
+      it belongs on the same two rules; it is instant, never transitioned.
+      It stays inside this media block on purpose: the base rule above is the
+      touch-device path, where the control is always visible AND always
+      clickable. */
+    pointer-events: none;
   }
   .os-cli-agent-row:hover .os-cli-settings-btn,
   .os-cli-agent-row:focus-within .os-cli-settings-btn,
   .os-cli-agent-row .os-cli-settings-btn:focus,
   .os-cli-agent-row .os-cli-settings-btn[aria-expanded="true"] {
     opacity: 1;
+    /* Every selector that reveals it must restore hit-testing with it:
+      `:focus-within` and `:focus` are the keyboard route in, and
+      `[aria-expanded="true"]` is the already-open popover, which would
+      otherwise be unclickable. */
+    pointer-events: auto;
   }
 }
 
@@ -2440,21 +3426,69 @@ button.os-agent-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  /* #1068/#1206/#1244: the footer icons (Teams, Plugins, Routines, Server)
+     must share one centreline and one hit-area. The first three are
+     .os-rail-footer-btn rows: h-4 w-4 icon + px-1 py-1.5 = 2rem tall, 1.5rem
+     wide. The Server row used to add a 0.35rem flex gap plus a 0.375rem
+     padding-block on top of its 1rem-tall button, so it was both taller and
+     the icon sat ~0.375rem lower. A button is inline-block and adds the
+     line-box descender too. Pin the row to the 2rem button height and strip
+     the extra padding so all four icons land on the same axis. */
   min-height: 2rem;
-  padding-block: 0.375rem;
-  /* #1068/#1206: matching 2rem row height and py-1.5 padding rhythm equalizes
-     the vertical distribution of the footer icons (Teams, Plugins, Routines, Server). */
+  height: 2rem;
+  padding: 0;
   color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+  /* #1309: the update button sits at the row's right edge, under the
+     absolutely-positioned resize handle (z-index 50, 8px over the pane).
+     Lift the row above the handle so its controls win the hit-test, and let
+     pointer events pass through the row's empty space so dragging still
+     works. Mirrors the #1308 search-row fix.
+     `min-width: 0` stops this row from imposing a content floor wider than
+     the pane. The hostname field keeps the #1308 floor (4rem, relaxed to
+     2rem by the narrow container query below); this row does not zero it. */
+  position: relative;
+  z-index: 51;
+  pointer-events: none;
+  min-width: 0;
+}
+.os-rail-hostname-row > * {
+  pointer-events: auto;
 }
 .os-rail-hostname-icon {
   flex-shrink: 0;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  /* #1244: match the h-4 w-4 glyph box of .os-rail-footer-btn so the Server
+     icon shares the footer centreline (the previous 1rem btn-square + gap
+     pushed it off-axis). */
+  height: 1rem;
+  width: 1rem;
+  min-height: 0;
+  /* #1695: measured, not eyeballed. The row's three siblings are `px-1`
+     full-width rows, so their 1rem glyphs start 0.25rem in from the row's
+     content edge (optical centres at +0.75rem). This trigger is a 1rem SQUARE,
+     so its glyph was centred at +0.5rem — 0.25rem left of the icon column —
+     AND daisyUI's `.btn` keeps a 1px border even on `btn-ghost` (transparent,
+     so invisible), which squeezed the 1rem SVG to 14x16: the same glyph, 12.5%
+     narrower, than every neighbour. Drop the border so the glyph renders at
+     its natural box, and offset the button by the siblings' own 0.25rem
+     padding so the optical centres coincide. Both declarations live in this
+     one shared rule rather than as a bespoke margin on the button, because
+     shared chrome that copies itself is how two identical-looking things drift
+     apart. Height stays 1rem, so the row keeps centring it and the glyph's
+     vertical centre is unchanged. */
+  border: 0;
+  margin-left: 0.25rem;
 }
 .os-rail-hostname-icon.text-error,
 .os-rail-hostname-icon[data-tone="error"] {
   color: #d46a6a;
 }
 .os-rail-hostname {
+  /* #1308: keep a readable floor while the rail can seat it; the narrow
+     container below relaxes it so the input can shrink inside 118px. */
   min-width: 4rem;
   flex: 0 1 auto;
   width: auto;
@@ -2473,6 +3507,17 @@ button.os-agent-row {
 .os-rail-hostname:focus {
   color: var(--color-base-content);
   background: color-mix(in srgb, var(--color-base-300) 40%, transparent);
+}
+/* #1308 follow-up: at the one-column laptop detent the footer row's fixed
+   min-widths summed wider than the pane, so the update/info chip hung past the
+   rail edge — visible as a bleed over the divider on a left rail and a 5px
+   document horizontal scroll on a right-docked rail (the chip sat past the
+   viewport). Let the hostname field give up its 4rem floor before the row
+   overflows; wider rails keep the floor because the query does not match. */
+@container (max-width: 9rem) {
+  .os-rail-hostname {
+    min-width: 2rem;
+  }
 }
 
 /* REQ-78: XOR update/info slot to the right of the system name.
@@ -2545,8 +3590,47 @@ button.os-agent-row {
   height: var(--os-top-chrome-h);
   padding: 0.5rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
+  /* #1701: glass band. The tint comes from the theme token (translucent by
+     construction) and the blur is progressive — the `@supports` fallback below
+     restores an opaque surface where `backdrop-filter` is unavailable, so the
+     navbar is never unreadable. The transition is the only motion here, and
+     `prefers-reduced-motion` removes it. */
+  background: var(--os-navbar-glass-bg);
+  -webkit-backdrop-filter: blur(var(--os-navbar-glass-blur));
+  backdrop-filter: blur(var(--os-navbar-glass-blur));
+  transition: background-color 150ms ease;
   /* #530: relative so the centered token meter can anchor to the header row. */
   position: relative;
+  /* #1719: the band is TOP CHROME, so it stacks above the transcript it
+     floats over — and this declaration is the fix, not a band-width patch.
+     `backdrop-filter` (above) makes this element a STACKING CONTEXT, which
+     traps everything inside it: `.os-agent-pill`'s `z-index: 20` only ever
+     competed with the band's other children, never with the transcript, which
+     is a later sibling OUTSIDE that context. So the pill painted behind
+     `.os-chat-transcript` (`position: relative`, `z-index: auto`, later in
+     tree order) and every control in it was unclickable. `z-index` only
+     competes within a stacking context, so the value has to live on the
+     element that CREATES the context, not on the trapped descendant.
+     30 places the band above the transcript and everything inside it (which
+     tops out at 20: `.os-plus-menu`, `.os-attach-chip__remove`) and below the
+     layers that must keep winning: the rail's resize handle (50/51, whose
+     hit-zone deliberately overlaps this pane), the fixed chat overlays
+     (40/50) and `.os-generations-panel` (30, rendered after the band, so the
+     tie still resolves in its favour). */
+  z-index: 30;
+}
+/* Progressive enhancement: no filter support (or a user agent that disables
+   it) must not leave the band transparent — an opaque base keeps every control
+   at full contrast. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .os-chat-header {
+    background: var(--color-base-100);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-chat-header {
+    transition: none;
+  }
 }
 @media (max-width: 639px) {
   .os-chat-header {
@@ -2579,6 +3663,16 @@ button.os-agent-row {
   flex-wrap: nowrap;
   align-items: center;
 }
+/* #1202: capability-aware navbar pickers. A seat that cannot support a
+   capability keeps the control mounted but greyed with an inert click; the
+   power-user hide toggle unmounts it instead. */
+.os-navbar-picker--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.os-navbar-picker--disabled > .btn {
+  pointer-events: none;
+}
 /* #530: the token meter sits centered in the header row, not right-aligned.
    Absolutely positioned at the true center of `.os-chat-header` so it stays
    centered regardless of how wide the identity and controls clusters are.
@@ -2587,6 +3681,85 @@ button.os-agent-row {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* #1676: the foreground agent's avatar + name ride a CENTERED floating pill
+   that is SEPARATED from the top navbar band. The header stays the #560 flex
+   row (lead | controls) at `--os-top-chrome-h`, so the right-side icons keep
+   their original vertical seat. The pill is absolutely positioned just under
+   the header's bottom edge and does not participate in header layout — it
+   cannot push the band taller or drop the controls. */
+.os-chat-header__identity {
+  /* Lead slot only (rail toggle). Identity moved into the floating pill. */
+  max-width: 100%;
+}
+.os-chat-header__controls {
+  /* Stay end-flushed in the flex header; never share a track with the pill. */
+  margin-left: auto;
+}
+
+/* The pill itself. Out of header flow. Theme tokens only (AGENTS.md). */
+.os-agent-pill {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.5rem);
+  transform: translateX(-50%);
+  z-index: 20;
+  width: max-content;
+  max-width: min(26rem, calc(100% - 2rem));
+  gap: 0.5rem;
+  /* #1765: the horizontal inset is ASYMMETRIC on purpose (right >= left).
+     The left inset butts against the avatar — a hard-edged, opaque disc whose
+     circular silhouette already reads as carrying its own margin, so 0.75rem
+     measures generous there. The right inset butts against TEXT: the eye
+     measures to the terminal glyph's ink, not to its em-box, and the label's
+     `tracking-tight` trims the last sidebearing — so the SAME 0.75rem read as
+     cramped and the pill looked shoved against its right cap. 1rem on the
+     inline-end side is the optical correction; it also leaves the pointer-
+     revealed action cluster (#1704/#1724 reserve their strip at rest) a little
+     more room once the pencil/folder glyphs fade in. Block inset is unchanged,
+     so the pill's height — and the header band's — cannot move. */
+  padding-block: 0.25rem;
+  padding-inline: 0.75rem 1rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: color-mix(in srgb, var(--color-base-100) 92%, transparent);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-base-content) 8%, transparent),
+    0 6px 16px -10px color-mix(in srgb, var(--color-base-content) 40%, transparent);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.os-agent-pill:hover {
+  border-color: color-mix(in srgb, var(--color-base-content) 24%, transparent);
+  background: var(--color-base-100);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--color-base-content) 10%, transparent),
+    0 8px 20px -10px color-mix(in srgb, var(--color-base-content) 50%, transparent);
+}
+.os-agent-pill:focus-within {
+  border-color: var(--color-primary);
+}
+/* #1676: the no-seat placeholder pill is inert — there is no agent whose edit
+   pane could open — so it reads as muted rather than as a live control. */
+.os-agent-pill[data-empty='true'] {
+  cursor: default;
+  opacity: 0.65;
+  box-shadow: none;
+}
+.os-agent-pill__placeholder {
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+  font-style: italic;
+}
+/* Mobile: keep the floating pill centered under the band; clamp width so it
+   cannot cover the rail toggle or the controls cluster. */
+@media (max-width: 639px) {
+  .os-agent-pill {
+    max-width: min(26rem, calc(100% - 1rem));
+  }
 }
 .os-chat-header__avatar {
   pointer-events: none;
@@ -2598,7 +3771,11 @@ button.os-agent-row {
    flipped to "true" by the identity observer only when scrollWidth exceeds
    clientWidth; the mask applies only then. */
 .os-navbar-identity-label {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  /* #1715: line-box == painted text so a lone label is not a
+     stretched box with top-parked glyphs. */
+  line-height: 1;
   min-width: 0;
   max-width: 100%;
   white-space: nowrap;
@@ -2609,26 +3786,105 @@ button.os-agent-row {
   mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent 100%);
 }
 .os-navbar-identity-card .os-navbar-identity-label {
-  flex: 1 1 auto;
+  /* #1715: content-sized on the column main axis. flex-grow made the lone
+     label a stretched box whose painted text sat top-biased — as if a second
+     line were still reserved. Width still fills via width:100%. */
+  flex: 0 1 auto;
+  width: 100%;
 }
 .os-navbar-identity-text {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  /* #1715: stretch to the pill cross-axis height so justify-content:center
+     has a real track to centre a single label in. */
+  align-self: stretch;
   min-width: 0;
   flex: 1 1 auto;
   max-width: 100%;
 }
 .os-navbar-identity-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   margin: 0;
+  padding: 0;
   max-width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: 0.6875rem;
   line-height: 1.15;
   font-weight: 400;
+  text-align: left;
   color: color-mix(in srgb, var(--color-base-content) 58%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: color 150ms ease;
+}
+/* #1257: click-to-change affordance — brighten + underline on hover. */
+.os-navbar-identity-subtitle:hover {
+  color: color-mix(in srgb, var(--color-base-content) 88%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-base-content) 35%, transparent);
+}
+.os-navbar-identity-subtitle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+/* #1257: no bound folder — stays quiet until the identity block is hovered
+   or the button takes keyboard focus (opacity only, so no layout jump). */
+.os-navbar-identity-subtitle--unset {
+  color: color-mix(in srgb, var(--color-base-content) 45%, transparent);
+  font-style: italic;
+}
+.os-navbar-identity-subtitle--unset:hover {
+  color: color-mix(in srgb, var(--color-base-content) 80%, transparent);
+}
+
+/* #1704 — the pill's right-aligned action cluster.
+   The unset-folder affordance used to be a TEXT row inside
+   `.os-navbar-identity-text`, so revealing it grew the pill by a whole line.
+   It is now an icon button in one row with the pencil: a single line box of
+   square buttons, vertically centred, `flex-shrink: 0` so the labels keep the
+   width. Nothing here sets a colour — the buttons inherit the ghost styling
+   the pencil already used (#1704 §2: same size, stroke and hover target). */
+.os-agent-pill__actions {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  gap: 0.125rem;
+}
+/* The folder glyph is the only drawable in the cluster, so it needs no extra
+   class — the point of #1704 is that it is the SAME density as the pencil. */
+.os-agent-pill__actions .os-navbar-edit-btn {
+  font-style: normal;
+}
+/* #1704 §4: pointer-only reveal, and a keyboard-visible reveal that is not
+   hover-only. `:focus-within` already covers a mouse click that lands on the
+   button; `:focus-visible` covers tabbing to it from elsewhere on the pill. */
+@media (hover: hover) and (pointer: fine) {
+  .os-agent-pill__actions .os-navbar-edit-btn:focus-visible {
+    opacity: 1;
+  }
+}
+
+/* #1698 §A / #1706 §A — the `@rig` half of the role address. It is a child of
+   `.os-agent-role-badge`, so the role colour is untouched (AGENTS.md: role
+   colour belongs only on the badge) and the badge's fixed `--slim` height keeps
+   the address on ONE line. `text-transform: none` is scoped to the pill so the
+   operator word reads as `Support@local` instead of being folded to
+   `support@local` by the badge's global `text-transform`; the rail is
+   deliberately left as it was. */
+.os-agent-pill .os-agent-role-badge {
+  text-transform: none;
+}
+.os-agent-pill__rig {
+  opacity: 0.75;
 }
 
 /* REQ-200: one cascading navbar routing control (agent → model → effort). */
@@ -2637,6 +3893,43 @@ button.os-agent-row {
   flex-shrink: 0;
   max-width: min(28rem, 46vw);
   min-width: 0;
+}
+.os-routing-picker:has(.os-engine-switch-warning) {
+  max-width: min(36rem, 92vw);
+}
+.os-engine-switch-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-warning, var(--color-base-content)) 16%, var(--color-base-100));
+  color: var(--color-base-content);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.os-engine-switch-warning__text {
+  margin: 0;
+  flex: 1 1 12rem;
+}
+.os-engine-switch-warning__actions {
+  display: flex;
+  gap: 0.35rem;
+}
+.os-engine-switch-warning__ack,
+.os-engine-switch-warning__stay {
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  border-radius: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.os-engine-switch-warning__ack {
+  background: color-mix(in srgb, var(--color-warning, var(--color-base-content)) 28%, var(--color-base-100));
 }
 .os-routing-face {
   max-width: 100%;
@@ -2684,44 +3977,8 @@ button.os-agent-row {
   white-space: nowrap;
   min-width: 0;
 }
-/* #770 / #1110: double-slit grab handle — hover-revealed resize affordance on leading edge. */
-.os-routing-pill__grip {
-  display: none;
-  width: 0.4rem;
-  align-self: stretch;
-  flex-shrink: 0;
-  margin-inline-end: 0.1rem;
-  cursor: col-resize;
-  touch-action: none;
-  background:
-    linear-gradient(
-      to right,
-      transparent 0 calc(50% - 1px),
-      color-mix(in srgb, var(--color-base-content) 30%, transparent) calc(50% - 1px) calc(50% - 0.5px),
-      transparent calc(50% - 0.5px) calc(50% + 0.5px),
-      color-mix(in srgb, var(--color-base-content) 30%, transparent) calc(50% + 0.5px) calc(50% + 1px),
-      transparent calc(50% + 1px) 100%
-    );
-  border-radius: 1px;
-}
-.os-routing-pill[data-pill-resized] {
-  max-width: none;
-}
-.os-routing-pill:hover .os-routing-pill__grip,
-.os-routing-pill__grip:focus-visible {
-  display: inline-block;
-}
-.os-routing-pill__grip:hover {
-  background:
-    linear-gradient(
-      to right,
-      transparent 0 calc(50% - 1px),
-      color-mix(in srgb, var(--color-base-content) 60%, transparent) calc(50% - 1px) calc(50% - 0.5px),
-      transparent calc(50% - 0.5px) calc(50% + 0.5px),
-      color-mix(in srgb, var(--color-base-content) 60%, transparent) calc(50% + 0.5px) calc(50% + 1px),
-      transparent calc(50% + 1px) 100%
-    );
-}
+/* #1231: the #770 grip block is retired — the pill caps its label via
+   truncatePillLabel (32 chars) and the full path lives on title. */
 .os-routing-pill__chevron {
   width: 0.85rem;
   height: 0.85rem;
@@ -2805,8 +4062,7 @@ button.os-agent-row {
     justify-content: center;
   }
   .os-composer .os-routing-pill__label,
-  .os-composer .os-routing-pill__chevron,
-  .os-composer .os-routing-pill__grip {
+  .os-composer .os-routing-pill__chevron {
     display: none;
   }
   .os-composer .os-routing-pill__icon {
@@ -2956,6 +4212,13 @@ button.os-agent-row {
 .os-role-agent-tip__alert {
   padding: 0.65rem 0.75rem;
 }
+/* #1703: host-CLI detected tip sits at the very top of the chat pane. */
+.os-host-cli-tip {
+  padding: 0.5rem 0.75rem 0;
+}
+.os-host-cli-tip__alert {
+  padding: 0.65rem 0.75rem;
+}
 .os-runtime-banner {
   padding: 0.65rem 0.75rem;
 }
@@ -3020,6 +4283,14 @@ button.os-agent-row {
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+}
+/* The queued pane mounts INSIDE .os-composer (#925), making the pill taller
+   than the input line. Centering would float the send button against the
+   whole stack; pin it to the input row instead so it stays aligned with the
+   message field, not the message+queued block. */
+.os-composer-row:has(.os-composer--queued),
+.os-composer-row:has(.os-composer--reply) {
+  align-items: flex-end;
 }
 .os-composer-row .os-composer {
   flex: 1 1 auto;
@@ -3181,6 +4452,13 @@ pre:focus-within .os-code-copy {
 .os-composer__icon:hover {
   background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
 }
+/* #1322: a hold on the mic must not become a context menu or a scroll,
+   both of which cancel the pointer and drop the recording. */
+.os-composer__mic {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
 .os-composer__send {
   display: inline-flex;
   align-items: center;
@@ -3219,6 +4497,38 @@ pre:focus-within .os-code-copy {
   color: white;
   filter: brightness(1.05);
 }
+/* #1371: Running badge is the standing generation mark. The abort control
+   is clipped until the badge is hovered, focused, or programmatically
+   revealed — composer/status chrome stays clean otherwise. */
+.os-running-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.5rem;
+}
+.os-running-stop__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+}
+.os-running-stop__abort {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-width: 0;
+  padding-inline: 0;
+}
+.os-running-stop:hover .os-running-stop__abort,
+.os-running-stop:focus-within .os-running-stop__abort,
+.os-running-stop--revealed .os-running-stop__abort {
+  opacity: 1;
+  max-width: 6rem;
+  pointer-events: auto;
+  border-width: 1px;
+  padding-inline: 0.45rem;
+}
 .os-agent-row__stop-label {
   display: inline;
 }
@@ -3230,6 +4540,26 @@ pre:focus-within .os-code-copy {
     width: 1.5rem;
     padding: 0;
   }
+}
+/* D1 — align the per-agent Stop control to the message content axis so it
+   reads as part of the message column instead of hanging off the row's far
+   left under the avatar (speech) or the IRC name gutter. This is the same
+   text axis the composer input sits on; the offset differs per bubble theme
+   because the themes place the message body differently:
+     • bubble + speech: body starts after the 1.5rem beside-bubble avatar and
+       the 0.5rem grid gap → 2rem.
+     • bubble + simple: no beside-bubble avatar → flush with the row content.
+     • line (IRC): body starts after the resizable timestamp/name gutter
+       (--irc-gutter-px) plus its trailing 0.5rem gap. */
+.os-agent-row__stop-slot {
+  align-items: center;
+  padding-inline-start: var(--os-stop-axis-offset, 0px);
+}
+.os-chat-transcript[data-bubble-theme="speech"] .os-agent-row__stop-slot {
+  --os-stop-axis-offset: 2rem; /* 1.5rem avatar column + 0.5rem grid gap */
+}
+.os-chat-transcript[data-message-layout="line"] .os-agent-row__stop-slot {
+  --os-stop-axis-offset: calc(var(--irc-gutter-px, 140px) + 0.5rem);
 }
 .os-composer__send:hover {
   opacity: 0.92;
@@ -3260,11 +4590,6 @@ pre:focus-within .os-code-copy {
 }
 .os-composer__stop:hover {
   background: color-mix(in srgb, var(--color-error) 12%, transparent);
-}
-html:not([data-theme="light"]) .os-composer__send,
-[data-theme="dark"] .os-composer__send {
-  background: #fff;
-  color: #111;
 }
 .os-composer__hint {
   font-size: 0.65rem;
@@ -3590,6 +4915,36 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-chat-transcript[data-bubble-theme="simple"] .os-bubble-meta::before {
   content: none;
 }
+/* #753 regression: simple renders the clock as an `.os-bubble-time-inline`
+   grid item. `order` only orders FLEX items, so inside DaisyUI's `.chat` grid
+   the span was auto-placed into the implicit second column — for `.chat-end`
+   (user) that column sat to the RIGHT of the bubble, shoving it off the right
+   edge. Place the clock explicitly and pin the bubbles: incoming/assistant
+   keeps the clock on its right, outgoing/user hugs the right edge with the
+   clock on its left. */
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end {
+  grid-template-columns: auto 1fr;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end .os-bubble-time-inline {
+  grid-column-start: 1;
+  grid-row-start: 1;
+  justify-self: end;
+  align-self: start;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end .chat-header,
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end .chat-footer {
+  grid-column-start: 2;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-end .chat-bubble {
+  grid-column-start: 2;
+  justify-self: end;
+}
+.os-chat-transcript[data-bubble-theme="simple"] .chat-start .os-bubble-time-inline {
+  grid-column-start: 2;
+  grid-row-start: 1;
+  justify-self: end;
+  align-self: start;
+}
 /* #217: timestamp placement is a theme override (below / inline / above). */
 .os-chat-transcript[data-timestamp-placement="below"] .chat-footer .os-bubble-time,
 .os-chat-transcript [data-timestamp-placement="below"] .os-bubble-time {
@@ -3779,26 +5134,6 @@ html:not([data-theme="light"]) .os-composer__send,
   margin-block: 0.25rem;
 }
 
-.os-bubble-theme-submenu {
-  display: none;
-  position: absolute;
-  left: calc(100% + 0.25rem);
-  top: 0;
-  z-index: 60;
-  min-width: 9.5rem;
-  margin: 0;
-  padding: 0.25rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--color-base-300);
-  background: var(--color-base-100);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-base-content) 16%, transparent);
-}
-.os-bubble-theme-item:hover > .os-bubble-theme-submenu,
-.os-bubble-theme-item:focus-within > .os-bubble-theme-submenu,
-.os-bubble-theme-item[data-open="true"] > .os-bubble-theme-submenu {
-  display: block;
-}
-
 /*
  * #505 / REQ-907 — IRC overlays the message action/reaction row onto the
  * bubble line so the row adds no height. The wrapper is anchored to the
@@ -3811,7 +5146,7 @@ html:not([data-theme="light"]) .os-composer__send,
  * the row stays in flow (the wrapper renders as a plain block) so touch
  * devices never permanently cover message text.
  */
-.os-chat-transcript[data-action-row-placement="overlay"] .group\\/osrow {
+.os-chat-transcript[data-action-row-placement="overlay"] .group\/osrow {
   position: relative;
 }
 
@@ -3836,15 +5171,37 @@ html:not([data-theme="light"]) .os-composer__send,
     padding: 0.125rem 0.25rem 0 0.25rem;
   }
 }
-@media (max-width: 40rem) {
-  .os-bubble-theme-submenu {
-    left: 0.5rem;
-    right: 0.5rem;
-    top: 100%;
-    min-width: 0;
-  }
+
+/*
+ * #1241 — actions & reactions in always-visible mode (touch tiers or
+ * Settings → Aesthetics) stay dimmed until the operator engages them. Full
+ * brightness returns on hover, keyboard focus, or an activated action
+ * (expanded Thinking, a just-copied control). The row keeps pointer events so
+ * it is always clickable; the transition itself is reduced-motion aware via
+ * `motion-reduce:transition-none` on the element.
+ */
+[data-always-visible="true"] {
+  opacity: 0.45;
+}
+[data-always-visible="true"]:hover,
+[data-always-visible="true"]:focus-within,
+[data-always-visible="true"][data-activated="true"],
+.group\/osrow:hover [data-always-visible="true"],
+.group\/osrow:focus-within [data-always-visible="true"] {
+  opacity: 1;
 }
 
+/* The standalone reaction/action chrome on small (always-visible) viewports
+   dims at rest for the same reason; it carries no always-visible data attr. */
+@media (max-width: 47.99rem) {
+  .os-message-actions:not(:hover):not(:focus-within) {
+    opacity: 0.45;
+  }
+  .group:hover .os-message-actions,
+  .group:focus-within .os-message-actions {
+    opacity: 1;
+  }
+}
 .os-chat-transcript[data-bubble-theme="irc"] .chat-header {
   display: none;
 }
@@ -3971,6 +5328,43 @@ html:not([data-theme="light"]) .os-composer__send,
   color: color-mix(in srgb, var(--color-info) 90%, var(--color-base-content));
 }
 
+/* #1793 — thread-load notice. Reads as transcript chrome (same geometry as
+   .os-chat-status) but is a live region, so the dimmed/loading state is
+   announced rather than only seen. */
+.os-thread-load-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0.45rem 0;
+  padding: 0.3rem 0.75rem;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+.os-thread-load-notice > span:last-child {
+  min-width: 0;
+  max-width: 30rem;
+}
+.os-thread-load-notice--error {
+  color: color-mix(in srgb, var(--color-error) 78%, var(--color-base-content));
+  border-block: 1px solid color-mix(in srgb, var(--color-error) 28%, transparent);
+}
+
+/* #1793 — the cached copy shown while a thread loads. Visibly NOT live data:
+   greyed and desaturated, and inert (the React `inert` attribute is the
+   authoritative part; pointer-events just keeps the cursor honest before the
+   attribute lands). No animation, so reduced-motion needs no special case. */
+.os-thread-stale {
+  opacity: 0.45;
+  filter: grayscale(1);
+  pointer-events: none;
+  cursor: default;
+}
+
 /* REQ-71: structured PR-opened tool result is thread chrome, not a chat bubble. */
 .os-pr-opened-wrap {
   display: flex;
@@ -3983,6 +5377,94 @@ html:not([data-theme="light"]) .os-composer__send,
 .os-pr-opened-card .card-body {
   gap: 0.4rem;
   padding: 0.85rem 1rem;
+}
+
+/* #1374: Cursor-like Running cards (open arrow + hover-stop). */
+.os-running-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 28rem;
+  margin-block: 0.5rem;
+}
+.os-running-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-300, currentColor) 70%, transparent);
+  background: color-mix(in srgb, var(--color-base-100) 88%, var(--color-base-200));
+  color: var(--color-base-content);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--color-base-content) 6%, transparent);
+}
+.os-running-card__face {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.os-running-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.os-running-card__name {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-base-content);
+}
+.os-running-card__badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.35rem;
+}
+.os-running-card__badge[data-status="running"] {
+  background: var(--color-info);
+  color: var(--color-info-content);
+  border-color: transparent;
+}
+.os-running-card__stop {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: inherit;
+  background: var(--color-error);
+  color: var(--color-error-content);
+  font-size: 0.65rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.os-running-card__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.os-running-card__open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  color: var(--color-base-content);
+  background: color-mix(in srgb, var(--color-base-200) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-base-300, currentColor) 70%, transparent);
+}
+.os-running-card__open:hover,
+.os-running-card__open:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-base-100));
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline: none;
 }
 
 /* REQ-84: teammate remote-task chrome (title + Running/Done + Open in {Kind}). */
@@ -4009,6 +5491,18 @@ html:not([data-theme="light"]) .os-composer__send,
   justify-content: center;
   padding: 1rem;
 }
+/* #1697 — the composer agent/model selector. Portalled to <body> so it leaves
+   the sticky composer dock's `z-20` stacking context (where the `z-30` sidepane
+   painted over the dialog's left edge), and rail-aware so the dialog centres in
+   the workspace instead of straddling the sidepane. `--os-rail-inset-start` /
+   `--os-rail-inset-end` are the rail's reserved width on its docked edge,
+   published on :root by useRailResize (absent on the narrow drawer, 0px when
+   collapsed) — both default to 0px, so a rail-less host centres as before. */
+.os-search-overlay--workspace {
+  padding-inline:
+    calc(var(--os-rail-inset-start, 0px) + 1rem)
+    calc(var(--os-rail-inset-end, 0px) + 1rem);
+}
 .os-search-palette {
   position: relative;
   width: min(48rem, calc(100vw - 2rem));
@@ -4024,13 +5518,19 @@ html:not([data-theme="light"]) .os-composer__send,
   overflow: hidden;
   border-radius: 1.5rem;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent);
-  background: #1a1a1a;
-  color: #e6e6e6;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
 }
-[data-theme="light"] .os-search-palette {
-  background: #f4f4f5;
-  color: #1a1a1a;
+/* #1697 — size against the rail-aware centering box (`.os-search-overlay--
+   workspace`) rather than the raw viewport, so the frame follows the sidepane
+   instead of overflowing it. `100%`/`100vh` are the overlay's content box, so
+   a rail-less host still resolves exactly like the `100vw` rules above. */
+.os-search-palette--workspace {
+  width: min(48rem, 100%);
+  min-width: min(560px, 100%);
+  max-width: min(52rem, 100%);
+  height: min(38rem, calc(100vh - 4rem));
 }
 .os-search-palette__field {
   display: flex;
@@ -4196,6 +5696,40 @@ html:not([data-theme="light"]) .os-composer__send,
   color: inherit;
 }
 
+.os-routine-tool-picker {
+  background: var(--color-base-100);
+  border-color: var(--color-base-300);
+}
+.os-routine-tool-pick-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.os-routine-tool-pick-row:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+.os-routine-tool-pick-row:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-base-content) 6%, transparent);
+}
+.os-routine-tool-reason {
+  color: var(--color-warning);
+}
+.os-routine-tool-suggestions {
+  border: 1px solid var(--color-base-300);
+  background: color-mix(in srgb, var(--color-base-content) 4%, var(--color-base-100));
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+.os-routine-tool-suggest {
+  background: var(--color-base-200);
+  border-color: var(--color-base-300);
+}
+
 .os-swipe-hint {
   position: fixed;
   top: 4.25rem;
@@ -4281,10 +5815,11 @@ html:not([data-theme="light"]) .os-composer__send,
   font-size: 0.75rem;
   color: color-mix(in srgb, currentColor 52%, transparent);
 }
-.os-agent-role-badge[data-kind="remote"] { color: #5a7a6a; }
+.os-agent-role-badge[data-kind="remote"] { color: #a1baad; }
+[data-theme="light"] .os-agent-role-badge[data-kind="remote"] { color: #3a4f45; }
 
 .os-code-python {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--os-font-mono);
 }
 [data-theme="light"] .os-py-kw { color: #1d4f91; }
 [data-theme="light"] .os-py-str { color: #2d6a38; }
@@ -4714,13 +6249,13 @@ html:not([data-theme="light"]) .os-composer__send,
   50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .robot-waiting,
-  .robot-working,
-  .robot-error,
-  [data-avatar-theme] .robot-working,
-  .os-robot-glow-ring,
-  .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
-  [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
+  html:not([data-avatar-motion='always']) .robot-waiting,
+  html:not([data-avatar-motion='always']) .robot-working,
+  html:not([data-avatar-motion='always']) .robot-error,
+  html:not([data-avatar-motion='always']) [data-avatar-theme] .robot-working,
+  html:not([data-avatar-motion='always']) .os-robot-glow-ring,
+  html:not([data-avatar-motion='always']) .os-robot-avatar[data-eye-state="active"] .os-robot-pupils,
+  html:not([data-avatar-motion='always']) [data-avatar-theme][data-eye-state="active"] .os-robot-pupils {
     animation: none;
   }
 }
@@ -4833,14 +6368,14 @@ html:not([data-theme="light"]) .os-composer__send,
   40% { transform: translateY(-22%); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-bland-avatar,
-  .os-bland-avatar .os-aura-blob,
-  .os-bland-avatar .os-aura-glow,
-  .os-bland-avatar[data-eye-state="active"],
-  .os-waiting-dots span {
+  html:not([data-avatar-motion='always']) .os-bland-avatar,
+  html:not([data-avatar-motion='always']) .os-bland-avatar .os-aura-blob,
+  html:not([data-avatar-motion='always']) .os-bland-avatar .os-aura-glow,
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"],
+  html:not([data-avatar-motion='always']) .os-waiting-dots span {
     animation: none !important;
   }
-  .os-bland-avatar[data-eye-state="active"] .os-bland-eyes circle { visibility: visible; }
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"] .os-bland-eyes circle { visibility: visible; }
 }
 
 .os-bland-avatar--active,
@@ -4865,14 +6400,14 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .os-avatar--active,
-  .os-agent-avatar--active,
-  .os-robot-avatar--active,
-  .os-inline-working__avatar,
-  .os-bland-avatar--active,
-  .os-bland-avatar[data-eye-state="active"],
-  .os-bland-avatar--active .os-bland-eyes,
-  .os-bland-avatar[data-eye-state="active"] .os-bland-eyes {
+  html:not([data-avatar-motion='always']) .os-avatar--active,
+  html:not([data-avatar-motion='always']) .os-agent-avatar--active,
+  html:not([data-avatar-motion='always']) .os-robot-avatar--active,
+  html:not([data-avatar-motion='always']) .os-inline-working__avatar,
+  html:not([data-avatar-motion='always']) .os-bland-avatar--active,
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"],
+  html:not([data-avatar-motion='always']) .os-bland-avatar--active .os-bland-eyes,
+  html:not([data-avatar-motion='always']) .os-bland-avatar[data-eye-state="active"] .os-bland-eyes {
     animation: none !important;
   }
 }
@@ -4915,10 +6450,10 @@ html:not([data-theme="light"]) .os-composer__send,
   50% { transform: translateY(-2.4px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-pack-variant='pixel'],
-  [data-pack-variant='ghost'],
-  [data-pack-variant='crystal'],
-  [data-pack-variant='chassis'] .os-robot-visor-band {
+  html:not([data-avatar-motion='always']) [data-pack-variant='pixel'],
+  html:not([data-avatar-motion='always']) [data-pack-variant='ghost'],
+  html:not([data-avatar-motion='always']) [data-pack-variant='crystal'],
+  html:not([data-avatar-motion='always']) [data-pack-variant='chassis'] .os-robot-visor-band {
     animation: none;
   }
 }
@@ -4939,13 +6474,45 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 
 /* #224: the header avatar is a button (opens the generations panel) but must
-   not alter the avatar's established geometry (REQ-60 contract). */
+   not alter the avatar's established geometry (REQ-60 contract).
+   #1693: it is a real <button> with an accessible name, so it has to LOOK
+   like a control. The pill's own hover only nudged the outer badge border, so
+   hovering the avatar itself changed nothing — a mouse user had no discovery
+   and a keyboard user (the pill's :focus-within only tints the border ring) had
+   no focus treatment at all.
+
+   Tokens only (AGENTS.md): --color-primary for the focus ring, --color-base-*
+   for the hover ring. Hover is pointer-gated (`hover: hover` and `pointer:
+   fine`) because a touch device cannot hover, so a hover-only highlight would
+   be a signal that never resolves there; :focus-visible is UNCONDITIONAL so
+   keyboard users get the same ring, matching .os-agent-edit. */
 .os-chat-header__avatar-btn {
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
   overflow: visible;
+  border-radius: 9999px;
+  transition: box-shadow 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .os-chat-header__avatar-btn:hover:not(:disabled):not([aria-hidden='true']) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-base-content) 28%, transparent);
+  }
+}
+.os-chat-header__avatar-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+/* A team pill with no member pick is disabled and aria-hidden: it opens
+   nothing, so it must not advertise a target it does not have. */
+.os-chat-header__avatar-btn:disabled {
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-chat-header__avatar-btn {
+    transition: none;
+  }
 }
 .os-still-eyes {
   position: absolute;
@@ -4974,7 +6541,7 @@ html:not([data-theme="light"]) .os-composer__send,
   70% { transform: translate(-10%, 8%) scaleY(0.35); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .os-still-eye { animation: none; }
+  html:not([data-avatar-motion='always']) .os-still-eye { animation: none; }
 }
 
 /* REQ-858 / #213: Add tools / Add skills catalog (TrueForge-style). */
@@ -5011,8 +6578,15 @@ html:not([data-theme="light"]) .os-composer__send,
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 }
 [data-theme="light"] .os-plugins-panes .tab-active {
-  background: color-mix(in srgb, #1a1a1a 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #1a1a1a 18%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-base-content) 18%, transparent);
+}
+/* #1397: pack / import / status — ids only, theme tokens only. */
+.os-plugin-pack-scroll {
+  padding: 0.25rem 1rem 0.75rem;
+}
+.os-plugin-pack__row {
+  background: var(--color-base-100);
 }
 .os-install-catalog {
   display: flex;
@@ -5116,4 +6690,399 @@ html:not([data-theme="light"]) .os-composer__send,
 }
 .os-agent-sidebar [data-disabled='true']:hover {
   background: transparent;
+}
+
+/* #1402: GitHub routine trigger composer — chip fields, theme tokens only. */
+.os-github-trigger-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.os-github-trigger-composer__lead {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: var(--color-base-content);
+}
+.os-github-trigger-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.os-github-trigger-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  padding: 0.15rem 0.65rem 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
+  background: color-mix(in srgb, var(--color-base-200) 80%, var(--color-base-100));
+  color: var(--color-base-content);
+}
+.os-github-trigger-chip--static {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--color-base-content) 70%, transparent);
+}
+.os-github-trigger-chip--repo {
+  flex: 1 1 12rem;
+  min-width: 12rem;
+}
+.os-github-trigger-chip--repo .os-github-trigger-chip__input {
+  max-width: none;
+  width: 100%;
+}
+.os-github-trigger-chip__prefix {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+  color: color-mix(in srgb, var(--color-base-content) 58%, transparent);
+}
+.os-github-trigger-chip select,
+.os-github-trigger-chip .os-github-trigger-chip__input {
+  min-width: 6.5rem;
+  max-width: 12rem;
+  height: 1.55rem;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-base-content);
+  font-size: 0.8rem;
+  font-weight: 550;
+}
+.os-github-trigger-chip .os-github-trigger-chip__input {
+  min-width: 7rem;
+  flex: 1 1 7rem;
+}
+.os-github-trigger-chip select:focus,
+.os-github-trigger-chip .os-github-trigger-chip__input:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 0.35rem;
+}
+.os-github-trigger-composer__problem {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-error);
+}
+.os-github-trigger-composer__hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+/* #1405 — routine builder chrome (armed toggle, instructions + model, dry-run). */
+.os-routine-armed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.os-routine-armed-toggle__on {
+  color: var(--color-base-content);
+  font-weight: 600;
+}
+.os-routine-armed-toggle__off {
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+.os-routine-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.os-routine-instructions__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.os-routine-instructions__head .w-full {
+  width: auto;
+  min-width: 10rem;
+}
+.os-routine-dry-run {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-box, 0.75rem);
+  background: var(--color-base-200);
+  color: var(--color-base-content);
+}
+.os-routine-dry-run__grid {
+  display: grid;
+  gap: 0.5rem;
+}
+.os-routine-dry-run__grid dt {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+.os-routine-dry-run__grid dd {
+  margin: 0;
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+}
+
+/* #1399: template gallery / installer overlay. Reuses install-card tokens. */
+.os-templates-gallery {
+  display: flex;
+  flex-direction: column;
+  max-height: min(40rem, calc(100vh - 3rem));
+}
+.os-templates-gallery__body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 0.75rem;
+  padding: 0 1rem 0.75rem;
+}
+.os-templates-card__meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+.os-templates-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+}
+.os-templates-facts dt {
+  color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+}
+.os-templates-facts > div {
+  display: contents;
+}
+.os-templates-gallery__import {
+  border-top: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  padding-top: 0.75rem;
+}
+
+/* Seat doctor verdict chips — tone, not decoration.
+   Three states, and only one of them is a fault. `unverified` means a cheap
+   check passed but no turn was proved, and `incomplete` is a broken seat whose
+   bucket is `not_configured` (never set up, not misbehaving). Both fall through
+   to the neutral chip on purpose: painting either with `--color-error` is the
+   false alarm this page exists to avoid. Theme tokens only (AGENTS.md). */
+.os-seat-doctor-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 26%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+  color: var(--color-base-content);
+  padding: 0 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.os-seat-doctor-verdict[data-tone="fault"] {
+  border-color: var(--color-error);
+  background: var(--color-error);
+  color: var(--color-error-content);
+}
+.os-seat-doctor-verdict[data-tone="ok"] {
+  border-color: var(--color-success);
+  background: var(--color-success);
+  color: var(--color-success-content);
+}
+.os-seat-doctor-verdict__glyph {
+  font-size: 0.8em;
+  line-height: 1;
+}
+.os-seat-doctor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.os-seat-doctor-table th,
+.os-seat-doctor-table td {
+  border-top: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  padding: 0.5rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+.os-seat-doctor-table th {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+  white-space: nowrap;
+}
+/* The fix is the point of the report, so it is the heaviest text in the row —
+   the detail that produced it is deliberately quieter. */
+.os-seat-doctor-fix {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+.os-seat-doctor-detail {
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--color-base-content) 62%, transparent);
+}
+
+
+/* ==========================================================================
+   #1677 — click-to-edit inline field
+   The idle control is a real button that reads like plain text until it is
+   hovered, focused, or editing. Dotted underline, not a box, so the Details
+   pane does not turn into a wall of visible form controls.
+   ========================================================================== */
+.os-inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.os-inline-edit__label {
+  color: color-mix(in srgb, var(--color-base-content) 72%, transparent);
+}
+.os-inline-edit__value {
+  display: block;
+  width: 100%;
+  padding: 0.15rem 0.25rem;
+  border: 1px solid transparent;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-base-content) 28%, transparent);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--color-base-content);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: text;
+}
+.os-inline-edit__value:hover {
+  background: color-mix(in srgb, var(--color-base-200) 60%, transparent);
+}
+.os-inline-edit__value:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.os-inline-edit__editor {
+  width: 100%;
+}
+.os-inline-edit__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.5rem;
+}
+.os-inline-edit__status {
+  min-width: 0;
+  color: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+}
+.os-inline-edit__status:empty {
+  display: none;
+}
+.os-inline-edit__error,
+.os-inline-edit__status[role='alert'] {
+  color: var(--color-error);
+}
+.os-inline-edit__hint {
+  color: color-mix(in srgb, var(--color-base-content) 60%, transparent);
+}
+
+/* ==========================================================================
+   #1678 — agent Media tab
+   ========================================================================== */
+.os-agent-media-item {
+  background: color-mix(in srgb, var(--color-base-200) 35%, transparent);
+}
+.os-agent-media-thumb {
+  background: color-mix(in srgb, var(--color-base-200) 70%, transparent);
+}
+
+/* ==========================================================================
+   #1699 / #1700 / #1703 / #1725 — first-run setup tip (vanilla onboarding)
+
+   Namespaced under .os-vanilla-tip. Appended, never edited in place: this file
+   is appended to concurrently by other agents, so a mid-file edit is a merge
+   hazard. Theme tokens only — no raw hex (AGENTS.md §3).
+   ========================================================================== */
+.os-vanilla-tip {
+  padding: 0.5rem 0.75rem 0;
+}
+.os-vanilla-tip__alert {
+  padding: 0.65rem 0.75rem;
+}
+.os-vanilla-tip__title {
+  overflow-wrap: anywhere;
+}
+.os-vanilla-tip__body {
+  overflow-wrap: anywhere;
+}
+.os-vanilla-tip__cta {
+  text-decoration: none;
+  max-width: 100%;
+}
+
+/* ==========================================================================
+   #1729 — Herdr agent status indicator (waiting / finished)
+
+   Appended, never edited in place: this file is appended to concurrently by
+   other agents, so a mid-file edit is a merge hazard. Theme tokens only — no
+   raw hex (AGENTS.md §3).
+
+   One rule per *state*, and each state carries a non-colour affordance
+   because colour alone is not an accessible signal:
+
+     waiting  — a "?" glyph on the warning token
+     finished — a "•" glyph on the info token, the rail's existing unread hue
+
+   The glyph is what keeps each state legible in a monochrome theme or with
+   any colour-vision deficiency; removing the hue must not remove the meaning.
+
+   The pulse is the only motion here and it is dropped entirely under
+   `prefers-reduced-motion: reduce`.
+   ========================================================================== */
+.os-herdr-status-dot {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.125rem;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  /* The face would otherwise show through the middle. */
+  box-shadow: 0 0 0 1px var(--color-base-100);
+  pointer-events: none;
+}
+.os-herdr-status-dot__glyph {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-base-content);
+}
+/* The waiting hue: DaisyUI's warning token, never a raw hex. */
+.os-herdr-status-dot--waiting {
+  background-color: var(--color-warning);
+  animation: os-herdr-waiting-pulse 1.8s ease-in-out infinite;
+}
+/* Finished borrows the rail's existing unread hue (sky) so "there is
+   something new here" is one visual language across every seat kind. */
+.os-herdr-status-dot--finished {
+  background-color: var(--color-info);
+  opacity: 0.85;
+}
+@keyframes os-herdr-waiting-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .os-herdr-status-dot--waiting {
+    animation: none !important;
+    transform: none;
+  }
 }

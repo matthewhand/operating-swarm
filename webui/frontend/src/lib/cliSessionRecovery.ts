@@ -38,9 +38,10 @@ export function configTargetFromText(text: string): ConfigTarget | undefined {
   return undefined
 }
 
+// "no conversation" matches Claude's "No conversation found with session ID".
+// The bare phrase "conversation found" also matches ordinary replies.
 const RESUME_FAILURE_NEEDLES = [
   'no conversation',
-  'conversation found',
   'session not found',
   'unknown session',
   'invalid session',

@@ -1,0 +1,24 @@
+{
+  "id": "demo-opencode-dogfood",
+  "name": "Demo OpenCode Dogfood",
+  "description": "Opt-in OpenRig dogfood (#1747): Engineer + Skeptic as OpenCode CLI seats defaulting to space-bunny-free. CoS omitted (opt-in elsewhere). Demo only — do not force-seed.",
+  "members": [
+    {
+      "id": "engineer",
+      "name": "Engineer",
+      "kind": "cli",
+      "role": "engineer",
+      "source": "cli:opencode",
+      "model": "opencode/space-bunny-free"
+    },
+    {
+      "id": "skeptic",
+      "name": "Skeptic",
+      "kind": "cli",
+      "role": "skeptic",
+      "source": "cli:opencode",
+      "model": "opencode/space-bunny-free"
+    }
+  ],
+  "wires": {"handoff": true, "as_tool": true}
+}

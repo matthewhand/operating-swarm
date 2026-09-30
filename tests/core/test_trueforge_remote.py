@@ -18,6 +18,7 @@ from swarm.blueprints.remote_harness.blueprint_remote_harness import RemoteHarne
 from swarm.core import remotes as remotes_core
 from swarm.core.agent_kind import classify_agent_kind
 from swarm.core.agent_types import agent_type_for_kind
+from helpers.private_net import assert_no_private_ip
 from swarm.core.remote_harness import (
     BoundRemoteHarness,
     RemoteCapabilities,
@@ -28,6 +29,7 @@ from swarm.core.remote_harness import (
     normalize_impl_id,
     user_facing_kind,
 )
+from functools import partial
 
 
 class _TrueForgeRouter(BaseHTTPRequestHandler):
@@ -73,6 +75,14 @@ class _TrueForgeRouter(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
 @pytest.fixture
 def tf_server():
@@ -81,11 +91,12 @@ def tf_server():
     _TrueForgeRouter.received_headers = []
     _TrueForgeRouter.received_bodies = []
     server = HTTPServer(("127.0.0.1", 0), _TrueForgeRouter)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     thread.start()
     host, port = "127.0.0.1", server.server_address[1]
     yield host, port, _TrueForgeRouter
     server.shutdown()
+    server.server_close()
     _TrueForgeRouter.routes = {}
     _TrueForgeRouter.route_hits = {}
     _TrueForgeRouter.received_headers = []
@@ -112,6 +123,10 @@ def test_trueforge_catalog_and_capabilities():
     assert caps.operate is False
     assert caps.interrogate is False
     assert caps.routines is True
+    # TrueForge exposes GET /api/v1/sessions, so the navbar/rail session
+    # picker must offer resume — without this the UI mints a new session
+    # every turn.
+    assert caps.sessions is True
     assert caps.transport == "http"
 
     assert capabilities_for("hermes").routines is False
@@ -134,8 +149,7 @@ def test_trueforge_default_spec_is_loopback():
     spec = remotes_core.default_spec("trueforge")
     assert spec.id == "trueforge"
     assert spec.base_url == "http://127.0.0.1:8791"
-    assert "10.0.0." not in spec.base_url
-    assert "192.168." not in spec.base_url
+    assert_no_private_ip(spec.base_url)
     assert spec.health_path == "/healthz"
     assert spec.version_path == "/healthz"
     assert spec.api_key == "${TRUEFORGE_API_KEY}"
@@ -560,20 +574,45 @@ def test_trueforge_turn_state_parses_dict_and_string():
 
 
 def test_trueforge_send_timeout_resolution(monkeypatch):
-    """Send uses 180s (or env/spec) instead of the 8s operate default."""
+    """Send uses 180s (or a higher env / spec) instead of the 8s operate default.
+
+    A SWARM_TRUEFORGE_TIMEOUT at or below the 180s floor is raised to the floor.
+    #1307 measured 46–59s for a one-token resume, so the old 90s cap is too tight.
+    An explicit per-call timeout still wins, including a short one.
+    """
     monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
     assert remotes_core._trueforge_send_timeout_s(None) == 180.0
     assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 180.0
     assert remotes_core._trueforge_send_timeout_s(12.5) == 12.5
     monkeypatch.setenv("SWARM_TRUEFORGE_TIMEOUT", "90")
-    assert remotes_core._trueforge_send_timeout_s(None) == 90.0
-    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 90.0
+    assert remotes_core._trueforge_send_timeout_s(None) == 180.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S) == 180.0
+    # Explicit call budget is not the env floor — probes can still be short.
     assert remotes_core._trueforge_send_timeout_s(12.5) == 12.5
+    assert remotes_core._trueforge_send_timeout_s(90.0) == 90.0
+    monkeypatch.setenv("SWARM_TRUEFORGE_TIMEOUT", "240")
+    assert remotes_core._trueforge_send_timeout_s(None) == 240.0
+    assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_SEND_TIMEOUT_S) == 240.0
     monkeypatch.delenv("SWARM_TRUEFORGE_TIMEOUT", raising=False)
     spec = remotes_core.default_spec("trueforge")
     spec.timeout = 45.0
     assert remotes_core._trueforge_send_timeout_s(spec=spec) == 45.0
     assert remotes_core._trueforge_send_timeout_s(remotes_core._OPERATE_TIMEOUT_S, spec) == 45.0
+
+
+def test_trueforge_low_env_timeout_warns_once(monkeypatch, caplog):
+    """A sub-floor SWARM_TRUEFORGE_TIMEOUT is raised, and warned about once."""
+    from swarm.core.remote_impls import trueforge as tf
+
+    tf._TRUEFORGE_LOW_TIMEOUT_WARNED = False
+    monkeypatch.setenv("SWARM_TRUEFORGE_TIMEOUT", "90")
+    with caplog.at_level("WARNING", logger="swarm.core.remotes"):
+        assert remotes_core._trueforge_send_timeout_s(None) == 180.0
+        assert remotes_core._trueforge_send_timeout_s(None) == 180.0
+    notes = [r for r in caplog.records if "SWARM_TRUEFORGE_TIMEOUT" in r.message]
+    assert len(notes) == 1
+    assert "46-59s" in notes[0].message
+    assert "180" in notes[0].message
 
 
 def test_trueforge_send_dict_state_running_then_completed(tf_server, monkeypatch):
@@ -946,10 +985,9 @@ def test_other_remotes_routines_unsupported():
             "rakazo": {"base_url": "http://127.0.0.1:9"},
             "swarm": {"base_url": "http://127.0.0.1:9"},
             "herdr": {"base_url": "http://127.0.0.1:9"},
-            "letta": {"base_url": "http://127.0.0.1:9"},
         }
     }
-    for rid in ("hermes", "omb", "rakazo", "swarm", "herdr", "letta"):
+    for rid in ("hermes", "omb", "rakazo", "swarm", "herdr"):
         res = remotes_core.operate(rid, "routines", config=cfg)
         assert res.ok is False
         assert "does not support routines" in res.detail
@@ -1015,10 +1053,13 @@ def test_trueforge_send_refused_names_url(monkeypatch):
         "trueforge",
         "send",
         prompt="hi",
-        config={"remotes": {"trueforge": {"base_url": "http://127.0.0.1:9"}}},
+        # 127.0.0.1:1 — a real, closed address. The discard port (:9) would no
+        # longer reach here: it is the catalog's "no instance" placeholder and is
+        # refused up front, which is what test_remote_catalog_defaults covers.
+        config={"remotes": {"trueforge": {"base_url": "http://127.0.0.1:1"}}},
     )
     assert sent.ok is False
-    assert "127.0.0.1:9" in sent.detail
+    assert "127.0.0.1:1" in sent.detail
     assert "refused" in sent.detail.lower()
     out = _render_operate(sent)
     assert "trueforge send: FAIL" in out
@@ -1058,10 +1099,11 @@ def test_hermes_send_refused_names_url(monkeypatch):
         "hermes",
         "send",
         prompt="hi",
-        config={"remotes": {"hermes": {"base_url": "http://127.0.0.1:9"}}},
+        # A real, closed address — see test_trueforge_send_refused_names_url.
+        config={"remotes": {"hermes": {"base_url": "http://127.0.0.1:1"}}},
     )
     assert sent.ok is False
-    assert "127.0.0.1:9" in sent.detail
+    assert "127.0.0.1:1" in sent.detail
     assert "refused" in sent.detail.lower()
 
 
@@ -1483,3 +1525,193 @@ def test_trueforge_wired_agent_fixes_the_recover_mint(tf_server, monkeypatch):
         if method == "POST" and path == "/api/v1/sessions"
     ]
     assert mint_bodies and mint_bodies[0]["agent"]["name"] == "garruk"
+
+
+# ---------------------------------------------------------------------------
+# Remote ask-user bridge: a TrueForge turn can finish ``done`` while paused on
+# its ``ask_user_question`` tool. The adapter must surface the question + the
+# resume coordinates instead of silently dropping them and later eating HTTP
+# 422 "user message cannot be sent while approvals or questions are pending".
+# ---------------------------------------------------------------------------
+
+
+def _paused_ask_turn(
+    *,
+    action_id: str = "01m3dwq1a5k22k6m9j6a72j359",
+    tool_call_id: str = "chatcmpl-tool-adca5f7da2b141bd",
+    thread_id: str = "main",
+) -> dict[str, Any]:
+    return {
+        "state": {
+            "status": "done",
+            "output": None,
+            "required_actions": [
+                {
+                    "id": action_id,
+                    "type": "tool.response_required",
+                    "thread_id": thread_id,
+                    "tool_calls": [{"id": tool_call_id, "source_event_id": "evt-1"}],
+                }
+            ],
+            "completed_at": "2026-09-26T03:39:03.366Z",
+        }
+    }
+
+
+def _ask_events(
+    *,
+    tool_call_id: str = "chatcmpl-tool-adca5f7da2b141bd",
+    tool_name: str = "ask_user_question",
+    arguments: Any = None,
+) -> list[Any]:
+    if arguments is None:
+        arguments = json.dumps(
+            {
+                "question": "What would you like me to dig into?",
+                "options": ["Give me a tour", "Build something", "Something else"],
+            }
+        )
+    return [
+        {"type": "turn.created", "state": {"status": "running"}},
+        {
+            "id": "evt-1",
+            "type": "model.message",
+            "content": "Let me make sure I point my effort in the right direction.",
+            "thread_id": "main",
+            "tool_calls": [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": arguments},
+                }
+            ],
+        },
+        {
+            "id": "tool-evt",
+            "type": "tool.response_required",
+            "thread_id": "main",
+            "tool_calls": [{"id": tool_call_id, "source_event_id": "evt-1"}],
+        },
+    ]
+
+
+def test_trueforge_pending_question_parses_live_ask_user_shape():
+    """The live pause payload maps to the local ask-user question shape."""
+    pending = remotes_core.trueforge_pending_question(
+        _paused_ask_turn(), _ask_events(), turn_id="turn-q-1"
+    )
+    assert pending is not None
+    assert pending["type"] == "ask_user_question"
+    assert pending["thread_id"] == "main"
+    assert pending["tool_call_id"] == "chatcmpl-tool-adca5f7da2b141bd"
+    assert pending["previous_turn_id"] == "turn-q-1"
+    q = pending["question"]
+    assert q["ask"] == "What would you like me to dig into?"
+    assert q["choices"] == ["Give me a tour", "Build something", "Something else"]
+    assert q["other"] == "Other"
+    assert q["id"] == "chatcmpl-tool-adca5f7da2b141bd"
+
+
+def test_trueforge_pending_question_handles_dict_arguments_and_no_choices():
+    pending = remotes_core.trueforge_pending_question(
+        _paused_ask_turn(),
+        _ask_events(arguments={"question": "Deploy where?"}),
+        turn_id="turn-q-2",
+    )
+    assert pending is not None
+    assert pending["question"]["ask"] == "Deploy where?"
+    assert pending["question"]["choices"] == []
+
+
+def test_trueforge_pending_question_ignores_non_ask_tools():
+    """A tool.response_required for a normal tool (e.g. create_sub_agent) is
+    not a clarifying question and must not masquerade as one."""
+    pending = remotes_core.trueforge_pending_question(
+        _paused_ask_turn(tool_call_id="call-sub"),
+        _ask_events(tool_call_id="call-sub", tool_name="create_sub_agent"),
+        turn_id="turn-q-3",
+    )
+    assert pending is None
+    # An approval-required action is not a question either.
+    approval_turn = {
+        "state": {
+            "status": "done",
+            "required_actions": [
+                {
+                    "id": "act-approve",
+                    "type": "tool.approval_required",
+                    "thread_id": "main",
+                    "tool_calls": [{"id": "call-sub", "source_event_id": "evt-1"}],
+                }
+            ],
+        }
+    }
+    assert remotes_core.trueforge_pending_question(approval_turn, _ask_events()) is None
+
+
+def test_trueforge_tool_response_body_matches_user_tool_response_event():
+    """The resume body mirrors the gateway ``UserToolResponseEvent`` item."""
+    body = remotes_core.trueforge_tool_response_body(
+        thread_id="main",
+        tool_call_id="chatcmpl-tool-adca5f7da2b141bd",
+        content="Build something",
+        previous_turn_id="turn-q-1",
+    )
+    assert body["input"] == [
+        {
+            "type": "user.tool_response",
+            "thread_id": "main",
+            "tool_call_id": "chatcmpl-tool-adca5f7da2b141bd",
+            "content": "Build something",
+        }
+    ]
+    assert body["stream"] is False
+    assert body["previous_turn_id"] == "turn-q-1"
+
+
+def test_trueforge_send_surfaces_paused_ask_user_question(tf_server, monkeypatch):
+    """operate(send) on a paused turn returns the question + resume coordinates
+    instead of the model's lead-in alone — and never dumps transport JSON."""
+    host, port, router = tf_server
+    router.routes = {
+        ("POST", "/api/v1/sessions"): (200, {"data": {"id": "sess-q-1"}}),
+        ("POST", "/api/v1/sessions/sess-q-1/turns"): (
+            200,
+            {"data": {"id": "turn-q-1", "state": "RUNNING"}},
+        ),
+        ("GET", "/api/v1/sessions/sess-q-1/turns/turn-q-1"): (
+            200,
+            {"data": {"id": "turn-q-1", **_paused_ask_turn()}},
+        ),
+        ("GET", "/api/v1/sessions/sess-q-1/turns/turn-q-1/events"): (
+            200,
+            {"data": _ask_events()},
+        ),
+    }
+    monkeypatch.delenv("TRUEFORGE_BASE_URL", raising=False)
+    cfg = {"remotes": {"trueforge": {"base_url": f"http://{host}:{port}"}}}
+
+    sent = remotes_core.operate("trueforge", "send", prompt="interesting", config=cfg)
+
+    assert sent.ok is True
+    assert sent.data["awaiting_input"] is True
+    assert sent.data["pending_question"]["ask"] == "What would you like me to dig into?"
+    assert sent.data["pending_question"]["choices"] == [
+        "Give me a tour",
+        "Build something",
+        "Something else",
+    ]
+    action = sent.data["pending_action"]
+    assert action["type"] == "ask_user_question"
+    assert action["thread_id"] == "main"
+    assert action["tool_call_id"] == "chatcmpl-tool-adca5f7da2b141bd"
+    assert action["previous_turn_id"] == "turn-q-1"
+    # The question is visible in the rendered reply, not just in data.
+    assert "What would you like me to dig into?" in sent.detail
+
+    from swarm.blueprints.remote_harness.blueprint_remote_harness import _render_operate
+
+    rendered = _render_operate(sent)
+    assert "What would you like me to dig into?" in rendered
+    assert '"events"' not in rendered
+    assert "chatcmpl-tool" not in rendered

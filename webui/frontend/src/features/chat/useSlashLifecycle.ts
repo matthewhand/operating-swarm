@@ -9,8 +9,10 @@
  * (kickstart/continue), the #885 queued-send drain effect, and the
  * CLI-terminated status listener. State and queued store stay page-owned.
  */
-import { useCallback, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { fetchConfigOptions, fetchSkills, EMPTY_SPEECH } from '../../lib/api/settings'
+import { fetchAgentSkills, isAgentSkillsList } from '../../lib/api/agentSkills'
+import { gettingStartedFlowFromList } from '../../lib/agentSkillsUi'
 import { buildSlashCatalog, filterSlashItems, type CliSlashCommandSpec } from '../../lib/slashMenu'
 import { fetchAgentSuggestions } from '../../lib/suggestions'
 import { applyVoiceBindToSpeechSettings } from '../../lib/agentVoiceBind'
@@ -30,8 +32,19 @@ import {
 } from '../../lib/cliRunState'
 import { drainHoldUntilStreamStarts, generationIsInFlight, nextDrainableQueuedSend, type QueuedSendRow } from '../../lib/chatQueue'
 import { agentIdFromBlueprint } from '../../lib/agentChat'
+import {
+  getActiveWebGpuSeat,
+  runWebGpuClientCompletion,
+  type WebGpuClientSeat,
+} from '../../lib/webgpuClientSeat'
 import type { PanelToolCall } from '../../components/GenerationsPanel'
-import type { ChatMessage } from './chatMessages'
+import { assistantCompletionSnippet, type ChatMessage } from './chatMessages'
+
+function clientSeatErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message
+  if (typeof err === 'string' && err) return err
+  return 'unknown error'
+}
 
 export interface UseSlashLifecycleOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- state setter pass-through
@@ -39,6 +52,9 @@ export interface UseSlashLifecycleOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- state setter pass-through
   setDynamicSkills: (value: any) => void
   isCliAgent: boolean
+  /** #1230: Compact is API-only. When false the `/compact` slash action is
+   * dropped from the catalog entirely — no disabled/"not available" row. */
+  compactAvailable: boolean
   currentCli: string
   selectedCli: { cli: string } | null | undefined
   dynamicSkills: { name: string; description?: string }[]
@@ -93,6 +109,7 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
     isCliAgent,
     currentCli,
     selectedCli,
+    compactAvailable,
     dynamicSkills,
     recentSlashIds,
     input,
@@ -137,12 +154,80 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
     setThreads,
     conversationIdRef,
   } = opts
+
+  // #1288: local completion for the tab-local WebGPU seat. Appends the user
+  // turn and a streaming assistant row to the SAME transcript the socket feed
+  // writes to, then streams worker tokens into it.
+  const runClientSeatCompletion = useCallback(
+    (seat: WebGpuClientSeat, text: string) => {
+      const stamp = Date.now()
+      const userKey = `webgpu-user-${stamp}`
+      const assistantKey = `webgpu-assistant-${stamp}`
+      setThreads((prev) => ({
+        ...prev,
+        [threadKey]: [
+          ...(prev[threadKey] ?? []),
+          {
+            key: userKey,
+            role: 'user' as const,
+            text,
+            streaming: false,
+            ts: new Date().toISOString(),
+          },
+          {
+            key: assistantKey,
+            role: 'assistant' as const,
+            text: '',
+            streaming: true,
+            ts: new Date().toISOString(),
+          },
+        ],
+      }))
+      const updateAssistant = (updater: (row: ChatMessage) => ChatMessage) => {
+        setThreads((prev) => ({
+          ...prev,
+          [threadKey]: (prev[threadKey] ?? []).map((row) =>
+            row.key === assistantKey ? updater(row) : row,
+          ),
+        }))
+      }
+      void runWebGpuClientCompletion(seat, text, {
+        onToken: (token) => updateAssistant((row) => ({ ...row, text: row.text + token })),
+      })
+        .then((stats) => {
+          updateAssistant((row) => ({
+            ...row,
+            streaming: false,
+            text: row.text || stats.text,
+          }))
+        })
+        .catch((err) => {
+          updateAssistant((row) => ({
+            ...row,
+            streaming: false,
+            text: row.text || `[webgpu error] ${clientSeatErrorMessage(err)}`,
+          }))
+        })
+    },
+    [setThreads, threadKey],
+  )
+
   const handleSend = (event: FormEvent) => {
     event.preventDefault()
     if (!hasSendableDraft) return
     const textToSend = replyTarget
       ? buildOutboundReplyText(replyTarget, input)
       : input
+    // #1288: a tab-local WebGPU seat runs the completion in the Web Worker and
+    // streams it into the real transcript instead of the chat socket. It never
+    // touches submitUserText (no server frame, no seat/blueprint change).
+    const clientSeat = getActiveWebGpuSeat()
+    if (clientSeat && textToSend.trim()) {
+      runClientSeatCompletion(clientSeat, textToSend)
+      setInput('')
+      setReplyTarget(null)
+      return
+    }
     submitUserText(textToSend)
     setInput('')
     setReplyTarget(null)
@@ -186,11 +271,18 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
     () => buildSlashCatalog(dynamicSkills, cliSlashCommands),
     [dynamicSkills, cliSlashCommands],
   )
+  // #1230: Compact is API-only. Drop the `/compact` action for every other
+  // seat so the slash popup never lists a compact that cannot run — and never
+  // renders a disabled/"not available" row for it.
+  const seatSlashCatalog = useMemo(
+    () => (compactAvailable ? slashCatalog : slashCatalog.filter((item) => item.id !== 'compact')),
+    [slashCatalog, compactAvailable],
+  )
   const isSlashOpen = input.startsWith('/') && !slashDismissed
   const slashQuery = input.startsWith('/') ? input.slice(1) : ''
   const filteredSlashItems = useMemo(
-    () => filterSlashItems(slashCatalog, slashQuery, recentSlashIds),
-    [slashCatalog, slashQuery, recentSlashIds],
+    () => filterSlashItems(seatSlashCatalog, slashQuery, recentSlashIds),
+    [seatSlashCatalog, slashQuery, recentSlashIds],
   )
 
   useEffect(() => {
@@ -269,13 +361,60 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
   const chipsDisabled = status !== 'open'
   const demoMode = isDemoMode()
   const demoChips: string[] = demoMode ? demoSuggestionChips() : []
+  const [gettingStartedFlow, setGettingStartedFlow] = useState<{
+    skill: string
+    whenToUse: string
+    chip: string
+  } | null>(null)
+
+  useEffect(() => {
+    if (!threadReady || messages.length > 0 || isRemoteAgent || teamFromUrl) {
+      setGettingStartedFlow(null)
+      return
+    }
+    const agent = agentIdFromBlueprint(selectedBlueprint) || activeChatAgentId
+    if (!agent) {
+      setGettingStartedFlow(null)
+      return
+    }
+    let cancelled = false
+    void fetchAgentSkills(agent)
+      .then((payload) => {
+        if (cancelled) return
+        if (!isAgentSkillsList(payload)) {
+          setGettingStartedFlow(null)
+          return
+        }
+        setGettingStartedFlow(gettingStartedFlowFromList(payload))
+      })
+      .catch(() => {
+        if (!cancelled) setGettingStartedFlow(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    threadReady,
+    messages.length,
+    isRemoteAgent,
+    teamFromUrl,
+    selectedBlueprint,
+    activeChatAgentId,
+    threadKey,
+  ])
+
+  const gettingStartedChips = gettingStartedFlow ? [gettingStartedFlow.chip] : []
+  const showGettingStartedFlow =
+    !demoMode && messages.length === 0 && gettingStartedChips.length > 0
   const supportJourneyChips =
     supportSelected && messages.length === 0 ? supportJourneyKickstart() : []
-  const showSupportJourneyChips = !demoMode && supportJourneyChips.length > 0
+  const showSupportJourneyChips =
+    !demoMode && !showGettingStartedFlow && supportJourneyChips.length > 0
   const showDemoChips = demoMode && demoChips.length > 0
   const showSuggestionChips =
     !demoMode &&
     !showSupportJourneyChips &&
+    !showGettingStartedFlow &&
     shouldShowSuggestionChips({
       enabled: useSuggestions,
       chips: suggestionChips,
@@ -325,17 +464,15 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
     } else if (wasStreamingRef.current) {
       wasStreamingRef.current = false
       if (activeChatAgentId) {
-        const lastAssistant = [...messages]
-          .reverse()
-          .find((message) => message.role === 'assistant' && message.text)
+        const snippet = assistantCompletionSnippet(messages)
         notifyGenerationComplete(activeChatAgentId, {
-          snippet: lastAssistant?.text,
+          snippet,
           agentName: selectedAgentName,
         })
         maybeNotifyAgentTurn({
           agentId: activeChatAgentId,
           agentName: selectedAgentName,
-          snippet: lastAssistant?.text,
+          snippet,
           selectedAgentId: activeChatAgentId,
         })
       }
@@ -366,8 +503,27 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
       drainLockRef.current = false
       setAwaitingAssistant(false)
       queued.restore(next)
+      return
     }
-  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status, isRemoteAgent, isRemoteBackedTeam])
+    // #1276: an accepted send must be visible immediately, same as any normal
+    // send — render the promoted row as a pending user message now; the
+    // server's user_echo upgrades THIS row instead of appending a duplicate
+    // (same contract as the composer's #1149 optimistic echo).
+    setThreads((prev) => ({
+      ...prev,
+      [threadKey]: [
+        ...(prev[threadKey] ?? []),
+        {
+          key: `user-pending-drain-${next.id}`,
+          role: 'user' as const,
+          text: next.text,
+          streaming: false,
+          pending: true,
+          ts: new Date().toISOString(),
+        },
+      ],
+    }))
+  }, [awaitingAssistant, messages, queued, queuedHoldIds, sendText, status, isRemoteAgent, isRemoteBackedTeam, setThreads, threadKey])
 
   useEffect(() => {
     const onTerminated = (event: Event) => {
@@ -402,6 +558,7 @@ export function useSlashLifecycle(opts: UseSlashLifecycleOptions) {
     handleInputChange, speechSettings, streamingMessage, isWorking, seatToolCalls,
     generationContexts, chipsDisabled, demoMode, demoChips, supportJourneyChips,
     showSupportJourneyChips, showDemoChips, showSuggestionChips, chooseSuggestion,
+    gettingStartedFlow, gettingStartedChips, showGettingStartedFlow,
     handleSend,
   }
 }

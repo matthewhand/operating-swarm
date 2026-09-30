@@ -129,3 +129,75 @@ describe('#856 slice G — createRowRenderers factory', () => {
     expect(src).not.toMatch(/const renderTeamRow = \(\n?\s*team: TeamRoster/)
   })
 })
+
+/**
+ * #1726 — the OUTER row element's tooltip, asserted on the rendered DOM.
+ *
+ * #1237's own pin is a source regex over `<Link … title={…}`, which cannot say
+ * WHICH string reaches the DOM. #1726 renamed that attribute to `rowTitle`,
+ * because a chat row must tooltip the session it names rather than the seat it
+ * hangs under — so the string became observable and is pinned here instead: a
+ * seat row's tooltip is the seat name, a chat row's is its session title, and
+ * neither leaks the other's.
+ */
+describe('#1726 the outer row element carries the right tooltip', () => {
+  function renderRow(agent: Record<string, unknown>) {
+    const deps = fullDeps() as Record<string, unknown>
+    // A real <a> so the outer element's own attributes survive; the autofilled
+    // stub swallows them and would make this test vacuous.
+    deps.Link = ({
+      to,
+      children,
+      ...rest
+    }: {
+      to: string
+      children?: React.ReactNode
+    } & Record<string, unknown>) => (
+      <a href={to} {...rest}>
+        {children}
+      </a>
+    )
+    const { renderAgentRow } = createRowRenderers(deps as never)
+    const { container } = render(<>{renderAgentRow(agent as never, false)}</>)
+    const row = container.querySelector('.os-agent-row')
+    expect(row, 'outer row element').not.toBeNull()
+    return row as HTMLElement
+  }
+
+  it('a seat row tooltips the SEAT name', () => {
+    const row = renderRow({ id: 'a1', name: 'Charles' })
+    expect(row).toHaveAttribute('title', 'Charles')
+    expect(row).toHaveAttribute('data-agent-id', 'a1')
+    expect(row).not.toHaveAttribute('data-chat-row')
+  })
+
+  it('a chat row tooltips its SESSION title, not the seat it belongs to', () => {
+    const row = renderRow({
+      id: 'a1',
+      name: 'Charles',
+      railChat: {
+        id: 'chat:a1:s1',
+        agentId: 'a1',
+        sessionId: 's1',
+        title: 'Fresh thread',
+      },
+    })
+    expect(row).toHaveAttribute('title', 'Fresh thread')
+    expect(row).toHaveAttribute('data-chat-row', 'true')
+    // The rail id names BOTH, so the row is addressable as its own session…
+    expect(row).toHaveAttribute('data-agent-id', 'chat:a1:s1')
+    // …while the seat it belongs to is still named, as the subtitle, so the
+    // twin is not an anonymous duplicate of its seat.
+    expect(row).toHaveTextContent('Chat with Charles')
+    expect(row).toHaveAccessibleName('Chat with Charles: Fresh thread')
+  })
+
+  it('a chat row with no title yet still tooltips something honest', () => {
+    const row = renderRow({
+      id: 'a1',
+      name: 'Charles',
+      railChat: { id: 'chat:a1:s1', agentId: 'a1', sessionId: 's1', title: '' },
+    })
+    expect(row).toHaveAttribute('title', 'New chat')
+  })
+})

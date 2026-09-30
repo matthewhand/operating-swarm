@@ -8,6 +8,8 @@ import {
   fetchMcpPlugins,
   upsertMcpPlugin,
 } from '../lib/api'
+import { useCurrentAgent } from '../lib/currentAgent'
+import AgentPluginPackPane from './AgentPluginPackPane'
 import {
   MCP_SERVER_TEMPLATES,
   OPENAPI_PROXY_ARGS,
@@ -59,6 +61,8 @@ function parseArgs(text: string): string[] {
 export default function PluginsServersPane() {
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
+  const agent = useCurrentAgent()
+  const agentId = agent?.id ?? ''
   const query = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchMcpPlugins,
@@ -302,6 +306,8 @@ export default function PluginsServersPane() {
           — never paste a token. Distinct from exposing swarm as an MCP server.
         </p>
       </div>
+
+      <AgentPluginPackPane agentId={agentId} />
 
       {query.isPending ? (
         <p className="text-sm text-base-content/60">Loading MCP servers…</p>

@@ -29,6 +29,25 @@ Wait-until
 ----------
 ``wait_until(target, status)`` is ``herdr agent wait <TARGET> --until STATUS``
 for ``idle`` | ``working`` | ``blocked`` | ``done``.
+
+Query / interrogate (#1728)
+---------------------------
+The read-only half of the surface OS needs to *ask Herdr* rather than send to
+it. All of these are non-mutating verbs, and all are proven on ``herdr``
+0.8.2:
+
+* ``herdr status server --json`` → ``server_status()`` — is the server up, is
+  the client compatible with it. The gate every other query depends on.
+* ``herdr api snapshot`` → ``session_snapshot()`` — the live session
+  (workspaces / tabs / panes / agents) in **one** process.
+* ``herdr agent explain <TARGET> --format json`` → ``agent_explain()`` — which
+  detection rule produced an agent's status.
+* ``herdr agent list`` / ``herdr agent get <TARGET>`` carry
+  ``agent_status`` + ``state_change_seq`` per pane; the OS-side vocabulary
+  lives in :mod:`swarm.herdr.status` and is derived from those two fields.
+
+``--json`` is only used where the CLI offers it. Herdr already answers JSON on
+stdout for the rest, so nothing here invents a flag.
 """
 
 from __future__ import annotations
@@ -442,6 +461,47 @@ class HerdrClient:
         if not (target or "").strip():
             raise ValueError("agent target is required")
         _, parsed = self._invoke(self.build_argv("agent", "get", target))
+        return parsed
+
+    # -- interrogate surface (#1728) ---------------------------------------
+    #
+    # Everything above answers "what can I send?". These answer "what is
+    # Herdr doing right now?" — the query half of the CLI, and the input the
+    # status-notification path (#1729) folds into unread / waiting. They are
+    # all read-only verbs, so none of them can move a pane.
+
+    def server_status(self) -> Any:
+        """``herdr status server --json`` — is the Herdr server up?
+
+        The one call that says whether a later ``agent list`` can be trusted.
+        Raises :class:`HerdrCLIError` when the CLI is missing or the server is
+        not running, so a caller can degrade to ``unknown`` rather than guess.
+        """
+        _, parsed = self._invoke(self.build_argv("status", "server", "--json"))
+        return parsed
+
+    def session_snapshot(self) -> Any:
+        """``herdr api snapshot`` — the live session (workspaces/tabs/panes).
+
+        One process answers for every pane, so the status watcher reads the
+        whole workspace without N subprocesses. The same payload shape as
+        ``agent list`` for the agent rows
+        (:func:`swarm.herdr.status.pane_statuses` unwraps both).
+        """
+        _, parsed = self._invoke(self.build_argv("api", "snapshot"))
+        return parsed
+
+    def agent_explain(self, target: str) -> Any:
+        """``herdr agent explain <TARGET> --format json`` — why this state?
+
+        The honest answer to "Herdr says the pane is blocked; on what?" —
+        the detection rules that matched. Purely diagnostic; never sent.
+        """
+        if not (target or "").strip():
+            raise ValueError("agent target is required")
+        _, parsed = self._invoke(
+            self.build_argv("agent", "explain", target.strip(), "--format", "json")
+        )
         return parsed
 
     def agent_read(

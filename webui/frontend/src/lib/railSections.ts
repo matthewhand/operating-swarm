@@ -135,6 +135,115 @@ export function isUnassignedSection(sectionId: string | null | undefined): boole
   return !sectionId || sectionId === UNASSIGNED_SECTION_ID
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * #1714 — the rail's AUTO (derived) sections
+ *
+ * `partitionRowsBySection` files rows into the *stored* sections. The sidebar
+ * then renders extra blocks it derives from the rows themselves: OS / Remote /
+ * CLI / API (by seat kind) and Subagents. Those are real section blocks in the
+ * DOM — they carry `data-section-id`, a header, a collapse chevron and a drop
+ * target — but they are NOT in `state.sections` and nothing can be filed into
+ * them, because membership is only honoured for a stored section id
+ * (`sectionIdForAgent`).
+ *
+ * That is exactly why #1714's "Move to" list was a subset: it read
+ * `state.sections` while the rail rendered `state.sections` PLUS these. The
+ * menu must enumerate the rail's blocks, and the auto ones must be shown as
+ * non-destinations rather than silently dropped or — worse — offered as
+ * choices that would silently do nothing (`moveAgentToSection` discards an
+ * unknown id, so a row filed into "CLI" would snap straight back).
+ * ──────────────────────────────────────────────────────────────────────── */
+export const AUTO_SECTION_IDS = ['os', 'remote', 'cli', 'api', 'subagents'] as const
+export type AutoSectionId = (typeof AUTO_SECTION_IDS)[number]
+
+export function isAutoSectionId(sectionId: string | null | undefined): sectionId is AutoSectionId {
+  return Boolean(sectionId) && (AUTO_SECTION_IDS as readonly string[]).includes(sectionId as string)
+}
+
+/** #1714: a Move-to row, carrying the same honesty fields a top-level item has. */
+/** #1714: the shape `railMoveToDestinations` needs from a rendered block. */
+export type RailSectionBlockLike = Pick<SectionBlock<{ id: string }>, 'id' | 'name' | 'custom'>
+
+export interface RailMoveToDestination {
+  id: string
+  name: string
+  /** A destination the row can actually be moved into. */
+  selectable: boolean
+  /** True for the section the row sits in right now. */
+  checked: boolean
+  /** Why a non-selectable row cannot be chosen — shown as its title. */
+  reason?: string
+}
+
+const AUTO_SECTION_REASON =
+  'Sections are grouped by seat kind, so this one cannot be chosen — it is where the row already is.'
+
+/**
+ * #1714: the "Move to" destination list, derived from the blocks the rail
+ * ACTUALLY RENDERED rather than from `state.sections` alone.
+ *
+ * `blocks` is the sidebar's own `sectionBlocks`, so the menu is a subset of the
+ * rail by construction: a section that is on screen is in the menu, and a
+ * section removed from the rail is gone from the menu. That is the whole bug —
+ * the two used to be computed from different sources.
+ *
+ * Honesty about what a destination means:
+ *  - a stored (`custom`) section is a filing choice and is selectable;
+ *  - an auto section is a grouping, not a choice, so it is listed and
+ *    checkmarked when the row is in it, but never selectable;
+ *  - Unassigned is a real filing choice UNLESS the row has an auto group, in
+ *    which case removing its membership only re-files it into that group and
+ *    the click would be a silent no-op. Offering it anyway is the same grey
+ *    lie the CLI menu avoids for Edit/Duplicate.
+ *
+ * `currentSectionId` is the row's *filed* section (membership). `autoGroup` is
+ * the derived block that claims the row. The auto group wins for `checked`,
+ * because that is the header the operator can see the row under.
+ */
+export function railMoveToDestinations(opts: {
+  blocks: ReadonlyArray<RailSectionBlockLike>
+  currentSectionId: string
+  autoGroup?: string | null
+}): RailMoveToDestination[] {
+  const autoGroup = opts.autoGroup ?? null
+  const currentId = autoGroup ?? opts.currentSectionId
+  const seen = new Set<string>()
+  const out: RailMoveToDestination[] = []
+  for (const block of opts.blocks) {
+    if (seen.has(block.id)) continue
+    seen.add(block.id)
+    const auto = isAutoSectionId(block.id)
+    const unassigned = isUnassignedSection(block.id)
+    // Unassigned is not a move for a row an auto group will re-file.
+    const selectable = block.custom && !auto
+      ? true
+      : unassigned
+        ? !autoGroup
+        : false
+    out.push({
+      id: block.id,
+      name: block.name,
+      selectable,
+      checked: block.id === currentId,
+      reason: auto ? AUTO_SECTION_REASON : unassigned && !selectable
+        ? 'This row is grouped by seat kind, so it returns to that group.'
+        : undefined,
+    })
+  }
+  // An emptied Unassigned block is hidden by the rail (#688) but is still a
+  // legal destination, so the menu keeps it even when the rail dropped it.
+  if (!seen.has(UNASSIGNED_SECTION_ID)) {
+    out.push({
+      id: UNASSIGNED_SECTION_ID,
+      name: UNASSIGNED_SECTION_NAME,
+      selectable: !autoGroup,
+      checked: currentId === UNASSIGNED_SECTION_ID,
+      reason: autoGroup ? 'This row is grouped by seat kind, so it returns to that group.' : undefined,
+    })
+  }
+  return out
+}
+
 export function sectionDisplayName(section: Pick<RailSection, 'name'> | null | undefined): string {
   const name = section?.name?.trim() ?? ''
   return name || NEW_SECTION_PLACEHOLDER

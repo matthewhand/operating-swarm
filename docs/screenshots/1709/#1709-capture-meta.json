@@ -1,0 +1,9 @@
+{
+  "beforeUrl": "http://127.0.0.1:8002/chat?blueprint=codey&proof=1709-before-prior-selection",
+  "afterUrl": "http://127.0.0.1:8002/chat?blueprint=support&session=proof-1709-fresh-support",
+  "chromeUrl": "http://127.0.0.1:8002/chat?blueprint=support&session=proof-1709-fresh-support&proof=1709-after-new-chat-selected",
+  "theme": "dark",
+  "font": "\"JetBrainsMono Nerd Font\", \"JetBrains Mono\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif",
+  "selectedHeader": "supportSupportSelect folder",
+  "activeRow": null
+}

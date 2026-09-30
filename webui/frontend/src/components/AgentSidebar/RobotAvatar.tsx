@@ -4,6 +4,7 @@
  */
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { AgentStatus, AvatarEyes, AvatarTheme } from '../../types/agent'
+import { useAvatarMotionEnabled } from '../../lib/motionPreference'
 
 export interface RobotAvatarProps {
   color?: string
@@ -42,21 +43,11 @@ function chassisFromColor(color: string): 0 | 1 | 2 | 3 {
   return (n % 4) as 0 | 1 | 2 | 3
 }
 
+// #1244: reduced motion is the shared preference, not a bare media query —
+// the Settings → Aesthetics opt-in must be able to re-enable the robot's
+// JS-driven blinks/wobbles alongside the CSS loops.
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const apply = () => setReduced(mq.matches)
-    apply()
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', apply)
-      return () => mq.removeEventListener('change', apply)
-    }
-    mq.addListener(apply)
-    return () => mq.removeListener(apply)
-  }, [])
-  return reduced
+  return !useAvatarMotionEnabled()
 }
 
 type FaceProps = {

@@ -16,10 +16,20 @@ import time
 import urllib.error  # noqa: F401
 import urllib.request  # noqa: F401
 from pathlib import Path  # noqa: F401
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlparse, urlunparse  # noqa: F401
 
 import httpx
+
+if TYPE_CHECKING:  # annotations only, never evaluated at runtime
+    # These names are used in ANNOTATIONS ONLY -- 'from __future__ import
+    # annotations' keeps them strings, never evaluated at runtime -- and a
+    # runtime import of swarm.core.remotes here would close the import cycle
+    # these modules exist to avoid: their bodies reach remotes through the
+    # lazily-imported module object 'R' instead. Without this declaration
+    # ruff F821 reports every one of those annotations as an undefined name
+    # and a type checker resolves them to nothing.
+    from swarm.core.remotes import HttpResult, OperateResult, RemoteSpec
 
 R: Any = importlib.import_module("swarm.core.remotes")
 
@@ -77,7 +87,6 @@ def _omb_turn_error(
 R._HERMES_POLL_INTERVAL_S = 0.4
 R._HERMES_POLL_HTTP_TIMEOUT_S = 8.0
 R._ANYTHINGLLM_SEND_TIMEOUT_S = 90.0
-R._LETTA_SEND_TIMEOUT_S = 90.0
 R._FLOWISE_SEND_TIMEOUT_S = 90.0
 R._N8N_SEND_TIMEOUT_S = 30.0
 R._TRUEFORGE_SEND_TIMEOUT_S = 180.0
@@ -142,6 +151,25 @@ def _omb_bot_target(target: str) -> str:
     if not raw or raw.lower() in R._OMB_NON_BOT_TARGETS:
         return ""
     return raw
+
+
+def _omb_chief_of_staff_bot(listed: Any) -> str:
+    """Id of the workspace Chief of Staff bot, or '' when none is listed.
+
+    OpenMousBot names one workspace bot as the lead (``Chief of Staff`` /
+    ``CoS``). That bot is the default send target when the operator picks no
+    agent — better than minting a fresh bot or refusing the send.
+    """
+    from swarm.core.remote_teams import is_chief_of_staff_name
+
+    for item in _omb_bots_from(listed):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        bot_id = str(item.get("id") or "")
+        if is_chief_of_staff_name(name) or is_chief_of_staff_name(bot_id):
+            return bot_id.strip()
+    return ""
 
 
 def _omb_message_text(msg: Any) -> str:
@@ -308,7 +336,7 @@ def _omb_poll_assistant(
             if last_activity == "waiting-on-you" and not reply:
                 return "", thread_id, "OpenMousBot is waiting for operator input", ""
             return "", thread_id, "OpenMousBot reply timed out", ""
-        time.sleep(min(max(R._OMB_POLL_INTERVAL_S, 0.0), remaining))
+        R.interruptible_sleep(min(max(R._OMB_POLL_INTERVAL_S, 0.0), remaining))
 
 
 _OMB_PAIRING_MARKERS = ("loopback host required", "pair this device", "device pairing", "loopback")
@@ -429,28 +457,33 @@ def _omb_send(spec: RemoteSpec, prompt: str, target: str, timeout: float) -> Ope
                 bot_id = str(found.get("id") or bot_id)
         # Target already names a bot (id or name). Never mint a second one.
     else:
-        # Never default to bots[0] (specialists). Mint a dedicated bot only
-        # when the operator did not pick an agent.
-        created = _omb_mint_dedicated_bot(spec, headers, timeout_s)
-        if created.status in R._UP and isinstance(created.body, dict):
-            bot = created.body.get("bot") or created.body
-            if isinstance(bot, dict):
-                bot_id = str(bot.get("id") or "").strip()
-            minted = True
+        # A workspace Chief of Staff is the default bot: defer to it when the
+        # operator picked no agent. Never default to bots[0] (specialists);
+        # only mint a dedicated bot when there is no CoS either.
+        listed = _omb_list(spec, timeout_s)
+        if listed.ok:
+            bot_id = _omb_chief_of_staff_bot(listed.data)
         if not bot_id:
-            return R.OperateResult(
-                remote="omb",
-                op="send",
-                ok=False,
-                detail=(
-                    "No OpenMousBot agent selected. Pick a listed bot id "
-                    "(navbar / R.operate target); send will not guess bots[0] "
-                    "and could not mint a dedicated open-swarm bot."
-                ),
-                http_status=created.status,
-                data=created.body or created.text,
-                gap=R.OMB_BOT_REQUIRED_GAP,
-            )
+            created = _omb_mint_dedicated_bot(spec, headers, timeout_s)
+            if created.status in R._UP and isinstance(created.body, dict):
+                bot = created.body.get("bot") or created.body
+                if isinstance(bot, dict):
+                    bot_id = str(bot.get("id") or "").strip()
+                minted = True
+            if not bot_id:
+                return R.OperateResult(
+                    remote="omb",
+                    op="send",
+                    ok=False,
+                    detail=(
+                        "No OpenMousBot agent selected. Pick a listed bot id "
+                        "(navbar / R.operate target); send will not guess bots[0] "
+                        "and could not mint a dedicated open-swarm bot."
+                    ),
+                    http_status=created.status,
+                    data=created.body or created.text,
+                    gap=R.OMB_BOT_REQUIRED_GAP,
+                )
     result = R.http_json(
         "POST",
         f"{base_url}/api/bots/{bot_id}/messages",

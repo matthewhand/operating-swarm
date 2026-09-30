@@ -132,25 +132,36 @@ describe('#853 — the support role is exclusive to API seats', () => {
     stubCatalog()
   })
 
-  it('hides the support option for a CLI-kind seat and keeps it for API seats', async () => {
-    // 'codey' resolves to an API/blueprint seat; a cli-prefixed id resolves cli.
+  it('offers the support option for an API-kind seat', async () => {
+    // 'codey' resolves to an API/blueprint seat.
     renderEditor('codey')
     await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy())
     const apiSelect = screen.getByLabelText('Role') as HTMLSelectElement
     expect([...apiSelect.options].some((o) => o.value === 'support')).toBe(true)
-
-    const { unmount } = { unmount: () => undefined }
-    void unmount
   })
 
-  it('a CLI-kind seat rejects selecting support via the guard toast', async () => {
-    // Direct guard check: persistRole's kind gate fires the explicit error.
-    const src = await (async () => {
-      const { readFileSync } = await import('node:fs')
-      const { join } = await import('node:path')
-      return readFileSync(join(process.cwd(), 'src/components/AgentEditor.tsx'), 'utf8')
-    })()
-    expect(src).toMatch(/Support role is exclusively available to API agents/)
-    expect(src).toMatch(/agentKind !== 'api'/)
+  it('hides the support option for a CLI-kind seat', async () => {
+    // Asserted on the rendered <select>, not on the editor's source text: the
+    // picker must not advertise a role the backend refuses, and the *how* is
+    // free to change. This replaces a regex over AgentEditor.tsx that only
+    // pinned one particular spelling of the guard.
+    renderEditor('cli-grok')
+    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy())
+    const cliSelect = screen.getByLabelText('Role') as HTMLSelectElement
+    const values = [...cliSelect.options].map((o) => o.value)
+    expect(values).not.toContain('support')
+    // ...while an ordinary role is still offered, so the seat is not simply
+    // stripped of its whole picker.
+    expect(values).toContain('gate')
+  })
+
+  it('keeps every other role available on a CLI-kind seat', async () => {
+    renderEditor('cli-grok')
+    await waitFor(() => expect(screen.getByLabelText('Role')).toBeTruthy())
+    const cliSelect = screen.getByLabelText('Role') as HTMLSelectElement
+    const values = [...cliSelect.options].map((o) => o.value)
+    for (const role of ['gate', 'skeptic', 'chief_of_staff', 'engineer']) {
+      expect(values).toContain(role)
+    }
   })
 })

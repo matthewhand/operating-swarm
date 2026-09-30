@@ -109,7 +109,8 @@ def test_django_chat_and_webui_kind_are_webui():
 
 
 @pytest.mark.django_db
-def test_live_catalog_picker_has_no_webui_kind(api_client):
+def test_live_catalog_picker_has_no_webui_kind(api_client, settings):
+    settings.ENABLE_API_AUTH = False
     response = api_client.get("/v1/blueprints/")
     assert response.status_code == 200
     rows = response.json()["data"]

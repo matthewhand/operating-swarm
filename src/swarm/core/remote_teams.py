@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 FRAMEWORKS: dict[str, dict[str, Any]] = {
     "hermes": {
@@ -80,15 +80,6 @@ FRAMEWORKS: dict[str, dict[str, Any]] = {
         "launch": "ollama launch dsh",
         "server_managed_context": False,
     },
-    "letta": {
-        "name": "Letta",
-        "specialty": "Remote Letta agent team",
-        "description": "Letta (formerly MemGPT) memory and workflow agents.",
-        "color": "#9333ea",
-        "icon": "🧠",
-        "transport": "http",
-        "server_managed_context": True,
-    },
     "flowise": {
         "name": "Flowise",
         "specialty": "Flowise AI flow execution",
@@ -112,7 +103,6 @@ _ALIASES = {
     "deepseekharness": "dsh",
     "deepseek_harness": "dsh",
     "deepseek": "dsh",
-    "memgpt": "letta",
 }
 
 _ENV_URLS = {
@@ -120,7 +110,6 @@ _ENV_URLS = {
     "openmausbot": ("OPENMAUSBOT_BASE_URL", "OMB_BASE_URL"),
     "rakazo": ("RAKAZO_BASE_URL", "RAKEZO_BASE_URL"),
     "dsh": ("DSH_BASE_URL", "DEEPSEEK_HARNESS_BASE_URL"),
-    "letta": ("LETTA_BASE_URL",),
 }
 _ENV_TARGETS = {
     "herdr": ("HERDR_TARGET", "HERDR_PANE"),
@@ -197,75 +186,6 @@ def resolve_remote_api_key(
     return token.strip() if token else None
 
 
-def chat_letta(
-    base_url: str,
-    messages: list[dict[str, Any]] | str,
-    *,
-    agent_id: str = "",
-    timeout: float = 60.0,
-    api_key: str | None = None,
-) -> str:
-    """POST to Letta /v1/agents/{id}/messages with resolved agent ID."""
-    resolved_id = (agent_id or "").strip()
-    if not resolved_id or resolved_id.lower() == "default":
-        raise RuntimeError("letta agent id is required (Operating Swarm does not mint new agents)")
-
-    base = _safe_http_url(base_url)
-    if base.endswith("/v1"):
-        endpoint = f"{base}/agents/{quote(resolved_id, safe='')}/messages"
-    else:
-        endpoint = f"{base}/v1/agents/{quote(resolved_id, safe='')}/messages"
-
-    if isinstance(messages, str):
-        prompt = messages
-    elif isinstance(messages, list):
-        user_msgs = [
-            m.get("content", "")
-            for m in messages
-            if isinstance(m, dict) and m.get("role") == "user"
-        ]
-        if user_msgs:
-            prompt = str(user_msgs[-1])
-        elif messages and isinstance(messages[-1], dict):
-            prompt = str(messages[-1].get("content") or "")
-        else:
-            prompt = str(messages)
-    else:
-        prompt = str(messages)
-
-    if not prompt.strip():
-        raise RuntimeError("prompt is required")
-
-    payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    token = api_key or resolve_remote_api_key("letta")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-        headers["X-API-Key"] = token
-
-    req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    try:
-        with opener.open(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:400]
-        raise RuntimeError(f"remote team HTTP {exc.code}: {detail}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(f"remote team unreachable: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"remote team returned non-JSON: {exc}") from exc
-
-    from swarm.core.remotes import _letta_assistant_text
-
-    content = _letta_assistant_text(body)
-    if not content:
-        if isinstance(body, dict) and (body.get("error") or body.get("detail")):
-            raise RuntimeError(f"Letta upstream error: {body.get('error') or body.get('detail')}")
-        raise RuntimeError("remote team response had no message content")
-    return str(content)
-
-
 def chat_remote(
     base_url: str,
     messages: list[dict[str, Any]],
@@ -281,20 +201,10 @@ def chat_remote(
 
     caps = capabilities_for(fid)
     server_managed = getattr(caps, "server_managed_context", False) or fid in (
-        "letta",
-        "memgpt",
         "herdr",
         "flowise",
     )
 
-    if fid in ("letta", "memgpt"):
-        return chat_letta(
-            base_url,
-            messages,
-            agent_id=model,
-            timeout=timeout,
-            api_key=api_key or resolve_remote_api_key(framework),
-        )
     if fid == "herdr":
         prompt = ""
         if isinstance(messages, str):
@@ -532,7 +442,9 @@ def persist_remote_overlay(spec: dict[str, Any]) -> None:
     if env_path and Path(env_path).is_file():
         path = Path(env_path)
     else:
-        xdg = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "swarm" / "swarm_config.json"
+        from swarm.core.paths import get_swarm_config_file
+
+        xdg = get_swarm_config_file()
         path = xdg if xdg.is_file() else None
     if path is None:
         return
@@ -575,7 +487,6 @@ _DISCOVERY_PATHS: dict[str, tuple[str, ...]] = {
     "omb": ("/api/bots?messages=0", "/v1/agents/", "/v1/models"),
     "openmausbot": ("/api/bots?messages=0", "/v1/agents/", "/v1/models"),
     "dsh": ("/v1/models", "/v1/agents/", "/api/tags"),
-    "letta": ("/v1/agents/", "/v1/agents"),
 }
 _DISCOVERY_PATHS_DEFAULT = ("/v1/agents/", "/api/bots", "/api/agents", "/v1/models")
 

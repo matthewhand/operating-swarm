@@ -134,7 +134,7 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     expect(within(solo).queryByText(/^\+\d+$/)).not.toBeInTheDocument()
   })
 
-  it('#438: a 2-member team row is one chat face plus a +1, not a mini stack', async () => {
+  it('#1362: a 2-member group chat row shows two circle faces, no remainder', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -146,14 +146,14 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const duo = await within(list).findByRole('link', { name: /Duo Team \(team\)/ })
 
-    // REQ-216 asked for "mini stacked avatars only for 2+"; #438 supersedes that
-    // for the sidepane — one face + a remainder on every roster size, so the row
-    // beside a single-member team is the same shape.
-    expect(duo).toHaveAttribute('data-stack-count', '1')
-    expect(duo).toHaveAttribute('data-remainder', '1')
+    // #1362 supersedes REQ-216/#438 for teams: the avatar is the membership —
+    // up to three faces in a circle. Two members render two faces, no `+N`.
+    expect(duo).toHaveAttribute('data-stack-count', '2')
+    expect(duo).toHaveAttribute('data-remainder', '0')
     expect(duo.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
-    expect(within(duo).getByTestId('team-chat-face')).toBeInTheDocument()
-    expect(within(duo).getByTestId('team-remainder')).toHaveTextContent('+1')
+    const face = within(duo).getByTestId('team-chat-face')
+    expect(face.querySelectorAll('[data-testid="os-group-avatar-face"]')).toHaveLength(2)
+    expect(within(duo).queryByTestId('os-group-avatar-remainder')).toBeNull()
   })
 
   it('renders single normal-size avatar (no mini stack) when remote has only 1 member', async () => {
@@ -194,7 +194,7 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     expect(within(duoRemote).getByTestId('team-remainder')).toHaveTextContent('+1')
   })
 
-  it('#438: a 4-member team row is one face + a remainder of 3, and the face follows run state', async () => {
+  it('#1362: a 4-member group chat row is three circle faces + a remainder of 1', async () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
@@ -206,16 +206,15 @@ describe('REQ-216: Remote/team stack — normal avatar if 1 member; mini stack o
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const quadTeam = await within(list).findByRole('link', { name: /Quad Team \(team\)/ })
 
-    // #438 replaces REQ-891's capped fan. The remainder is the roster minus the
-    // one shown face — a 4-member team is +3, and `teamSidepaneStack`'s cap of 3
-    // must not be allowed to under-report it as +2.
-    expect(quadTeam).toHaveAttribute('data-stack-count', '1')
-    expect(quadTeam).toHaveAttribute('data-remainder', '3')
+    // #1362 caps the circle at three faces; the remaining member is +1. The
+    // roster count (not the cap) is what the row reports.
+    expect(quadTeam).toHaveAttribute('data-stack-count', '3')
+    expect(quadTeam).toHaveAttribute('data-remainder', '1')
     expect(quadTeam.querySelectorAll('.os-avatar-stack__face')).toHaveLength(0)
-    expect(within(quadTeam).getByTestId('team-remainder')).toHaveTextContent('+3')
-    // Q4 is working, so newest-active-first ordering puts it at the front — the
-    // ordering rule is unchanged, it now selects the single shown face.
-    expect(within(quadTeam).getByTestId('team-chat-face').getAttribute('data-remainder')).toBe('3')
+    expect(within(quadTeam).getByTestId('os-group-avatar-remainder')).toHaveTextContent('+1')
+    const face = within(quadTeam).getByTestId('team-chat-face')
+    expect(face.getAttribute('data-remainder')).toBe('1')
+    expect(within(quadTeam).getAllByTestId('os-group-avatar-face')).toHaveLength(3)
   })
 
   it('#438: a 4-member remote row is one face + a remainder of 3', async () => {

@@ -1,3 +1,4 @@
+import os
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -246,4 +247,48 @@ def test_provider_call_tool_nebula_shellz_error_handling(monkeypatch):
         # Verify error is handled and returned in result
         assert "[Blueprint:nebula_shellz] Execution error:" in result["content"]
         assert "Matrix glitch detected" in result["content"]
+
+
+def test_start_required_mcp_server_widens_path_for_npx(monkeypatch, tmp_path):
+    """#1328: a custom npx stdio server gets host_cli_path-widened PATH.
+
+    Regression: build_mcp_stdio_env copied the parent PATH verbatim, so a
+    Daphne host started with PATH=/usr/bin:/bin could not resolve npx/node.
+    """
+    from swarm.mcp import provider as prov
+
+    user_bin = tmp_path / "user-bin"
+    user_bin.mkdir()
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("SWARM_CLI_PATH_DIRS", str(user_bin))
+
+    p = prov.BlueprintMCPProvider(blueprint_dir="ignored")
+    p._mcp_config = {"custom": {"command": "npx", "args": ["-y", "some-mcp"]}}
+
+    captured: dict = {}
+
+    class FakeProc:
+        pid = 4321
+
+        def poll(self):
+            return None
+
+        def wait(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env")
+        return FakeProc()
+
+    monkeypatch.setattr(prov.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(prov.time, "sleep", lambda *_: None)
+
+    started = p._start_required_mcp_servers(["custom"])
+    assert captured["cmd"] == ["npx", "-y", "some-mcp"]
+    path_dirs = captured["env"]["PATH"].split(os.pathsep)
+    assert str(user_bin) in path_dirs
+    assert "/usr/bin" in path_dirs
+    assert "/bin" in path_dirs
+    assert started[0]["name"] == "custom"
 

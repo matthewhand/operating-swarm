@@ -2,18 +2,17 @@
 
 A **seat** is one executable address a chat turn can land on:
 
-* ``api`` — an Open Swarm blueprint (incl. the ``api_agent`` gateway and
-  team orchestrators; "design"/"team" are *roles* an api seat plays).
+* ``api`` — an Operating Swarm blueprint (incl. the ``api_agent`` gateway).
+  Stored ``blueprint`` / ``personality`` / ``swarm`` designs are this seat.
 * ``cli`` — a host CLI process (grok, agy, claude, …).
-* ``remote`` — an external framework via the remote harness (Letta, OMB, …).
-* ``team`` — a composed roster driven through one of the above.
+* ``remote`` — an external framework via the remote harness (OMB, …).
+* ``team`` — a composed roster addressed by ``?team=``.
 
-``SeatKind`` is the routing vocabulary; the finer stored ``kind``
-(``builtin`` / ``personality`` / ``blueprint`` / …, see
-``swarm.core.agent_kind``) remains the persistence taxonomy. A team is not
-a separate runtime — it is an api/blueprint orchestrator with a roster, so
-``seat_kind_for_agent`` classifies rosters as ``api`` while
-``seat_param_for_agent`` keeps the SPA's ``?team=`` URL marker.
+``SeatKind`` is the only routing vocabulary. Stored authoring kinds
+(``builtin`` / ``personality`` / ``blueprint`` / ``swarm`` / ``llm``) collapse
+onto ``api``; ``herdr`` collapses onto ``remote``. ``design`` is an authoring
+tag and is never a seat. ``team:`` rosters are the ``team`` seat; the SPA
+still addresses them with ``?team=``.
 """
 
 from __future__ import annotations
@@ -25,6 +24,22 @@ SeatKind = Literal["api", "cli", "remote", "team"]
 SEAT_KINDS: tuple[SeatKind, ...] = ("api", "cli", "remote", "team")
 
 _VALID = frozenset(SEAT_KINDS)
+
+# Stored / authoring labels that are not themselves seats. ``design`` is
+# intentionally absent — normalize_seat_kind rejects it, and this map must
+# not invent a seat for it either.
+_STORED_KIND_TO_SEAT: dict[str, SeatKind] = {
+    "api": "api",
+    "blueprint": "api",
+    "llm": "api",
+    "builtin": "api",
+    "personality": "api",
+    "swarm": "api",
+    "cli": "cli",
+    "remote": "remote",
+    "herdr": "remote",
+    "team": "team",
+}
 
 
 class SeatDescriptor(TypedDict, total=False):
@@ -42,14 +57,60 @@ def normalize_seat_kind(raw: str | None) -> SeatKind | None:
     return text if text in _VALID else None  # type: ignore[return-value]
 
 
+def seat_kind_from_stored(raw: str | None) -> SeatKind | None:
+    """Map a stored or authoring kind onto a SeatKind.
+
+    ``blueprint`` / ``swarm`` / ``personality`` are API seats. ``herdr`` is
+    a remote seat. Unknown labels (including ``design``) return None so
+    callers can fall through instead of inventing a kind.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return None
+    return _STORED_KIND_TO_SEAT.get(text)
+
+
+def dispatch_seat_kind(explicit: str | None, agent_id: str | None = None) -> SeatKind:
+    """The routing seat an execution engine must honour (#1437).
+
+    A request can carry both an agent kind and a ``blueprint`` param. The
+    param selects an API recipe; it must not reclassify a CLI or remote
+    seat. Stored labels collapse through :func:`seat_kind_from_stored`
+    before the id-based classifier.
+    """
+    if isinstance(explicit, str):
+        mapped = seat_kind_from_stored(explicit)
+        if mapped:
+            return mapped
+    return seat_kind_for_agent(
+        agent_id if isinstance(agent_id, str) else None,
+        explicit=explicit if isinstance(explicit, str) else None,
+    )
+
+
+def peel_blueprint_prefix(agent_id: str | None) -> str:
+    """Drop a leading ``blueprint:`` taxonomy tag so the seat id can classify.
+
+    ``blueprint`` is a persistence tag, not a SeatKind (#1436). A remote or
+    CLI id stored as ``blueprint:omb`` / ``blueprint:remote:herdr`` must still
+    resolve as that seat, not as an API blueprint.
+    """
+    text = (agent_id or "").strip()
+    while text.lower().startswith("blueprint:"):
+        text = text[len("blueprint:") :]
+    return text
+
+
 def seat_kind_for_agent(agent_id: str | None, *, explicit: str | None = None) -> SeatKind:
     """Routing kind for an agent id / source prefix.
 
     Precedence: explicit kind (when a valid SeatKind), then source-style
     prefixes (``cli:`` / ``remote:`` / ``team:``), then remote impl ids,
-    then CLI catalog ids, then api.
+    then CLI catalog ids, then the ``cli_agent`` / ``remote_harness``
+    recipe ids, then api. Stored design files are out of scope; the
+    agent object carries that kind.
     """
-    text = (agent_id or "").strip().lower()
+    text = peel_blueprint_prefix(agent_id).strip().lower()
     if explicit:
         normalized = normalize_seat_kind(explicit)
         if normalized:
@@ -72,7 +133,38 @@ def seat_kind_for_agent(agent_id: str | None, *, explicit: str | None = None) ->
 
     if cli_from_rail_id(text):
         return "cli"
+    # Recipe ids the SPA sends for a seat's payload kind. They are seats,
+    # not API blueprints (#534 / #1437).
+    if text == "remote_harness":
+        return "remote"
+    if text == "cli_agent":
+        return "cli"
     return "api"
+
+
+def resolve_hop_kind(requested: str | None, destination_id: str | None = None) -> str:
+    """Hop destination kind (#1436 / #1437).
+
+    A hardcoded ``api``, or the persistence tags ``blueprint`` and ``team``,
+    follow a CLI or remote destination. Explicit ``cli`` and ``remote`` are
+    kept even when the destination id classifies differently. An explicit
+    ``api`` is kept only when the destination is not CLI or remote.
+    """
+    text = (requested or "").strip().lower()
+    dest = (
+        seat_kind_for_agent(destination_id)
+        if (destination_id or "").strip()
+        else None
+    )
+    if text in ("blueprint", "team"):
+        return dest if dest in ("cli", "remote") else "api"
+    if text == "api" and dest in ("cli", "remote"):
+        return dest
+    if text in ("cli", "api", "remote"):
+        return text
+    if dest in ("cli", "api", "remote"):
+        return dest
+    return "cli"
 
 
 def seat_param_for_kind(kind: SeatKind) -> str:
@@ -96,10 +188,14 @@ def seat_descriptor(
     """Build the canonical descriptor for an incoming seat switch."""
     kind = seat_kind_for_agent(agent_id, explicit=explicit)
     clean_id = (agent_id or "").strip()
-    for prefix in ("team:", "cli:", "remote:", "blueprint:"):
-        if clean_id.lower().startswith(prefix):
-            clean_id = clean_id[len(prefix) :]
-            break
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ("blueprint:", "placeholder:remote:", "team:", "cli:", "remote:"):
+            if clean_id.lower().startswith(prefix):
+                clean_id = clean_id[len(prefix) :]
+                changed = True
+                break
     return SeatDescriptor(
         kind=kind,
         id=clean_id,

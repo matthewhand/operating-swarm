@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from helpers.private_net import assert_no_private_ip
+
 REPO = Path(__file__).resolve().parents[2]
 TOPOLOGY = REPO / "src" / "swarm" / "core" / "cos_topology.py"
 SECTIONS = REPO / "src" / "swarm" / "core" / "agent_sections.py"
@@ -24,8 +26,10 @@ PEER = REPO / "docs" / "PEER_MAILBOX.md"
 
 def _no_secrets(text: str) -> None:
     lowered = text.lower()
-    for needle in ("github_pat_", "ghp_", "10.0.0.", "sk-"):
+    for needle in ("github_pat_", "ghp_", "sk-"):
         assert needle not in lowered
+    # "10.0.0." was one /24 out of 10/8 and let #1712's literals through.
+    assert_no_private_ip(text)
 
 
 def _no_demo_port(text: str) -> None:

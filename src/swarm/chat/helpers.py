@@ -69,6 +69,18 @@ async def _expand_model_messages(consumer, messages):
     )
 
 
+async def _attach_operator_profile(consumer, messages):
+    """#1323: prepend the operator About me card when one is saved."""
+    from swarm.core.operator_profile import messages_with_operator_profile_for_user
+
+    try:
+        return await R.database_sync_to_async(messages_with_operator_profile_for_user)(
+            getattr(consumer, "user", None), messages
+        )
+    except Exception:
+        return messages
+
+
 def _message_ts() -> str:
     return datetime.now(R.timezone.utc).isoformat()
 

@@ -7,6 +7,8 @@ non-editable (existing 403 PATCH). Own-diff CI. No Neon, no :8001, no secrets.
 
 from pathlib import Path
 
+from helpers.private_net import assert_no_private_ip
+
 REPO = Path(__file__).resolve().parents[2]
 AGENT_CHAT = REPO / "webui" / "frontend" / "src" / "lib" / "agentChat.ts"
 AGENT_CHAT_TEST = REPO / "webui" / "frontend" / "src" / "lib" / "__tests__" / "agentChat.test.ts"
@@ -22,8 +24,10 @@ CHANGELOG = REPO / "CHANGELOG.md"
 
 def _no_secrets(text: str) -> None:
     lowered = text.lower()
-    for needle in ("sk-", "github_pat_", "ghp_", "10.0.0."):
+    for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered
+    # "10.0.0." was one /24 out of 10/8 and let #1712's literals through.
+    assert_no_private_ip(text)
 
 
 def test_fetch_agent_thread_surfaces_failure():

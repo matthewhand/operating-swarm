@@ -1,0 +1,39 @@
+name: on-main sync + restart
+
+# Runs the local `sync-main` opencode agent on the host's self-hosted runner
+# whenever main moves (i.e. a PR merged). The agent pulls, resolves conflicts,
+# and restarts the OS docker compose stack. See .opencode/agent/sync-main.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two syncs at once on the host.
+concurrency:
+  group: on-main-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Only run in the deployment-facing public repo. In the private SoT this
+    # workflow is skipped (job-level `if` is evaluated before runner dispatch).
+    if: github.repository == 'matthewhand/operating-swarm'
+    # Labels set when registering the runner: self-hosted, windows, os-sync.
+    runs-on: [self-hosted, windows, os-sync]
+    timeout-minutes: 30
+    steps:
+      - name: Sync main and restart OS
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Optional repo variable to override the deployment checkout path.
+          OS_SYNC_DIR: ${{ vars.OS_SYNC_DIR }}
+        run: |
+          $dir = $env:OS_SYNC_DIR
+          if ([string]::IsNullOrWhiteSpace($dir)) { $dir = "F:\ai\operating-swarm" }
+          Write-Host "Sync target: $dir"
+          opencode run --agent sync-main --auto --dir "$dir" "A pull request just merged into main. Run your routine: pull main, resolve conflicts, then restart the OS instance."

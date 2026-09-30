@@ -10,15 +10,17 @@
  * `api_agent`) is never a CLI context — a leftover `?cli=` must not flip it.
  */
 
-import type { CliAgentsInfo, CliModelsResponse, LlmProfile } from './api'
+import type { CliAgentsInfo, CliModelsResponse } from './api'
 import { KNOWN_CLI_NAMES } from './cliAgents'
+import type { LlmModelType } from './llmProfiles'
+import { isCategorizerProfile } from './llmProfiles'
 import { isHiddenRoutingLabel } from './routingPath'
 
 /** Footer sentinel — Chat opens the in-app CLI agents settings pane. */
 export const MANAGE_CLI_VALUE = '__manage_cli__'
 
-/** Django operator dump. Chat "Manage CLI" uses openSettingsSheet, not this href. */
-export const MANAGE_CLI_HREF = '/settings/'
+/** SPA CLI agents pane. Chat "Manage CLI" uses openSettingsSheet, not a dump hop. */
+export const MANAGE_CLI_HREF = '/chat?settings=cli-agents'
 
 /** True for `cli_agent`, `cli_*` family (`cli_fusion`, `cli_map`, …), and known CLI names (`grok`, `agy`, …). */
 export function isCliBlueprintId(id: string): boolean {
@@ -90,6 +92,46 @@ export function isApiBlueprintId(id: string | null | undefined): boolean {
   return norm === 'api_agent' || norm === 'api' || norm.startsWith('api:')
 }
 
+export interface DesignedCliSeat {
+  id: string
+  name: string
+  cli: string
+  description: string
+}
+
+/**
+ * A designer-created CLI seat (`/v1/agents/designs/`, e.g. `antigravity` →
+ * `agy`, `hass-eng` → `opencode`) declares its host CLI in `cli`. Such seats
+ * are not in the `/v1/cli-agents/` rail, so ChatPage cannot find them there.
+ * Returns the seat when `blueprintId` matches a design with a non-empty `cli`,
+ * else null (API/framework designs have no `cli` and must stay API seats).
+ */
+export function designedCliSeat(
+  blueprintId: string | null | undefined,
+  designs:
+    | Array<{
+        agent_id?: string
+        name?: string
+        cli?: string
+        description?: string
+        specialty?: string
+      }>
+    | null
+    | undefined,
+): DesignedCliSeat | null {
+  const id = (blueprintId ?? '').trim()
+  if (!id) return null
+  const design = (designs ?? []).find((row) => (row?.agent_id ?? '').trim() === id)
+  const cli = (design?.cli ?? '').trim()
+  if (!design || !cli) return null
+  return {
+    id,
+    name: (design.name ?? '').trim() || id,
+    cli,
+    description: (design.description ?? design.specialty ?? '').trim(),
+  }
+}
+
 /**
  * CLIs the chat dropdown should list (#149 / REQ-157).
  *
@@ -137,33 +179,90 @@ export function preferredChatCli(names: string[], current?: string | null): stri
 }
 
 /**
+ * CLI model options for a CLI seat's Model control (REQ-171C-3 / #612).
+ *
+ * The *only* source is the per-CLI probe payload from
+ * ``fetchCliModels(cli)`` (``GET /v1/cli-agents/<cli>/models/``). API /
+ * LLM-profile ids are a different namespace and are never merged in here —
+ * a CLI only accepts ids it actually exposes, so an API id offered for a CLI
+ * just fails at ``<cli> --model``.
+ *
+ * When the probe is empty, ``presets`` — that CLI's own catalog presets, as
+ * the backend picker already returns for a CLI with no live probe — is the
+ * honest fallback. Never invent option ``default``; ``list_models`` argv
+ * tables from GET /v1/cli-agents/ are commands, not model ids.
+ */
+export function cliModelOptionsFor(
+  payload?: Pick<CliModelsResponse, 'models' | 'warning'> | null,
+  presets?: readonly string[] | null,
+): { models: string[]; warning: string | null } {
+  const models: string[] = []
+  const seen = new Set<string>()
+  const push = (raw: unknown) => {
+    if (typeof raw !== 'string') return
+    const id = raw.trim()
+    if (!id || isHiddenRoutingLabel(id) || seen.has(id)) return
+    seen.add(id)
+    models.push(id)
+  }
+  for (const raw of payload?.models ?? []) push(raw)
+  if (models.length === 0) {
+    for (const raw of presets ?? []) push(raw)
+  }
+  const warning = (payload?.warning ?? '').trim()
+  return { models, warning: warning || null }
+}
+
+/**
  * Live list-models payload for the Chat CLI Model control (REQ-171C-3 / #612).
  *
- * Empty / failed probes stay empty. Never invent option ``default``.
- * ``list_models`` argv tables from GET /v1/cli-agents/ are not model ids.
+ * Thin wrapper over :func:`cliModelOptionsFor` kept for the ChatPage call site.
+ * Empty / failed probes stay empty; the backend already supplies that CLI's
+ * catalog presets when it has no live probe.
  */
 export function honestChatCliModels(
   payload?: Pick<CliModelsResponse, 'models' | 'warning'> | null,
 ): { models: string[]; warning: string | null } {
-  const models: string[] = []
-  const seen = new Set<string>()
-  for (const raw of payload?.models ?? []) {
-    if (typeof raw !== 'string') continue
-    const id = raw.trim()
-    if (!id || isHiddenRoutingLabel(id) || seen.has(id)) continue
-    seen.add(id)
-    models.push(id)
-  }
-  const warning = (payload?.warning ?? '').trim()
-  if (models.length === 0) {
-    return { models: [], warning: warning || null }
-  }
-  return { models, warning: warning || null }
+  return cliModelOptionsFor(payload)
+}
+
+/** Sources that are NOT API-namespace; the API Model control must exclude them. */
+const FOREIGN_API_PROFILE_SOURCES = new Set(['cli', 'remote', 'list_models'])
+
+/**
+ * True when a `/v1/llm-profiles/` row is an API-namespace LLM profile.
+ *
+ * The payload mixes `source: config` API profiles with `source: cli` /
+ * `remote` / `list_models` rows (connected CLIs and their live model lists).
+ * An API seat can only route `api` ids — offering a CLI/remote id there just
+ * fails at the gateway. Prefers the explicit backend `namespace` marker and
+ * falls back to `source` for older servers.
+ */
+export function isApiNamespaceProfile(profile: {
+  source?: string
+  namespace?: string
+} | null | undefined): boolean {
+  if (!profile) return false
+  const namespace = (profile.namespace ?? '').trim().toLowerCase()
+  if (namespace) return namespace === 'api'
+  const source = (profile.source ?? '').trim().toLowerCase()
+  return !FOREIGN_API_PROFILE_SOURCES.has(source)
+}
+
+export interface ApiModelProfileInput {
+  id?: string
+  name?: string
+  model?: string
+  source?: string
+  namespace?: string
+  /** #1745 `chat` / `categorizer`. A System1 gate is never a chat option. */
+  model_type?: LlmModelType | string
+  owned_by?: string
 }
 
 /** LLM / profile ids for the API Model control — never /v1/models blueprint ids. */
 export function apiModelOptionsFromProfiles(
-  profiles: Array<Pick<LlmProfile, 'id' | 'name' | 'model'>> | null | undefined,
+  profiles: Array<ApiModelProfileInput> | null | undefined,
   extraIds: string[] = [],
 ): Array<{ id: string; label: string }> {
   const out: Array<{ id: string; label: string }> = []
@@ -175,6 +274,10 @@ export function apiModelOptionsFromProfiles(
     out.push({ id: trimmed, label: (label || trimmed).trim() || trimmed })
   }
   for (const profile of profiles ?? []) {
+    if (!isApiNamespaceProfile(profile)) continue
+    // #1745: a System1 categorizer gates a seat; offering it here would put a
+    // gate in the chat composer / AgentEditor API list.
+    if (isCategorizerProfile(profile)) continue
     if (profile.id) push(profile.id, profile.name || profile.id)
     if (profile.model) push(profile.model)
   }

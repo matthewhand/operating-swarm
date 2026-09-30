@@ -134,7 +134,11 @@ describe('AgentPinGrid drag-to-pin', () => {
 
     const tile = await within(grid).findByRole('link', { name: /Codey/ })
     expect(tile).toHaveAttribute('href', '/chat?blueprint=codey')
-    expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
+    // #1217: the sidebar listens to PINNED_AGENTS_CHANGED_EVENT same-tab, so
+    // the pinned row is excluded from the list the moment the pin lands —
+    // the tile is the ONLY Codey surface now (the old pin asserted the row
+    // must remain, which predates same-tab pin sync and was never true after it).
+    expect(within(list).queryByRole('link', { name: /Codey/ })).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([
       { id: 'codey', name: 'Codey' },
     ])
@@ -184,5 +188,19 @@ describe('AgentPinGrid drag-to-pin', () => {
     })
     expect(JSON.parse(localStorage.getItem(PINNED_AGENTS_STORAGE_KEY) || '[]')).toEqual([])
     expect(screen.getByRole('navigation', { name: 'Agent list' })).toBeInTheDocument()
+  })
+
+  it('lays pins out in fixed 5.25rem auto-fill tracks centred as a block', () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'codey', name: 'Codey' }]),
+    )
+    renderChrome()
+    const grid = screen.getByTestId('agent-pin-grid')
+    // REQ-206: width-independent tile geometry — auto-fill fixed tracks centred
+    // as a block rather than fluid columns; the component must not rely on
+    // index.css alone to get the 1/2/3-column responsive behaviour.
+    expect(grid.className).toContain('grid-cols-[repeat(auto-fill,5.25rem)]')
+    expect(grid.className).toContain('justify-center')
   })
 })

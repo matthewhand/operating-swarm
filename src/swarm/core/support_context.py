@@ -11,13 +11,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-# In-product paths (Django trailing-slash operator UI — ADR-001).
+# In-product paths. Settings is the SPA sheet (#1442), not the Django dump.
+SPA_SETTINGS_INFERENCE_HREF = "/chat?settings=llm-profiles"
 CREATE_PATHS = {
     "agent": "/agent-creator/",
     "blueprint": "/blueprint-library/",
     "team": "/teams/launch/",
     "teams": "/teams/",
-    "settings": "/settings/",
+    "settings": SPA_SETTINGS_INFERENCE_HREF,
     "profiles": "/profiles/",
 }
 

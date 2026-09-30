@@ -8,8 +8,15 @@ never raises, and resolves with precedence SWARM_CONFIG_PATH > XDG > cwd.
 from __future__ import annotations
 
 import json
+import sys
 
 from swarm.apps import SwarmConfig
+
+
+def _pin_unix_config_root(monkeypatch) -> None:
+    """These tests assert the XDG root. Windows uses %APPDATA% instead."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("SWARM_CONFIG_DIR", raising=False)
 
 
 def _write(path, data):
@@ -19,6 +26,7 @@ def _write(path, data):
 
 
 def test_loads_from_xdg_when_present(monkeypatch, tmp_path):
+    _pin_unix_config_root(monkeypatch)
     xdg = tmp_path / "xdg"
     _write(xdg / "swarm" / "swarm_config.json", {"settings": {"from": "xdg"}})
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
@@ -51,6 +59,7 @@ def test_env_vars_are_substituted(monkeypatch, tmp_path):
 
 
 def test_missing_config_returns_empty_never_raises(monkeypatch, tmp_path):
+    _pin_unix_config_root(monkeypatch)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-xdg"))
     monkeypatch.delenv("SWARM_CONFIG_PATH", raising=False)
     monkeypatch.chdir(tmp_path)  # no swarm_config.json anywhere reachable
@@ -59,6 +68,7 @@ def test_missing_config_returns_empty_never_raises(monkeypatch, tmp_path):
 
 
 def test_bad_path_in_env_falls_back(monkeypatch, tmp_path):
+    _pin_unix_config_root(monkeypatch)
     monkeypatch.setenv("SWARM_CONFIG_PATH", str(tmp_path / "does-not-exist.json"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-xdg"))
     monkeypatch.chdir(tmp_path)

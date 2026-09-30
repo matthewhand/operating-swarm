@@ -19,7 +19,6 @@ describe('#795 provider icon registry', () => {
     const kinds = [
       'hermes',
       'anythingllm',
-      'letta',
       'openwebui',
       'flowise',
       'n8n',

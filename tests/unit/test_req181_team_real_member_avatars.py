@@ -11,11 +11,34 @@ def test_avatar_stack_renders_agent_avatar():
 
 
 def test_session_picker_passes_member_avatar_to_faces():
-    """sessionPicker passes avatarSrc from team members to MemberSession and StackFace."""
+    """sessionPicker passes avatarSrc from team members to MemberSession and StackFace.
+
+    #1692 moved the four-name resolution chain out of this file and into
+    `lib/seatAvatar.ts`, so the property this test protects is no longer "this
+    literal chain is spelled out here" -- it is "the picker resolves a member's
+    face through the one resolver, so the picker and the rail cannot disagree".
+    Asserting the old inline literal would have failed on a correct refactor,
+    which is the same rotted-assertion defect this whole change set removes.
+    The four field names are still covered, in the one place that now owns
+    them: the two assertions below.
+    """
     src = Path("webui/frontend/src/lib/sessionPicker.ts").read_text(encoding="utf-8")
+    avatar = Path("webui/frontend/src/lib/seatAvatar.ts").read_text(encoding="utf-8")
+
     assert "avatarSrc: session.avatarSrc" in src
-    assert "avatarSrc:" in src
-    assert "member.avatarSrc || member.avatar_path || member.avatar || member.src" in src
+    # Both picker shapes delegate: a team member row and a bare agent row.
+    assert "from './seatAvatar'" in src
+    assert "seatAvatarSrc(member)" in src
+    assert "seatAvatarSrc(agent)" in src
+    # The chain is not re-inlined anywhere in the picker. This is the
+    # anti-drift half: without it, a later "just add the new field here too"
+    # would restore the two-sources-of-truth defect silently.
+    assert "avatarSrc ||" not in src
+    assert "avatar_path" not in src
+    # The four accumulated field names are all still honoured, in the one
+    # module that owns the precedence.
+    for field in ("avatarSrc", "avatar_path", "avatar", "src"):
+        assert f"'{field}'" in avatar, f"seatAvatar.ts no longer knows {field}"
 
 
 def test_team_roster_supports_avatar_fields():

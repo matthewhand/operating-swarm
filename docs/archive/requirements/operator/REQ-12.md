@@ -1,6 +1,6 @@
 # REQ-12
 
-Intent: Shift+Tab cycles operator session mode: plan, auto-edit, default. Always-approve is not a cycle stop because Open Swarm already simulates it on host CLIs.
+Intent: Shift+Tab cycles operator session mode: plan, auto-edit, default. Always-approve is not a cycle stop because Operating Swarm already simulates it on host CLIs.
 
 Success:
 1. Agent Router composer (SPA + Django fallback): Shift+Tab cycles **default → plan → auto-edit → default**.
@@ -10,6 +10,6 @@ Success:
 5. Always-approve stays in `cli_catalog` (`--always-approve`, `--yolo`, `--dangerously-skip-permissions`, …) so one-shot CLIs do not block. It is not a Shift+Tab mode.
 6. Persist the session mode in localStorage. Show the current mode next to the composer.
 
-Constraints: Do not remap Grok TUI bindings. Do not add Always-approve to the Open Swarm cycle.
+Constraints: Do not remap Grok TUI bindings. Do not add Always-approve to the Operating Swarm cycle.
 
 Owner: open-swarm engineer.

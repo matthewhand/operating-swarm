@@ -1,6 +1,6 @@
 # REQ-5
 
-Intent: make live Open Swarm UI look like OMB/Grok Bot dark chrome (not purple/pink/teal operator skin). First page more impressive: larger cards for the four quick actions. Carry over hide agent from the sidepane. Later operator pages (Blueprints, Teams, Sessions, Settings, Chat) share that chrome.
+Intent: make live Operating Swarm UI look like OMB/Grok Bot dark chrome (not purple/pink/teal operator skin). First page more impressive: larger cards for the four quick actions. Carry over hide agent from the sidepane. Later operator pages (Blueprints, Teams, Sessions, Settings, Chat) share that chrome.
 
 Success:
 1. Colour theme matches OMB: near-black chrome, muted greys, small accents, not rainbow stats/buttons.

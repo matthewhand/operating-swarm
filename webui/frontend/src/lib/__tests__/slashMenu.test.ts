@@ -62,6 +62,7 @@ describe('slashMenu helpers', () => {
     ])
     expect(nonRecentSkills.map((s) => s.title)).toEqual([
       'Counting Lines',
+      'Orca CLI',
       'Reviewing Code',
       'Support Session Ownership',
       'Writing Changelog',

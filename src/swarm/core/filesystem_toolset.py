@@ -32,7 +32,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger("swarm.filesystem.audit")
@@ -132,8 +132,8 @@ def _is_within(child: Path, root: Path) -> bool:
 
 
 def _resolve_roots(paths: list[str] | None) -> list[Path]:
-    """Resolve allow-list roots; fall back to ``DEFAULT_ROOTS`` when empty."""
-    raw = list(paths or []) or list(FilesystemToolset.DEFAULT_ROOTS)
+    """Resolve allow-list roots; fall back to ``default_roots()`` when empty."""
+    raw = list(paths or []) or list(FilesystemToolset.default_roots())
     roots: list[Path] = []
     for p in raw:
         try:
@@ -167,7 +167,7 @@ def _clamp_allowed_paths(
             continue
         if any(_is_within(rp, root) or rp == root for root in cfg_roots):
             narrowed.append(str(rp))
-    # Empty / all-rejected overrides must not fall through to DEFAULT_ROOTS widening.
+    # Empty / all-rejected overrides must not fall through to default_roots() widening.
     return narrowed if narrowed else cfg_list
 
 
@@ -196,6 +196,24 @@ def _is_noise(p: Path) -> bool:
     return p.suffix in {".pyc", ".pyo", ".so", ".o", ".class"}
 
 
+def _guard_filesystem_tool(tool_name: str) -> None:
+    """#1312: deny a filesystem tool when the active bot's allowlist says so.
+
+    Uses the active safety session's agent id; no policy → no-op.
+    """
+    try:
+        from swarm.core import command_allowlist
+
+        verdict = command_allowlist.evaluate_tool_name(
+            tool_name, agent_id=command_allowlist.runtime_agent_id()
+        )
+    except Exception:  # pragma: no cover - guard must never break the toolset
+        logger.debug("filesystem command-allowlist check skipped", exc_info=True)
+        return
+    if verdict.outcome == command_allowlist.OUTCOME_DENY:
+        raise PermissionDenied(command_allowlist.denial_message(verdict, command=tool_name))
+
+
 @dataclass
 class FilesystemToolset:
     """A scoped, auditable filesystem accessor."""
@@ -208,17 +226,20 @@ class FilesystemToolset:
     audit: bool = True
 
     # Default roots when config supplies none: swarm config + data dirs only.
-    # Deliberately excludes the project checkout (``~/open-swarm``) so a bare
-    # ``fs_introspect`` cannot dump repo ``.env`` / source secrets by default.
-    DEFAULT_ROOTS: ClassVar[tuple[str, ...]] = (
-        "~/.config/swarm",
-        "~/.local/share/swarm",
-    )
+    # Deliberately excludes the project checkout so a bare ``fs_introspect``
+    # cannot dump repo ``.env`` / source secrets by default. Resolved at use
+    # time from ``config_root()`` so tests and ``SWARM_CONFIG_DIR`` apply.
+
+    @staticmethod
+    def default_roots() -> tuple[str, ...]:
+        from swarm.core.paths import config_root, get_user_data_dir_for_swarm
+
+        return (str(config_root()), str(get_user_data_dir_for_swarm()))
 
     def __post_init__(self) -> None:
         if self.permission not in _LEVELS:
             raise ValueError(f"permission must be one of {_LEVELS}, got {self.permission!r}")
-        roots = self.allowed_paths or list(self.DEFAULT_ROOTS)
+        roots = self.allowed_paths or list(self.default_roots())
         self._roots: list[Path] = []
         for p in roots:
             try:
@@ -540,6 +561,9 @@ class FilesystemToolset:
 
         Returns an empty list if the ``agents`` SDK is unavailable, so importing
         this module never hard-fails in CLI-only deployments.
+
+        #1312: each tool is also gated by the active per-bot command allowlist
+        (matched by exact tool name). No policy → no change.
         """
         try:
             from agents import function_tool
@@ -549,20 +573,24 @@ class FilesystemToolset:
 
         def fs_read_file(path: str) -> str:
             """Read a UTF-8 text file (size-capped, allow-list enforced)."""
+            _guard_filesystem_tool("fs_read_file")
             return self.read(path)
 
         def fs_list_dir(path: str) -> str:
             """List a directory's entries (name, type, size)."""
+            _guard_filesystem_tool("fs_list_dir")
             return "\n".join(f"{e['type']:5} {e.get('size','-'):>10} {e['name']}" for e in self.list(path))
 
         def fs_stat(path: str) -> str:
             """Stat a path (type, size, mode, mtime)."""
+            _guard_filesystem_tool("fs_stat")
             return str(self.stat(path))
 
         tools = [function_tool(fs_read_file), function_tool(fs_list_dir), function_tool(fs_stat)]
         if self.permission == READWRITE:
             def fs_write_file(path: str, content: str) -> str:
                 """Write UTF-8 text to a file (size-capped, allow-list enforced)."""
+                _guard_filesystem_tool("fs_write_file")
                 return str(self.write(path, content))
             tools.append(function_tool(fs_write_file))
         return tools

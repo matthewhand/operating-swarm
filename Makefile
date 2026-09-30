@@ -1,11 +1,11 @@
-# Makefile for Open-Swarm
+# Makefile for Operating Swarm
 # Usage: `make help`
 
 PY ?= uv run
 CLI ?= swarm-cli
 BIN ?= $(HOME)/.local/share/swarm/bin
 
-.PHONY: help dev test frontend list-installed list-available build build-shim build-all-shims build-all-executables launch uninstall build-pyinstaller build-all-pyinstaller demo-deploy demo-build demo-serve
+.PHONY: help dev test ci-gates ci-gates-quick ci-gates-no-frontend frontend list-installed list-available build build-shim build-all-shims build-all-executables launch uninstall build-pyinstaller build-all-pyinstaller demo-deploy demo-build demo-serve
 
 COMPOSE ?= docker compose
 # Host-coupled local mappings (gitignored). Auto-included by `make dev` when
@@ -15,11 +15,14 @@ COMPOSE ?= docker compose
 DEV_OVERRIDE := $(wildcard docker-compose.override.yml)
 
 help:
-	@echo "Open-Swarm Makefile"
+	@echo "Operating Swarm Makefile"
 	@echo ""
 	@echo "Common targets:"
 	@echo "  make dev                                # Containerized API with live code-reload (host :8002)"
 	@echo "  make test                               # Run the full test suite"
+	@echo "  make ci-gates                           # Local CI sequence (Postgres, other Python, other arch, vitest, build)"
+	@echo "  make ci-gates-quick                     # Same sequence without the full pytest run"
+	@echo "  make ci-gates-no-frontend               # Same sequence with NO vitest/build (no node on this box)"
 	@echo "  make frontend                           # Build ADR-001 SPA (webui/frontend/dist)"
 	@echo "  make demo-build                         # Static SPA with VITE_DEMO_MODE mocked inference"
 	@echo "  make demo-serve                         # Serve that SPA on :8765 (no Django, no LLM)"
@@ -50,6 +53,31 @@ dev:
 
 test:
 	$(PY) python scripts/run_tests.py -q
+
+# Reproduce the CI gate sequence locally (#1346). Actions still cannot start
+# until the spending limit is restored. This runs the local stand-in: lock,
+# the swarm migration leaf, sanitization, pytest, the other 3.12/3.13 matrix
+# leg, no-extras and
+# .[deploy] imports, the other image arch under qemu, and an ephemeral
+# Postgres 16 migrate. Frontend: `python scripts/ci_gates.py --with-frontend`.
+# Not $(PY): that default is `uv run`, which rewrites uv.lock before the
+# script's `uv lock --check`. `--frozen` leaves a drifted lock for the gate.
+#
+# #1730 claim C: `--with-frontend` was documented in the comment above and in
+# `make help`, but neither target passed it, so the one thing `ci_gates.py`
+# drops by default -- vitest and the production build -- was dropped every
+# time. A target advertised as "Local CI sequence" that silently runs a
+# SUBSET of CI is worse than no target: it reads as a green local gate.
+# `ci-gates-no-frontend` is the explicit opt-out, so a machine with no node can
+# still run the python half without pretending that was the whole thing.
+ci-gates:
+	uv run --frozen python scripts/ci_gates.py --with-frontend
+
+ci-gates-quick:
+	uv run --frozen python scripts/ci_gates.py --with-frontend --quick
+
+ci-gates-no-frontend:
+	uv run --frozen python scripts/ci_gates.py
 
 # Gitignored SPA assets for local `/` + `/chat` (Docker bakes these in-image).
 frontend:

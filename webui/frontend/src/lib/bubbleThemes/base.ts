@@ -1,5 +1,6 @@
 import { parseCreatedAtMs } from '../chatTime'
 import { statusLineLabel } from '../statusLineText'
+import { reactionEmojisForTheme } from './reactions'
 
 export type BubbleTheme = 'speech' | 'simple' | 'irc'
 export type MessageLayout = 'bubble' | 'line'
@@ -46,6 +47,11 @@ export abstract class BubbleThemeBase {
   readonly actionRowPlacement: ActionRowPlacement = 'below'
   /** #520: `simple` drops the beside-bubble avatar; every other theme keeps it. */
   readonly showAvatar: boolean = true
+
+  /** #1411: emoji set this theme exposes for reactions and the agent tool. */
+  reactionEmojis(): readonly string[] {
+    return reactionEmojisForTheme(this.id)
+  }
 
   formatTimestamp(ts: string | undefined): string {
     return formatBubbleTime(ts)

@@ -81,6 +81,7 @@ def test_chat_thread_passes_through_stored_ts(client, user):
 
 @pytest.mark.django_db
 def test_chat_thread_backfills_from_django_db(client, user):
+    """Django-only threads hydrate over HTTP. Load must not write JSON (#1440)."""
     cid = chat_store.conversation_id_for(user, "hybrid_team")
     chat = ChatConversation.objects.create(conversation_id=cid, student=user)
     ChatMessage.objects.create(conversation=chat, sender="user", content="from-db")
@@ -88,8 +89,7 @@ def test_chat_thread_backfills_from_django_db(client, user):
     assert resp.status_code == 200
     assert resp.json()["messages"][0]["content"] == "from-db"
     loaded = chat_store.load(chat_store.user_key_for(user), "hybrid_team")
-    assert loaded is not None
-    assert loaded["messages"][0]["content"] == "from-db"
+    assert loaded is None
 
 
 @pytest.mark.django_db
@@ -270,12 +270,29 @@ def test_archive_one_and_restore(client, user):
     assert resp.status_code == 200
     assert resp.json()["success"] is True
     assert chat_store.load(chat_store.user_key_for(user), "jeeves") is None
+    hidden = client.get("/chat/thread/?agent=jeeves")
+    assert hidden.status_code == 200
+    assert hidden.json()["messages"] == []
+    assert hidden.json()["has_more"] is False
+
+    chat = ChatConversation.objects.get(
+        conversation_id=chat_store.conversation_id_for(user, "jeeves")
+    )
+    assert chat.trashed_at is not None
+    hidden = client.get("/chat/thread/?agent=jeeves")
+    assert hidden.status_code == 200
+    assert hidden.json()["messages"] == []
 
     resp = client.post("/settings/chats/action/", {"action": "restore", "agent_id": "jeeves"})
     assert resp.status_code == 200
     loaded = chat_store.load(chat_store.user_key_for(user), "jeeves")
     assert loaded is not None
     assert loaded["messages"][0]["content"] == "hello"
+    chat.refresh_from_db()
+    assert chat.trashed_at is None
+    restored = client.get("/chat/thread/?agent=jeeves")
+    assert restored.status_code == 200
+    assert restored.json()["messages"][0]["content"] == "hello"
 
 
 @pytest.mark.django_db
@@ -293,6 +310,34 @@ def test_archive_all_and_empty_trash(client, user):
     assert resp.status_code == 200
     assert resp.json()["removed"] == 2
     assert chat_store.stats(chat_store.user_key_for(user))["trash_count"] == 0
+    # #1721: the row is retired, not dropped, so the assertion is about the
+    # CONTENT being gone rather than about a row being absent. An absent row
+    # is what made this bug possible — the one-way JSON import reads "no row"
+    # as "thread never existed" and re-created it from the orphan cache file.
+    # This used to assert ``not filter(trashed_at__isnull=False)``; the row it
+    # was checking for is now the tombstone that stops the resurrection, so
+    # the check is stated in terms of what the user can still reach.
+    for chat in ChatConversation.objects.filter(student=user):
+        assert chat.purged_at is not None, f"{chat.conversation_id} was not purged"
+        assert chat.trashed_at is not None
+        assert not chat.chat_messages.exists(), f"{chat.conversation_id} kept rows"
+        assert not ChatMessage.objects.filter(conversation=chat).exists()
+        assert chat.title == ""
+        assert chat.snippet == ""
+        assert chat.ui_events == []
+    assert (
+        ChatMessage.objects.filter(conversation__student=user).count() == 0
+    ), "permanently deleted content still has ChatMessage rows"
+    # …and a reload of either thread is empty, twice, with no cache file left
+    # to seed a re-import.
+    for agent in ("a", "b"):
+        cid = chat_store.conversation_id_for(user, agent)
+        first = client.get(f"/chat/thread/?agent={agent}&conversation_id={cid}")
+        assert first.status_code == 200
+        assert first.json()["messages"] == []
+        second = client.get(f"/chat/thread/?agent={agent}&conversation_id={cid}")
+        assert second.json()["messages"] == [], f"{agent} resurrected on reload"
+        assert not ChatMessage.objects.filter(conversation__conversation_id=cid).exists()
 
 
 @pytest.mark.django_db
@@ -411,3 +456,60 @@ def test_chat_thread_clear_wipes_poisoned_history(client, user):
     assert loaded["messages"] == []
     assert loaded.get("ui_events") == []
 
+
+
+@pytest.mark.django_db
+def test_send_creates_exactly_one_canonical_record(client, user):
+    """POST one user message inserts exactly one ChatMessage (#1440)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    resp = client.post(
+        "/chat/thread/?agent=jeeves",
+        data=json.dumps({"message": {"role": "user", "content": "one canonical send"}}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    cid = chat_store.conversation_id_for(user, "jeeves")
+    assert ChatMessage.objects.filter(conversation_id=cid).count() == 1
+    assert ChatMessage.objects.get(conversation_id=cid).content == "one canonical send"
+
+    with CaptureQueriesContext(connection) as ctx:
+        again = client.post(
+            "/chat/thread/?agent=jeeves",
+            data=json.dumps({"message": {"role": "user", "content": "second send"}}),
+            content_type="application/json",
+        )
+    assert again.status_code == 200
+    inserts = [
+        query
+        for query in ctx.captured_queries
+        if "insert" in query["sql"].lower() and "chatmessage" in query["sql"].lower()
+    ]
+    assert len(inserts) == 1
+    assert ChatMessage.objects.filter(conversation_id=cid).count() == 2
+    assert ChatMessage.objects.filter(conversation_id=cid, content="second send").count() == 1
+
+    reloaded = client.get("/chat/thread/?agent=jeeves")
+    assert reloaded.status_code == 200
+    contents = [row["content"] for row in reloaded.json()["messages"]]
+    assert contents == ["one canonical send", "second send"]
+    cached = chat_store.load(chat_store.user_key_for(user), "jeeves")
+    assert cached is not None
+    assert [row["content"] for row in cached["messages"]] == contents
+
+
+@pytest.mark.django_db
+def test_post_to_trashed_thread_does_not_insert(client, user):
+    _seed_thread(user, "jeeves", "hello")
+    archived = client.post("/settings/chats/action/", {"action": "archive", "agent_id": "jeeves"})
+    assert archived.status_code == 200
+    before = ChatMessage.objects.count()
+    resp = client.post(
+        "/chat/thread/?agent=jeeves",
+        data=json.dumps({"message": {"role": "user", "content": "ghost"}}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 409
+    assert ChatMessage.objects.filter(content="ghost").count() == 0
+    assert ChatMessage.objects.count() == before

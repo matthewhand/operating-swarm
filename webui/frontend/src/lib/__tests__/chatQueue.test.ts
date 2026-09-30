@@ -34,19 +34,19 @@ describe('#885 remote seat queue keying — base↔session transitions never orp
   })
 
   it('reads rows enqueued under the bare remote key after the session id arrives', () => {
-    saveQueuedSends('remote-letta', [makeRow('r1')])
-    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', ''))).toHaveLength(1)
-    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', 'agent-xyz'))).toHaveLength(1)
+    saveQueuedSends('remote-openwebui', [makeRow('r1')])
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-openwebui', ''))).toHaveLength(1)
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-openwebui', 'agent-xyz'))).toHaveLength(1)
   })
 
   it('reads rows enqueued under the session key after a switch to the bare id', () => {
-    saveQueuedSends('remote-letta-agent-xyz', [makeRow('r2')])
-    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', ''))).toHaveLength(1)
-    expect(loadQueuedSends(resolveRemoteQueueId('remote-letta', 'agent-xyz'))).toHaveLength(1)
+    saveQueuedSends('remote-openwebui-agent-xyz', [makeRow('r2')])
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-openwebui', ''))).toHaveLength(1)
+    expect(loadQueuedSends(resolveRemoteQueueId('remote-openwebui', 'agent-xyz'))).toHaveLength(1)
   })
 
   it('keeps distinct remotes isolated', () => {
-    saveQueuedSends('remote-letta', [makeRow('r3')])
+    saveQueuedSends('remote-openwebui', [makeRow('r3')])
     expect(loadQueuedSends(resolveRemoteQueueId('remote-herdr', ''))).toHaveLength(0)
   })
 })

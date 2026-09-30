@@ -5,7 +5,7 @@ import { settingsTargetForProvider } from '../../lib/providerRateLimits'
 
 const openSettingsSheet = vi.fn()
 
-vi.mock('../SettingsSheet', () => ({
+vi.mock('../settings/kernel', () => ({
   openSettingsSheet: (...args: unknown[]) => openSettingsSheet(...args),
 }))
 

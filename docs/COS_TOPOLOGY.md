@@ -5,7 +5,7 @@ Pairs with Support/CoS lifecycle [REQ-154](./AGENT_LIFECYCLE.md) and mailbox ACL
 [REQ-162](./PEER_MAILBOX.md).
 
 TrueForge treats agents as second-class: its `create_subagent` tool only makes
-**temporary** agents that die with the session. In Open Swarm a
+**temporary** agents that die with the session. In Operating Swarm a
 `chief_of_staff` seat is a first-class operator:
 
 * **Create real agents** — REQ-154 already ships `create_agent` /

@@ -64,7 +64,7 @@
             </span>
           {% endif %}
         </div>
-        {% if s.output_preview %}<div class="se-preview">{{ s.output_preview }}</div>{% endif %}
+        {% if s.output_preview %}<div class="se-preview" data-preview="{{ s.preview_class|default:'reply' }}">{{ s.output_preview }}</div>{% endif %}
       </div>
     {% empty %}
       <div class="se-empty os-empty" role="status">

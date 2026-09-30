@@ -7,6 +7,7 @@ import SettingsSheet, { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../
 import { ToastProvider } from '../DaisyUI'
 import { AGENT_EDITS_KEY, assignedBlueprintId, loadAgentEdit } from '../../lib/agentEdits'
 import { AGENT_REMOTE_BINDINGS_KEY } from '../../lib/agentRemote'
+import { resetAgentProfileCache } from '../../lib/agentProfile'
 
 /** #1127: the editor is a vertical-tab surface — tests navigate like users. */
 function openEditorTab(name: string | RegExp) {
@@ -65,8 +66,36 @@ const catalog = [
 function stubCatalog() {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+    vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      const method = String(init?.method || 'GET').toUpperCase()
+      if (url.includes('/v1/agents/') && url.includes('/skills')) {
+        if (method === 'POST') {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              object: 'agent_skill',
+              agent_id: 'codey',
+              name: 'conventional-commit',
+              description: 'Write a conventional commit.',
+              instructions: 'Write a conventional commit message.',
+              source: 'library',
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            object: 'agent_skill_list',
+            agent_id: 'codey',
+            skills: [],
+            gettingStarted: null,
+            first_run_pending: false,
+          }),
+        } as Response
+      }
       if (url.includes('/v1/skills')) {
         return {
           ok: true,
@@ -163,6 +192,7 @@ describe('AgentEditor (REQ-58)', () => {
   afterEach(() => {
     localStorage.removeItem(AGENT_EDITS_KEY)
     localStorage.removeItem(AGENT_REMOTE_BINDINGS_KEY)
+    resetAgentProfileCache()
     vi.unstubAllGlobals()
   })
 
@@ -171,7 +201,70 @@ describe('AgentEditor (REQ-58)', () => {
     renderEditor({ agentId: 'codey' })
     const checkbox = await screen.findByTestId('agent-skill-conventional-commit')
     fireEvent.click(checkbox)
-    expect(loadAgentEdit('codey').skills).toEqual(['conventional-commit'])
+    await waitFor(() => {
+      expect(loadAgentEdit('codey').skills).toEqual(['conventional-commit'])
+    })
+    expect(vi.mocked(fetch).mock.calls.some(([input, init]) => {
+      const url = String(input)
+      return url.includes('/v1/agents/codey/skills') && String(init?.method || '').toUpperCase() === 'POST'
+    })).toBe(true)
+  })
+
+  // D6: the seat id is the fallback recipe id. The generic API gateway has no
+  // blueprint source, so fetching its personas 404s on every editor open.
+  // The editor must not issue that request for `api_agent`.
+  it('D6: does not fetch personas for the generic api_agent gateway', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('/v1/skills')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [] }) } as Response
+        }
+        if (url.includes('/v1/models')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [] }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ object: 'list', data: catalog }) } as Response
+      }),
+    )
+    renderEditor({ agentId: 'api_agent' })
+    await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+    await waitFor(() => {
+      expect(urls.some((u) => u.includes('/v1/blueprints'))).toBe(true)
+    })
+    expect(urls.some((u) => u.includes('/v1/blueprints/api_agent/personas'))).toBe(false)
+  })
+
+  it('D6: still fetches personas for a real blueprint seat', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('/v1/skills')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [] }) } as Response
+        }
+        if (url.includes('/v1/models')) {
+          return { ok: true, status: 200, json: async () => ({ object: 'list', data: [] }) } as Response
+        }
+        if (url.includes('/personas')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'blueprint.personas', id: 'codey', count: 2, personas: [{ name: 'A' }, { name: 'B' }] }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ object: 'list', data: catalog }) } as Response
+      }),
+    )
+    renderEditor({ agentId: 'codey' })
+    await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+    await waitFor(() => {
+      expect(urls.some((u) => u.includes('/v1/blueprints/codey/personas'))).toBe(true)
+    })
   })
 
   it('is agent-scoped: name, role, blueprint picker — no Remotes or System nav', async () => {
@@ -180,7 +273,10 @@ describe('AgentEditor (REQ-58)', () => {
 
     const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
     expect(dialog).toHaveClass('modal')
-    expect(within(dialog).getByLabelText('Name')).toBeInTheDocument()
+    // #1677: Name is click-to-edit, so the control present at rest is its
+    // labelled trigger. The claim here is "the editor is agent-scoped and owns
+    // a Name control", which is unchanged.
+    expect(within(dialog).getByTestId('agent-field-name-trigger')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('Role')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('Blueprint')).toBeInTheDocument()
     expect(within(dialog).queryByRole('button', { name: 'Remotes' })).not.toBeInTheDocument()
@@ -190,6 +286,7 @@ describe('AgentEditor (REQ-58)', () => {
     expect(within(dialog).queryByText('Hermes')).not.toBeInTheDocument()
     openEditorTab(/Model & inference/i)
     expect(await within(dialog).findByRole('button', { name: /Edit blueprint/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /Templates/i })).toBeInTheDocument()
   })
 
   it('REQ-170: when name equals the recipe, Blueprint is secondary Recipe meta', async () => {
@@ -197,6 +294,10 @@ describe('AgentEditor (REQ-58)', () => {
     renderEditor({ agentId: 'codey' })
 
     const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+    // #1677: Name is click-to-edit. Open it, confirm it is seeded with the
+    // recipe name, then commit a new one and watch the Blueprint picker flip
+    // from "Recipe meta" to a real selection — the behaviour under test.
+    fireEvent.click(within(dialog).getByTestId('agent-field-name-trigger'))
     await waitFor(() => {
       expect(within(dialog).getByLabelText('Name')).toHaveValue('Codey')
     })
@@ -204,7 +305,12 @@ describe('AgentEditor (REQ-58)', () => {
     expect(within(dialog).queryByText('Blueprint', { selector: 'label' })).not.toBeInTheDocument()
     expect(within(dialog).getByLabelText('Blueprint')).toHaveValue('codey')
 
-    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Desk' } })
+    const nameEditor = within(dialog).getByLabelText('Name')
+    fireEvent.change(nameEditor, { target: { value: 'Desk' } })
+    fireEvent.keyDown(nameEditor, { key: 'Enter' })
+    await waitFor(() => {
+      expect(within(dialog).getByTestId('agent-field-name-trigger')).toHaveTextContent('Desk')
+    })
     expect(within(dialog).queryByTestId('blueprint-recipe-meta')).not.toBeInTheDocument()
     expect(within(dialog).getByLabelText('Blueprint')).toBeInTheDocument()
   })
@@ -447,6 +553,67 @@ describe('AgentEditor (REQ-58)', () => {
       expect(stored.githubRepo).toBe('acme/app')
     })
 
+    it('CLI agent: model options come only from the CLI probe, never LLM profiles', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+          const url = String(input)
+          if (url.includes('/v1/cli-agents/copilot/models/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ cli: 'copilot', models: ['gpt-4o', 'o1-mini'] }),
+            } as Response
+          }
+          if (url.includes('/v1/cli-agents/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                clis: ['copilot'],
+                native_consensus: {},
+                catalog: {},
+              }),
+            } as Response
+          }
+          if (url.includes('/v1/llm-profiles/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                object: 'llm_profiles',
+                profiles: [
+                  { id: 'orchestration', name: 'User chat', model: 'litellm/orchestration' },
+                ],
+                default_llm_profile: 'orchestration',
+                task_llm_profiles: {},
+              }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: catalog }),
+          } as Response
+        }),
+      )
+
+      renderEditor({ agentId: 'cli_agent' })
+      const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
+
+      const modelSelect = await within(dialog).findByRole('combobox', { name: 'Model override' })
+      await waitFor(() => {
+        expect(within(modelSelect).getByRole('option', { name: 'gpt-4o' })).toBeInTheDocument()
+      })
+      // API / LLM-profile ids are a different namespace and must never leak
+      // into the CLI model dropdown (#612).
+      expect(
+        within(modelSelect).queryByRole('option', { name: 'litellm/orchestration' }),
+      ).not.toBeInTheDocument()
+      expect(within(modelSelect).queryByRole('option', { name: 'orchestration' })).not.toBeInTheDocument()
+    })
+
     it('API agent: renders profiles and models, not agents from catalog', async () => {
       vi.stubGlobal(
         'fetch',
@@ -508,6 +675,70 @@ describe('AgentEditor (REQ-58)', () => {
       const cleared = JSON.parse(localStorage.getItem(AGENT_EDITS_KEY) || '{}')['codey']
       expect(cleared?.profileOverride).toBeUndefined()
       expect(cleared?.llmOverride).toBeUndefined()
+    })
+
+    it('API agent: CLI/remote profile rows never reach the API controls', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+          const url = String(input)
+          if (url.includes('/v1/llm-profiles/')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                object: 'llm_profiles',
+                profiles: [
+                  {
+                    id: 'custom-profile',
+                    name: 'Custom Profile',
+                    model: 'gpt-4o',
+                    source: 'config',
+                    namespace: 'api',
+                  },
+                  { id: 'agy', name: 'agy-cli', source: 'cli', namespace: 'cli' },
+                  {
+                    id: 'opencode-go/x',
+                    model: 'opencode-go/x',
+                    source: 'list_models',
+                    namespace: 'cli',
+                  },
+                  { id: 'hermes', name: 'hermes-remote', source: 'remote', namespace: 'remote' },
+                ],
+                default_llm_profile: 'orchestration',
+                task_llm_profiles: {},
+              }),
+            } as Response
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ object: 'list', data: catalog }),
+          } as Response
+        }),
+      )
+
+      renderEditor({ agentId: 'codey' })
+      const dialog = await screen.findByRole('dialog', { name: /Edit /i, hidden: true })
+      openEditorTab(/Advanced/i)
+
+      const profileSelect = await within(dialog).findByRole('combobox', {
+        name: 'API profile override',
+      })
+      const modelSelect = await within(dialog).findByRole('combobox', { name: 'Model override' })
+      await waitFor(() => {
+        expect(
+          within(profileSelect).getByRole('option', { name: 'Custom Profile' }),
+        ).toBeInTheDocument()
+      })
+      expect(within(profileSelect).queryByRole('option', { name: 'agy-cli' })).not.toBeInTheDocument()
+      expect(
+        within(profileSelect).queryByRole('option', { name: 'hermes-remote' }),
+      ).not.toBeInTheDocument()
+      expect(
+        within(modelSelect).queryByRole('option', { name: 'opencode-go/x' }),
+      ).not.toBeInTheDocument()
+      expect(within(modelSelect).getByRole('option', { name: 'gpt-4o' })).toBeInTheDocument()
     })
   })
 })

@@ -1,6 +1,7 @@
 import { useState, useId } from 'react'
 import { DisclosureChevron } from './DisclosureChevron'
 import { renderSafeMarkdown } from '../lib/markdown'
+import { handleSettingsLinkClick } from '../lib/settingsLinks'
 import { messageFromLabel } from '../lib/compactedCardMenu'
 import { useCompactedCardMenu } from './CompactedCardContextMenu'
 
@@ -81,6 +82,9 @@ export function SystemPreloadPill({
           <div
             className="os-system-preload-md chat-md break-words [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_strong]:font-semibold"
             dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(text) }}
+            onClick={(event) => {
+              handleSettingsLinkClick(event.nativeEvent)
+            }}
           />
         </div>
       )}

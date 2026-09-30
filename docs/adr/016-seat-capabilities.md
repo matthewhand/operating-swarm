@@ -19,6 +19,7 @@ no frontend change and no new conditional anywhere.
 | `compact` | may the thread be summarised? | ✅ | ❌ *needs a default API profile or a provider `cli_compact` hook* | ❌ *the transcript belongs to the remote provider* |
 | `plugins` | may the agent use plugin tools? | ✅ | ❌ *available on API and blueprint seats* | ❌ *available on API and blueprint seats* |
 | `routines` | may the agent be scheduled? | ✅ | ❌ *routines drive swarm-side scheduling* | ❌ *routines drive swarm-side scheduling* |
+| `parallel_fan_out` | may one turn launch concurrent legs (team roster fan-out), with Running cards? | ✅ | ❌ *a CLI host is process-at-a-time* | ❌ *the turn belongs to the remote provider* |
 
 A capability outside this vocabulary resolves to **not offered** (rule 4) —
 a surface probing an unknown name can never receive "on".

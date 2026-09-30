@@ -34,13 +34,16 @@ describe('#1147 — divider hit-zone width + right-dock mirror', () => {
     expect(block).toContain('right: -8px')
   })
 
-  it('right-docked rail mirrors the hit-zone and the pill to the chat side', () => {
+  it('right-docked rail mirrors the hit-zone and the collapsed expand control', () => {
     const hit = css.match(/\.os-rail-resizer--right \{[^}]*\}/)?.[0] ?? ''
     expect(hit).toContain('left: -8px')
-    const pill = css.match(
-      /\.os-rail-resizer--right \.os-rail-divider-pill \{[^}]*\}/,
+    // #1246: the pill is retired; the collapsed-pane expand control mirrors to
+    // the content (left) side on a right-docked rail.
+    expect(css).not.toMatch(/\.os-rail-divider-pill/)
+    const expand = css.match(
+      /\.os-agent-sidebar--right \.os-rail-collapsed-expand \{[^}]*\}/,
     )?.[0] ?? ''
-    expect(pill).toContain('right: 100%')
+    expect(expand).toContain('right: 100%')
   })
 })
 

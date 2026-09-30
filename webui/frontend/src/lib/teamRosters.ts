@@ -45,6 +45,12 @@ export function applyTeamMemberSessionParam(
 ): URLSearchParams {
   const next = new URLSearchParams(params)
   if (teamId) next.set('team', teamId)
+  // #1445: a leftover AnythingLLM `?remote=` must not keep the header on the
+  // previous remote seat while `?team=` is written.
+  next.delete('remote')
+  next.delete('blueprint')
+  next.delete('cli')
+  next.delete('model')
   if (!memberId || memberId === ALL_MEMBERS_TARGET) {
     next.delete('session')
     next.set(ALL_MEMBERS_PARAM, ALL_MEMBERS_TARGET)
@@ -88,12 +94,14 @@ export interface TeamRoster {
   lastMessageAt?: number
   /** #844: server-derived recent-activity snippet, absent when unknown. */
   lastMessage?: string
+  /** #1441: ``error`` when lastMessage is a failure preview. */
+  lastMessageClass?: 'error'
 }
 
 /** One-team fixture so the sidepane stays visible without a live roster file. */
 export const DEMO_TEAM_ROSTER: TeamRoster = {
   id: 'demo-team',
-  name: 'Demo Team',
+  name: 'Demo Rig',
   description: 'Example multi-agent roster',
   members: [
     { id: 'codey', name: 'Codey', kind: 'agent', role: 'coder' },
@@ -203,7 +211,16 @@ function parseRoster(raw: unknown): TeamRoster | null {
     ...(personas ? { personas } : {}),
     ...parseRosterLastMessageAt(rec),
     ...parseRosterLastMessageText(rec),
+    ...parseRosterLastMessageClass(rec),
   }
+}
+
+function parseRosterLastMessageClass(
+  rec: Record<string, unknown>,
+): { lastMessageClass: 'error' } | Record<string, never> {
+  const raw = rec.last_message_class ?? rec.lastMessageClass ?? rec.preview_class
+  if (raw === 'error') return { lastMessageClass: 'error' }
+  return {}
 }
 
 /** #844: pass the server snippet through (validated string). */

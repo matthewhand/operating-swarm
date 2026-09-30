@@ -56,6 +56,22 @@ def test_herdr_and_remote_impls_classify_as_remote():
     assert classify_agent_kind("swarm") == "api"
 
 
+def test_remote_ids_are_not_resolved_as_blueprints_issue_1436():
+    """#1436 / #1439: a blueprint persistence tag must not hide a remote seat."""
+    assert classify_agent_kind("blueprint:omb") == "remote"
+    assert classify_agent_kind("blueprint:remote:herdr") == "remote"
+    assert classify_agent_kind("blueprint:remote_harness") == "remote"
+    assert classify_agent_kind("omb", explicit="blueprint") == "remote"
+    assert can_edit_agent_messages("blueprint:omb") is False
+    # Real blueprint seats stay blueprint.
+    assert classify_agent_kind("blueprint:planner") == "blueprint"
+    assert classify_agent_kind("jeeves", explicit="blueprint") == "blueprint"
+    # A cli: id under the same persistence tag stays a CLI seat.
+    assert classify_agent_kind("blueprint:cli:grok") == "cli"
+    assert classify_agent_kind("cli:grok", explicit="blueprint") == "cli"
+    assert classify_agent_kind("blueprint:cli:grok", explicit="api") == "api"
+
+
 def test_blueprint_is_a_first_class_editable_kind():
     assert classify_agent_kind("jeeves", explicit="blueprint") == "blueprint"
     assert classify_agent_kind("blueprint:planner") == "blueprint"
@@ -79,3 +95,42 @@ def test_api_agent_rail_id_resolves_to_chatbot_recipe():
     assert resolve_chat_blueprint_id("support") == "support"
     assert resolve_chat_blueprint_id("software_dev") == "software_dev"
     assert resolve_chat_blueprint_id(None) == ""
+
+
+def test_designed_cli_seats_classify_as_cli_issue_1283(monkeypatch):
+    """#1283: designer-created CLI seats (id != cli_agent, no ``cli:`` prefix)
+    must classify as ``cli`` so the REQ-87 auto-compress gate stays off and the
+    'Auto-compress skipped — model context length unknown.' notice never fires
+    on a CLI seat."""
+    import swarm.core.router_designs as rd
+
+    kinds = {
+        "hass-eng": "cli",
+        "openswarm-agy-mirror": "cli",
+        "api-demo-litellm": "personality",
+        "demo-remote": "remote",
+        "demo-bp": "blueprint",
+    }
+    monkeypatch.setattr(rd, "designed_agent_kind", lambda aid: kinds.get(aid))
+
+    assert classify_agent_kind("hass-eng") == "cli"
+    assert classify_agent_kind("openswarm-agy-mirror") == "cli"
+    assert classify_agent_kind("demo-remote") == "remote"
+    assert classify_agent_kind("demo-bp") == "blueprint"
+    # A personality design has no dedicated user-facing kind → api (unchanged).
+    assert classify_agent_kind("api-demo-litellm") == "api"
+    # Non-designs keep the legacy fallback.
+    assert classify_agent_kind("jeeves") == "api"
+    # CLI edit rights follow the classification (restart the provider session).
+    assert can_edit_agent_messages("hass-eng") is True
+
+
+def test_designed_kind_lookup_failure_falls_back(monkeypatch):
+    """A designs-registry error must not break classification."""
+    import swarm.core.router_designs as rd
+
+    def _boom(_aid):
+        raise RuntimeError("designs unavailable")
+
+    monkeypatch.setattr(rd, "designed_agent_kind", _boom)
+    assert classify_agent_kind("hass-eng") == "api"

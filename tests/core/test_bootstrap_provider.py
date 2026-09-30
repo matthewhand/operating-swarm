@@ -89,8 +89,8 @@ class TestBootstrapReply:
         assert "upgrade" in r["text"].lower() or "Upgrading" in r["text"]
 
     def test_what_is_swarm_intent(self):
-        r = self._reply("What is Open Swarm?")
-        assert "Open Swarm" in r["text"] or "open-source" in r["text"].lower()
+        r = self._reply("What is Operating Swarm?")
+        assert "Operating Swarm" in r["text"] or "open-source" in r["text"].lower()
 
     def test_blueprint_intent(self):
         r = self._reply("I want to create a blueprint")

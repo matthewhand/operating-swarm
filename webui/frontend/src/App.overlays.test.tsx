@@ -29,14 +29,18 @@ class MockWebSocket {
   }
 }
 
-function renderAppAt(path: string) {
+async function renderAppAt(path: string) {
   window.history.pushState({}, '', path)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: the chat surface is a lazy chunk now; wait for the first painted
+  // frame instead of racing the dynamic import.
+  await screen.findByRole('textbox', { name: 'Chat message' })
+  return view
 }
 
 describe('REQ-48 chat stays mounted under overlays', () => {
@@ -89,7 +93,7 @@ describe('REQ-48 chat stays mounted under overlays', () => {
   })
 
   async function mountChatWithFixture() {
-    renderAppAt('/chat')
+    await renderAppAt('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -115,7 +119,7 @@ describe('REQ-48 chat stays mounted under overlays', () => {
 
     fireEvent.click(within(settings).getByRole('button', { name: /^Close$/ }))
     await waitFor(() => {
-      expect(settings).not.toHaveClass('modal-open')
+      expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeInTheDocument()
     })
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
     expect(composer).toBeInTheDocument()
@@ -127,14 +131,14 @@ describe('REQ-48 chat stays mounted under overlays', () => {
   it('keeps the fixture message in the DOM while Teams is open, then restores the composer', async () => {
     const composer = await mountChatWithFixture()
 
-    // #182: the Teams affordance lives in the rail footer, not the navbar.
-    fireEvent.click(screen.getByRole('button', { name: 'Teams' }))
+    // #182: the Group-chat affordance lives in the rail footer, not the navbar.
+    fireEvent.click(screen.getByRole('button', { name: 'Group chats' }))
 
-    // The #892 redesign retitled the composer dialog 'Manage Teams'.
-    const teams = await screen.findByRole('dialog', { name: 'Manage Teams', hidden: true })
+    // #1362: the composer dialog is the group-chat manager.
+    const teams = await screen.findByRole('dialog', { name: 'Group chats', hidden: true })
     expect(teams).toHaveClass('modal-open')
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
-    expect(screen.getByText(/Compose a roster/i)).toBeInTheDocument()
+    expect(screen.getByText(/Build a group chat/i)).toBeInTheDocument()
     expect(composer).toBeInTheDocument()
     await waitFor(() => {
       expect(composer).not.toBeDisabled()
@@ -145,8 +149,8 @@ describe('REQ-48 chat stays mounted under overlays', () => {
     await mountChatWithFixture()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Blueprints' }))
     const settings = await screen.findByRole('dialog', { name: 'Settings', hidden: true })
+    fireEvent.click(within(settings).getByRole('button', { name: 'Blueprints' }))
     expect(settings).toHaveClass('modal-open')
     expect(within(settings).getByRole('heading', { name: 'Blueprints' })).toBeInTheDocument()
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
@@ -158,6 +162,14 @@ describe('REQ-48 chat stays mounted under overlays', () => {
     const hidden = await screen.findByRole('dialog', { name: 'Search' })
     expect(hidden).toBeInTheDocument()
     expect(await screen.findByTestId('hidden-filter-indicator')).toHaveTextContent('Hidden only')
+    expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await act(async () => {
+      openChromeOverlay('templates')
+    })
+    const templates = await screen.findByRole('dialog', { name: 'Templates' })
+    expect(templates).toBeInTheDocument()
     expect(screen.getByText(FIXTURE_MESSAGE)).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
 

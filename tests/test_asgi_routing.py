@@ -672,7 +672,7 @@ class TestWebsocketRemoteKind:
             # 1. First turn
             await _drain_turn(
                 communicator,
-                {"message": "turn 1", "params": {"remote": "letta", "target": "c1:t1"}},
+                {"message": "turn 1", "params": {"remote": "openwebui", "target": "c1:t1"}},
             )
             assert len(captured_messages) == 1
             assert captured_messages[-1] == [{"role": "user", "content": "turn 1"}]
@@ -680,7 +680,7 @@ class TestWebsocketRemoteKind:
             # 2. Second turn: should receive ONLY turn 2, omitting prior history
             await _drain_turn(
                 communicator,
-                {"message": "turn 2", "params": {"remote": "letta", "target": "c1:t1"}},
+                {"message": "turn 2", "params": {"remote": "openwebui", "target": "c1:t1"}},
             )
             assert len(captured_messages) == 2
             assert len(captured_messages[-1]) == 1

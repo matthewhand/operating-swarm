@@ -1,19 +1,30 @@
 import {
+  lazy,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import {
+  chatHeaderSuppressed,
+  setChatHeaderSuppressed,
+  shouldShowChatHeader,
+  subscribeChatHeaderSurface,
+  useChatHeaderSuppressed,
+} from '../lib/chatHeaderSurface'
 import { ChatBottomDock } from '../features/chat/ChatBottomDock'
+import { usePerAgentDraft } from '../features/chat/usePerAgentDraft'
 import { ChatOverlays } from '../features/chat/ChatOverlays'
 import { ChatTranscriptShell } from '../features/chat/ChatTranscriptShell'
 import { renderRoutingPickerImpl } from '../features/chat/renderRoutingPicker'
 import { ChatHeader } from '../features/chat/ChatHeader'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Copy, FoldVertical, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Sparkles, Square } from 'lucide-react'
+import { ArrowUp, Copy, FoldVertical, Folder, Layers, Mic, PanelLeft, Paperclip, Pencil, Plug, Plus, Reply, Settings, Sparkles, Square } from 'lucide-react'
 import AgentAvatar from '../components/AgentAvatar'
+import GroupAvatar from '../components/GroupAvatar'
 import ChatMessageInput from '../components/ChatMessageInput'
 import {
   ConfirmModal,
@@ -24,8 +35,14 @@ import {
   OPEN_SETTINGS_EVENT,
   openSettingsSheet,
   settingsDetailFromQuery,
-} from '../components/SettingsSheet'
+} from '../components/settings/kernel'
 import RateLimitStatusLine from '../components/RateLimitStatusLine'
+import {
+  REMOTE_HEALTH_CHANGED_EVENT,
+  isRemoteOffline,
+  startRemoteHealthPolling,
+  stopRemoteHealthPolling,
+} from '../lib/remoteHealth' // #1196
 
 
 
@@ -59,9 +76,10 @@ import {
   parseVoiceBind,
   type AgentVoiceBind,
 } from '../lib/agentVoiceBind'
-import { openTeamEditor } from '../components/TeamEditor'
+import { prefetchAgentMcpTools } from '../lib/mcpTurnParams'
+import { openTeamEditor } from '../components/teamEditorKernel'
 import PersonaRoster from '../components/PersonaRoster'
-import { declaredRosterForTeam } from '../lib/declaredRoster'
+import { declaredRosterForTeam, facesFromDeclaredRoster } from '../lib/declaredRoster'
 import {
   fetchUserPrefs,
   persistAgentDropdownChoice,
@@ -79,6 +97,8 @@ import {
   type ContextStrategy,
 } from '../lib/contextCull'
 import { persistableMessages, putAgentChatSession } from '../lib/agentChatSessions'
+import { navbarSeatCapabilities } from '../lib/seatCapabilities'
+import { useNavbarPickerPrefs } from '../features/chat/useNavbarPickerPrefs'
 
 import { useRailChrome } from '../components/RailChrome'
 import { ComputerControlStub } from '../components/ComputerControlStub'
@@ -101,46 +121,52 @@ import {
   IRC_GUTTER_DEFAULT_PX,
 } from '../lib/ircGutter'
 import ReadAloudButton from '../components/ReadAloudButton'
-import { SkillPopup } from '../components/SkillPopup'
 import MessageRowActions from '../components/MessageRowActions'
 
-import SessionPicker from '../components/SessionPicker'
 import CliSessionSwitcher from '../components/CliSessionSwitcher'
 import ApiSessionSwitcher from '../components/ApiSessionSwitcher'
 import RemoteSessionSwitcher from '../components/RemoteSessionSwitcher'
 import {
   fetchRemoteThreadSessions,
+  fetchTrueForgeNavbarCatalog,
+  isTrueForgeKind,
   mostRecentRemoteSession,
   remoteAgentsFromOperate,
   remoteListsSessions,
 } from '../lib/remoteSessions'
 import type { MemberSession } from '../lib/sessionPicker'
+import type { CliRailAgent } from '../lib/api/types'
+import type { RemoteEntry } from '../lib/remotesCatalog'
+import { emptyArray } from '../lib/stableEmpty'
 
 // #856 slice 2: summary card tree moved verbatim to features/chat/SummaryBlock.tsx.
 
 import { ComposerSlashPopup } from '../components/ComposerSlashPopup'
 import ComposerAttachChips from '../components/ComposerAttachChips'
 import {
-  attachmentCaption,
   filesFromList,
   readyAttachmentIds,
 } from '../lib/chatAttachments'
+import { composeOutboundDisplayText } from '../lib/voiceNotes'
 import { composerMenuCapabilities } from '../lib/composerMenu'
 import { applyRemoteRoutingChange } from '../lib/remoteRouting'
 import { ComposerPluginsPanel } from '../components/ComposerPluginsPanel'
 import {
   getRecentSlashIds,
 } from '../lib/slashMenu'
+import { fetchCompanyRoute } from '../lib/companyRoute'
 import {
   EMPTY_SPEECH,
   type SkillRecord,
   fetchBlueprints,
   fetchCliAgents,
   fetchCliModels,
+  fetchDesignedAgents,
   fetchHerdrAgents,
   fetchLlmProfiles,
   fetchRemotes,
   fetchSpeechSettings,
+  fetchSupportContext,
   isThrottleError,
   operateRemote,
 } from '../lib/api'
@@ -168,7 +194,13 @@ import {
   composerInsetCustomProperty,
 } from '../lib/composerInset'
 import {
-  initialComposerShowProvider,
+  currentShowProviderResolved,
+  COMPOSER_SHOW_PROVIDER_TIERS_EVENT,
+  COMPOSER_REWRITE_ENABLED_EVENT,
+  loadRewriteEnabled,
+} from '../lib/composerAffordances'
+import { subscribeViewportTier } from '../lib/responsivePrefs'
+import {
   COMPOSER_SHOW_PROVIDER_SET_EVENT,
   COMPOSER_SHOW_PROVIDER_STORAGE_KEY,
 } from '../lib/composerShowProvider'
@@ -179,9 +211,11 @@ import {
   summariesById,
 } from '../lib/chatCompact'
 import {
+  buildCancelFanOutLegFrame,
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
 } from '../lib/chatWs'
+import type { FanOutLeg } from '../lib/runningCards'
 import { ContextUsageBadge } from '../components/ContextUsageBadge'
 import { AuxActivityIndicator } from '../components/AuxActivityIndicator'
 import {
@@ -195,12 +229,9 @@ import {
   publishContextUsage,
   type ContextUsage,
 } from '../lib/contextUsage'
-import { activeTurnFor, type TurnSnapshot } from '../lib/agentTurns'
+import { activeTurnFor, isAgentTurnActive, type TurnSnapshot } from '../lib/agentTurns'
 
 import type { DecisionQuestion } from '../lib/decisionQuestion'
-
-import GenerationsPanel from '../components/GenerationsPanel'
-
 
 import { SuggestionChips } from '../components/SuggestionChips'
 import ConsumerPills from '../components/ConsumerPills'
@@ -212,8 +243,6 @@ import {
 } from '../lib/prOpened'
 import SubagentFanOutBlock from '../components/SubagentFanOutBlock'
 
-import { TokenDiagnosticsModal } from '../components/TokenDiagnosticsModal'
-import { RawResponseModal } from '../components/RawResponseModal'
 import { isHerdrAgent } from '../lib/railHotkeys'
 import {
   rememberAlwaysAllow,
@@ -240,6 +269,7 @@ import {
 import { defaultSessionForRemote, defaultSessionForTeam } from '../lib/sessionPicker'
 import {
   OMB_NO_AGENTS_WARNING,
+  ombBotsFromOperate,
   ombSendTarget,
 } from '../lib/ombBots'
 import { isOpenMousBotKind } from '../lib/remoteKinds'
@@ -292,6 +322,7 @@ import { useSlashLifecycle } from '../features/chat/useSlashLifecycle'
 import { useChatRouting } from '../features/chat/useChatRouting'
 import { useComposerAttachments } from '../features/chat/useComposerAttachments'
 import { ChatMessageList } from '../features/chat/ChatMessageList'
+import { remoteThreadId } from '../features/chat/threadLoadState'
 import { ChatMessageActions } from '../experimental/ChatMessageActions'
 import { ChatMessageBubble } from '../components/ChatMessageBubble'
 import { ChatNewRule } from '../components/ChatLogMarkers'
@@ -301,6 +332,9 @@ import { IrcNoticeLine } from '../components/IrcNoticeLine'
 import { PrOpenedCard } from '../components/PrOpenedCard'
 import { QuestionCard } from '../components/QuestionCard'
 import { SummaryBlock } from '../features/chat/SummaryBlock'
+// #1694: the hop boundary marker, injected into ChatMessageList the same way
+// its sibling cards are (the #856 extraction keeps card components as props).
+import { CarriedSummaryBlock } from '../components/CarriedSummaryBlock'
 import { SystemPreloadPill } from '../components/SystemPreloadPill'
 import { TeammateTaskCard } from '../components/TeammateTaskCard'
 import { ToolCallPopup } from '../components/ToolCallPopup'
@@ -313,6 +347,8 @@ import { isExperimentalEnabled } from '../experimental/flags'
 
 import { RoleAgentTip } from '../components/RoleAgentTip'
 import { DefaultLlmTip } from '../components/DefaultLlmTip'
+import { HostCliTip } from '../components/HostCliTip'
+import { VanillaSetupTip } from '../components/VanillaSetupTip'
 
 import { lastRecoveryTarget, lastTurnNeedsRecovery } from '../lib/cliSessionRecovery'
 import {
@@ -327,6 +363,21 @@ import {
   isDefaultLlmTipDismissed,
 } from '../lib/defaultLlmTip'
 import {
+  hydrateHostCliTipDismissed,
+  hostCliDetectedName,
+  isHostCliTipDismissed,
+  persistHostCliTipDismissed,
+  shouldShowHostCliTip,
+} from '../lib/hostCliTip'
+import {
+  CONFIGURE_API_TIP_ID,
+  firstVanillaTip,
+  hydrateVanillaTipDismissals,
+  isVanillaTipDismissedLocal,
+  persistVanillaTipDismissed,
+} from '../lib/vanillaTips'
+import { pickerSeatRows } from '../lib/blueprintSeats'
+import {
   agentHasRole,
   agentRole,
   exampleRoleAgents,
@@ -335,9 +386,10 @@ import {
   roleBadgeLabel,
   roleCssClass,
 } from '../lib/agentRoles'
-import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit } from '../lib/agentEdits'
+import { assignedBlueprintId, AGENT_EDITS_CHANGED_EVENT, editedAgentLabel, loadAgentEdit, loadInferenceList } from '../lib/agentEdits'
+import { AGENT_PROFILE_CHANGED_EVENT, fetchAgentProfile } from '../lib/agentProfile'
 import { cliRemoteSessionChoices, isRemoteCapableCli } from '../lib/cliRemote'
-import { navbarWorkspaceSubtitle } from '../lib/agentWorkspace'
+import { navbarWorkspaceSubtitleParts } from '../lib/agentWorkspace'
 import { TEAM_EDITS_CHANGED_EVENT } from '../lib/teamEdits'
 import {
   defaultBlueprintId,
@@ -356,6 +408,8 @@ import {
   isAgentUnread,
   loadUnreadAgentIds,
 } from '../lib/unreadAgents'
+// #1729: clearing the Herdr status indicator when its chat is opened.
+import { useClearHerdrSeatOnOpen } from '../components/HerdrStatusDot'
 import {
   isSupportJourneyConsumer,
 } from '../lib/supportJourney'
@@ -387,13 +441,23 @@ import {
   isCliBlueprintId,
   preferredChatCli,
   resolveCurrentCli,
+  designedCliSeat,
   MANAGE_CLI_VALUE,
 } from '../lib/cliAgentContext'
 import { isHiddenRoutingLabel, type RoutingSeatKind } from '../lib/routingPath'
 import {
+  activeHeaderSeatKey,
+  canonicalSeatTargetId,
   seatParamsForPick,
-  type SeatPickKind,
+  headerSeatKey,
+  seatPickKindForTarget,
+  providerScopeForAgent,
+  providerScopeKey,
+  fetchSeatCapabilities,
 } from '../lib/seatRouting'
+// #1692: one avatar-URL precedence for every seat surface (rail, header, pickers).
+import { seatAvatarSrc } from '../lib/seatAvatar'
+import { filterCliModels } from '../lib/composerPicker'
 
 // #856 slice 1: module-scope message/session types and helpers moved verbatim to
 // features/chat/chatMessages.ts; re-imported here so the component body and the
@@ -403,6 +467,18 @@ import {
   hydrateThreadRows,
   type ChatMessage,
 } from '../features/chat/chatMessages'
+
+const SessionPicker = lazy(() => import('../components/SessionPicker'))
+const GenerationsPanel = lazy(() => import('../components/GenerationsPanel'))
+const TokenDiagnosticsModal = lazy(() =>
+  import('../components/TokenDiagnosticsModal').then((mod) => ({ default: mod.TokenDiagnosticsModal })),
+)
+const SkillPopup = lazy(() =>
+  import('../components/SkillPopup').then((mod) => ({ default: mod.SkillPopup })),
+)
+const RawResponseModal = lazy(() =>
+  import('../components/RawResponseModal').then((mod) => ({ default: mod.RawResponseModal })),
+)
 
 /** #494: machine-readable remedy the backend stamps on classified failures. */
 interface RemoteAction {
@@ -446,6 +522,16 @@ interface MessageContextMenuState {
 
 const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { pathname } = useLocation()
+  // #1445: header controls are chat-only. Settings suppresses them in the
+  // same render that opens the sheet. The nodes stay mounted (hidden) so the
+  // gear can take focus back on close. Non-chat routes never qualify.
+  const headerSuppressed = useSyncExternalStore(
+    subscribeChatHeaderSurface,
+    chatHeaderSuppressed,
+    () => false,
+  )
+  const contextSuppressed = useChatHeaderSuppressed()
   const { addToast, dismissByKind, error: toastError } = useToast()
   const { narrow, railOpen, openRail } = useRailChrome()
   const teamFromUrl = searchParams.get('team') ?? ''
@@ -455,6 +541,36 @@ const ChatPage = () => {
   // instead of re-defaulting to the team's nominated seat.
   const allMembersFromUrl = isAllMembersChoice(searchParams.get(ALL_MEMBERS_PARAM))
   const settingsQuery = searchParams.get('settings')
+  const cliFromUrl = (searchParams.get('cli') ?? '').trim()
+  const explicitBlueprint = (searchParams.get('blueprint') ?? '').trim()
+  // URL seat only. The Support default is not a seat until the effect below
+  // writes `?blueprint=support`. `api:` (no id) stays hidden.
+  const headerGateSeat = activeHeaderSeatKey({
+    teamId: teamFromUrl,
+    remoteId: remoteFromUrl,
+    cliId: cliFromUrl,
+    blueprintId: teamFromUrl || remoteFromUrl ? '' : explicitBlueprint,
+  })
+  // #1445: `/chat?settings=true` must hide AnythingLLM/team chrome on the
+  // first paint. The sheet itself opens one macrotask later (#674).
+  const settingsDeepLink = settingsDetailFromQuery(settingsQuery) != null
+  const showChatHeader = shouldShowChatHeader(
+    pathname,
+    headerSuppressed || contextSuppressed || settingsDeepLink,
+    headerGateSeat,
+  )
+  // #1445: while suppressed the header is dropped from the DOM entirely — a
+  // `hidden` wrapper still matches queryBy* and leaks the stale identity.
+  // Exception: when the header currently holds focus (the gear that opened
+  // the sheet), it stays mounted-but-hidden so Modal can restore focus to
+  // that exact node on close. Checked during the suppress render, while the
+  // previous commit (header still present) is in the DOM.
+  const headerWrapRef = useRef<HTMLDivElement | null>(null)
+  const headerHoldsFocus =
+    !showChatHeader &&
+    headerWrapRef.current != null &&
+    headerWrapRef.current.contains(document.activeElement)
+  const renderChatHeader = showChatHeader || headerHoldsFocus
   const settingsQueryOpenedRef = useRef(false)
   useEffect(() => {
     if (settingsQueryOpenedRef.current) return
@@ -464,8 +580,10 @@ const ChatPage = () => {
     // #674: this effect runs on the CHILD before App (the sheet owner and
     // OPEN_SETTINGS_EVENT listener) has subscribed on a cold load, so an
     // immediate dispatch is dropped. Defer to the next macrotask so the
-    // parent's listener exists first.
+    // parent's listener exists first. Suppress before that open so the
+    // header cannot return in the render that strips `?settings=`.
     const timer = window.setTimeout(() => {
+      setChatHeaderSuppressed(true)
       openSettingsSheet(detail)
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
@@ -489,15 +607,24 @@ const ChatPage = () => {
         : selectedBlueprint,
     [teamFromUrl, remoteFromUrl, selectedBlueprint],
   )
+  useEffect(() => {
+    if (!activeChatAgentId) return
+    void prefetchAgentMcpTools(activeChatAgentId)
+  }, [activeChatAgentId])
   const [newChatPerTask, setNewChatPerTask] = useState(() =>
     teamFromUrl || remoteFromUrl ? false : loadLocalNewChatPerTask(defaultBlueprintId(searchParams.get('blueprint'))),
   )
   const [useSuggestions, setUseSuggestions] = useState(() =>
     teamFromUrl ? false : loadLocalUseSuggestions(defaultBlueprintId(searchParams.get('blueprint'))),
   )
-  /** #878: show/hide the provider routing picker in the message input bar. */
-  const [composerShowProvider, setComposerShowProvider] = useState(() =>
-    initialComposerShowProvider(),
+  /** #878: show/hide the provider routing picker in the message input bar.
+   * #1219: now resolved per viewport tier (mobile ships hidden); the legacy
+   * #878 boolean migrates into the tiered store inside the prefs module. */
+  const [composerShowProvider, setComposerShowProvider] = useState<boolean>(
+    () => currentShowProviderResolved(),
+  )
+  const [composerRewriteEnabled, setComposerRewriteEnabled] = useState<boolean>(
+    () => loadRewriteEnabled(),
   )
   const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   const [suggestionChips, setSuggestionChips] = useState<string[]>([])
@@ -517,6 +644,8 @@ const ChatPage = () => {
   // ADR-017 PR-2: SPA-side registry of the server's per-turn bookends
   // (turn_started/turn_finished), so the row stop cancels the exact turn.
   const [agentTurns, setAgentTurns] = useState<TurnSnapshot>({})
+  // #1374: legs of the roster fan-out currently in this thread.
+  const [fanOutLegs, setFanOutLegs] = useState<FanOutLeg[]>([])
   // #818: background (auxiliary) LLM inference visibility. Frames arrive on
   // the chat socket; the kill switch rides the same socket back.
   const [auxTasks, setAuxTasks] = useState<AuxTask[]>([])
@@ -544,7 +673,7 @@ const ChatPage = () => {
     copy: string
     startOffset: number
   } | null>(null)
-  const [input, setInput] = useState('')
+  const [input, setInput] = usePerAgentDraft(activeChatAgentId)
   const [sttListening, setSttListening] = useState(false)
   const [sttPathUsed, setSttPathUsed] = useState<SpeechPath | null>(null)
   const sttStopRef = useRef<(() => void) | null>(null)
@@ -624,20 +753,34 @@ const ChatPage = () => {
         event.key === COMPOSER_SHOW_PROVIDER_STORAGE_KEY ||
         event.key === null
       ) {
-        setComposerShowProvider(initialComposerShowProvider())
+        setComposerShowProvider(currentShowProviderResolved())
       }
     }
     const onComposerShowProviderChanged = (event: Event) => {
       const detail = (event as CustomEvent<boolean>).detail
-      setComposerShowProvider(typeof detail === 'boolean' ? detail : initialComposerShowProvider())
+      setComposerShowProvider(typeof detail === 'boolean' ? detail : currentShowProviderResolved())
     }
+    // #1220: the rewrite opt-in reacts live so the + menu updates without a
+    // reload (and an opt-OUT removes the affordance immediately).
+    const onRewriteEnabledChanged = () => setComposerRewriteEnabled(loadRewriteEnabled())
+    // #1219: the tiered provider-dropdown pref + live viewport-tier changes
+    // both re-resolve visibility without a remount.
+    const onShowProviderTiersChanged = () => setComposerShowProvider(currentShowProviderResolved())
+    const unsubscribeTier = subscribeViewportTier(() =>
+      setComposerShowProvider(currentShowProviderResolved()),
+    )
     window.addEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
     window.addEventListener('storage', onStorage)
     window.addEventListener(
       COMPOSER_SHOW_PROVIDER_SET_EVENT,
       onComposerShowProviderChanged,
     )
+    window.addEventListener(COMPOSER_SHOW_PROVIDER_TIERS_EVENT, onShowProviderTiersChanged)
+    window.addEventListener(COMPOSER_REWRITE_ENABLED_EVENT, onRewriteEnabledChanged)
     return () => {
+      unsubscribeTier()
+      window.removeEventListener(COMPOSER_SHOW_PROVIDER_TIERS_EVENT, onShowProviderTiersChanged)
+      window.removeEventListener(COMPOSER_REWRITE_ENABLED_EVENT, onRewriteEnabledChanged)
       window.removeEventListener(BUBBLE_THEME_CHANGED_EVENT, onThemeChanged)
       window.removeEventListener('storage', onStorage)
       window.removeEventListener(
@@ -654,6 +797,18 @@ const ChatPage = () => {
   const [recentSlashIds, setRecentSlashIds] = useState<string[]>(() => getRecentSlashIds())
   const [roleTipDismissed, setRoleTipDismissed] = useState(isRoleAgentTipDismissed)
   const [defaultLlmTipDismissed, setDefaultLlmTipDismissed] = useState(isDefaultLlmTipDismissed)
+  // #1703: persisted opt-out is the "Don't show this again" flag; the separate
+  // session flag backs the X / Esc dismiss so a reload can re-offer the tip.
+  const [hostCliTipNeverDismissed, setHostCliTipNeverDismissed] =
+    useState(isHostCliTipDismissed)
+  const [hostCliTipHidden, setHostCliTipHidden] = useState(false)
+  /** #1700 (3): this tip's dismissal, persisted through `/v1/preferences/` on
+   *  dismiss and rehydrated on mount, so it survives a reload instead of
+   *  coming back every session. Distinct from the #1703 host-CLI flag above —
+   *  two conditions, two dismissals. */
+  const [vanillaTipDismissed, setVanillaTipDismissed] = useState(() =>
+    isVanillaTipDismissedLocal(CONFIGURE_API_TIP_ID),
+  )
   const [dynamicSkills, setDynamicSkills] = useState<{ name: string; description?: string }[]>([])
   const [skillCatalog, setSkillCatalog] = useState<SkillRecord[]>([])
   const [openSkillName, setOpenSkillName] = useState<string | null>(null)
@@ -675,7 +830,7 @@ const ChatPage = () => {
     !searchParams.get('team') &&
     !searchParams.get('remote'),
   )
-  const [, setEditsTick] = useState(0)
+  const [editsTick, setEditsTick] = useState(0)
   const [dropdownTick, setDropdownTick] = useState(0)
   const [selectedRemoteId, setSelectedRemoteId] = useState('')
   const [remoteThreadPicker, setRemoteThreadPicker] = useState<MemberSession[] | null>(null)
@@ -691,11 +846,15 @@ const ChatPage = () => {
     enabled: isHerdrKind(remoteFromUrl),
     retry: 1,
   })
+  // #1793: ONE remote conversation id. The first-mount initialiser, the
+  // render key and the hydrate request all call remoteThreadId(), so a remount
+  // cannot ask for a different thread than the one it just rendered.
+  const remoteConversationId = remoteFromUrl ? remoteThreadId(remoteFromUrl, sessionFromUrl) : ''
   const [conversationId, setConversationId] = useState(() =>
     teamFromUrl
       ? teamThreadId(teamFromUrl)
       : remoteFromUrl
-        ? `remote-${remoteFromUrl}${sessionFromUrl ? `-${sessionFromUrl}` : ''}`
+        ? remoteThreadId(remoteFromUrl, sessionFromUrl)
         : sessionFromUrl ||
           peekConversationIdForAgent(defaultBlueprintId(searchParams.get('blueprint'))) ||
           conversationIdForTask(agentIdFromBlueprint(selectedBlueprint), {
@@ -707,7 +866,7 @@ const ChatPage = () => {
   const threadKey = teamFromUrl
     ? teamThreadId(teamFromUrl)
     : remoteFromUrl
-      ? `remote-${remoteFromUrl}${sessionFromUrl ? `-${sessionFromUrl}` : ''}`
+      ? remoteConversationId
       : sessionFromUrl
         ? `${selectedBlueprint}::${sessionFromUrl}`
         : newChatPerTask
@@ -715,6 +874,14 @@ const ChatPage = () => {
           : selectedBlueprint
 
   const messages = useMemo(() => threads[threadKey] ?? [], [threads, threadKey])
+  // #1729: opening a Herdr seat IS the operator saying "I have seen it", so the
+  // chat is where the status indicator and the unread dot are cleared. A Herdr
+  // seat's row id is `herdr:<pane>` and the pane is the `session` param — the
+  // same pair the backend's `seat_id_for` builds, so no second id spelling.
+  const herdrSeatId = isHerdrKind(remoteFromUrl) && sessionFromUrl
+    ? `herdr:${sessionFromUrl}`
+    : ''
+  useClearHerdrSeatOnOpen(herdrSeatId, Boolean(herdrSeatId))
   const [unreadIds, setUnreadIds] = useState<string[]>(() => loadUnreadAgentIds())
   const seatUnread = Boolean(activeChatAgentId && isAgentUnread(activeChatAgentId, unreadIds))
   const newBeforeKey = useMemo(() => {
@@ -990,6 +1157,12 @@ const ChatPage = () => {
     // #726: CLI agents rarely change — 60s keeps the list fresh enough
     staleTime: 60_000,
   })
+  // #1324: declared seat capabilities for the engine-switch warning.
+  const seatCapabilitiesQuery = useQuery({
+    queryKey: ['seat-capabilities'],
+    queryFn: fetchSeatCapabilities,
+    staleTime: 60_000,
+  })
   const teamsQuery = useQuery({
     queryKey: ['team-rosters'],
     queryFn: fetchTeamRosters,
@@ -1006,6 +1179,25 @@ const ChatPage = () => {
     // #726: LLM profiles are user-configured and rarely change
     staleTime: 120_000,
   })
+  // #1700 (3) / #1725: the *first* consumer of GET /v1/support/context/ in the
+  // SPA. `inference.configured` is the server's own answer to "can this host
+  // run an API seat at all", and until now nothing in the UI asked — the fact
+  // was emitted, serialised, and read by nobody. `retry: false` so a failed
+  // read yields no tip rather than a speculative one.
+  const supportContextQuery = useQuery({
+    queryKey: ['support-context'],
+    queryFn: fetchSupportContext,
+    staleTime: 120_000,
+    retry: false,
+  })
+  // #1317: Company model for this signed-in principal. Advisory on the
+  // composer pill; the active blueprint stays whatever the seat already is.
+  const companyRouteQuery = useQuery({
+    queryKey: ['company-route'],
+    queryFn: fetchCompanyRoute,
+    staleTime: 60_000,
+    retry: false,
+  })
   const remotesListQuery = useQuery({
     queryKey: ['remotes-list'],
     // #581: coalesced GET /v1/remotes/ — same network call as the
@@ -1019,15 +1211,57 @@ const ChatPage = () => {
     // #726: speech probe result is stable — 2 min is fine
     staleTime: 120_000,
   })
-  const blueprints = exampleRoleAgents(blueprintsQuery.data?.data ?? [])
-  const cliAgents = cliQuery.data?.rail ?? []
-  const teams = parseTeamRosters(teamsQuery.data ?? [])
-  const remotes = remotesQuery.data ?? []
+  // #1699 / #1700: the agent picker is the one place a "seat" actually becomes a
+  // chat target, so the server's admission verdict is applied here. Withheld
+  // rows are dropped (a Remote-kind recipe on a host with no remote); listed-but-
+  // unrunnable rows stay and carry their reason + repair label in the
+  // description. `lib/blueprintSeats.ts` owns both rules.
+  //
+  // Keyed on the query data, not on `exampleRoleAgents`'s result: that call
+  // returns a fresh array every render, so a memo over it would never hit.
+  const blueprints = useMemo(
+    () => pickerSeatRows(exampleRoleAgents(blueprintsQuery.data?.data ?? [])),
+    [blueprintsQuery.data],
+  )
+  // `?? []` would allocate a fresh array every render while the query is empty
+  // and these three sit in the same dep list, so the memo that owns the picker
+  // rows (and every health poll that keys on `remotes`) would miss on every
+  // render. `parseTeamRosters` also returns fresh objects, so it is memoized on
+  // the query data rather than given a constant.
+  const cliAgents = useMemo(
+    () => cliQuery.data?.rail ?? emptyArray<CliRailAgent>(),
+    [cliQuery.data],
+  )
+  const teams = useMemo(() => parseTeamRosters(teamsQuery.data), [teamsQuery.data])
+  const remotes = useMemo(
+    () => remotesQuery.data ?? emptyArray<RemoteEntry>(),
+    [remotesQuery.data],
+  )
   const selectedTeam = teams.find((team) => team.id === teamFromUrl) ?? null
   const teamDeclaredRoster = selectedTeam
     ? declaredRosterForTeam(selectedTeam, blueprintsQuery.data?.data ?? [])
     : null
   const selectedRemote = remotes.find((remote) => remote.id === remoteFromUrl) ?? null
+  // #1196: the active chat's remote is polled (shared store) and its health
+  // state re-read on every probe completion so the banner flips live.
+  // `startRemoteHealthPolling` probes only ids this owner has just ADDED, so
+  // re-running on a `remotes` identity change with the same selection costs
+  // nothing — only an actual remote switch spends a request. The cleanup
+  // releases this owner's demand, so leaving a remote (or unmounting) stops
+  // re-probing it; the store keeps the interval alive for the rail.
+  const [remoteHealthTick, setRemoteHealthTick] = useState(0)
+  useEffect(() => {
+    if (!selectedRemote) return
+    startRemoteHealthPolling([selectedRemote.id], 'chat')
+    const onHealth = () => setRemoteHealthTick((n) => n + 1)
+    window.addEventListener(REMOTE_HEALTH_CHANGED_EVENT, onHealth)
+    return () => {
+      window.removeEventListener(REMOTE_HEALTH_CHANGED_EVENT, onHealth)
+      stopRemoteHealthPolling('chat')
+    }
+  }, [selectedRemote?.id])
+  const activeRemoteOffline =
+    remoteHealthTick >= 0 && selectedRemote ? isRemoteOffline(selectedRemote.id) : false
   // #528: a team selection loses the navbar avatar that single agents get. The
   // member to show is "the one you are talking to": the navbar's explicit member
   // when one is targeted, else `defaultSessionForTeam`'s rule (chief_of_staff_id,
@@ -1054,21 +1288,70 @@ const ChatPage = () => {
     : remoteFromUrl
     ? remoteChatMemberId
     : agentIdFromBlueprint(selectedBlueprint) || selectedBlueprint || ''
+  // #1244: the header face must animate whenever its seat owns a live turn in
+  // the shared registry — not only while the active thread streams. Without
+  // this, sending a prompt then switching seats left the header idle (the
+  // per-thread streaming flag belongs to the seat just left). `isWorking` is
+  // still OR'd in by ChatHeader for the in-seat case.
+  const headerWorking = isAgentTurnActive(headerFaceAgentId, agentTurns)
   // #108: only rail rows whose kind is actually 'cli' may drive the CLI
   // picker. api_agent is a rail row too (kind 'api') and must never match.
-  const selectedCli = cliAgents.find(
-    (row) => row.id === selectedBlueprint && row.kind !== 'api',
-  )
+  // Designer-created CLI seats (`router_designs.json`, e.g. `antigravity` →
+  // `agy`, `hass-eng` → `opencode`) are not in the `/v1/cli-agents/` rail.
+  // Share AgentSidebar's `router-designs` cache and honour the seat's declared
+  // `cli` so it renders as a CLI seat with that CLI's models — never an API
+  // seat on the system default profile.
+  const designsQuery = useQuery({
+    queryKey: ['router-designs'],
+    queryFn: fetchDesignedAgents,
+    retry: 1,
+    staleTime: 60_000,
+  })
+  const selectedCli = useMemo(() => {
+    const rail = cliAgents.find(
+      (row) => row.id === selectedBlueprint && row.kind !== 'api',
+    )
+    if (rail) return rail
+    const design = designedCliSeat(selectedBlueprint, designsQuery.data?.data)
+    if (!design) return undefined
+    return {
+      id: design.id,
+      object: 'cli.agent' as const,
+      name: design.name,
+      cli: design.cli,
+      kind: 'cli' as const,
+      description: design.description,
+      installed: true,
+    }
+  }, [cliAgents, selectedBlueprint, designsQuery.data])
   const selectedAgent = blueprints.find((bp) => bp.id === selectedBlueprint)
+  // #1692: every seat avatar URL goes through `seatAvatarSrc` so the chat
+  // header, the rail row and the pickers cannot each invent their own
+  // precedence over the four accumulated field names. Each branch still picks
+  // its own seat (member → session → remote → agent/CLI); only the "which
+  // field is the face" question is shared.
   const headerFaceAvatarSrc = teamFromUrl
-    ? (activeTeamMember as any)?.avatarSrc || (activeTeamMember as any)?.avatar_path || undefined
+    ? seatAvatarSrc(activeTeamMember) ?? undefined
     : remoteFromUrl
-    ? (selectedRemoteSession as any)?.avatarSrc ||
-      (selectedRemoteSession as any)?.avatar_path ||
-      defaultRemoteSession?.avatarSrc ||
-      (selectedRemote as any)?.avatar_path ||
+    ? seatAvatarSrc(selectedRemoteSession) ??
+      seatAvatarSrc(defaultRemoteSession) ??
+      seatAvatarSrc(selectedRemote) ??
       undefined
-    : selectedAgent?.avatar_path || (selectedCli as any)?.avatar_path || undefined
+    : seatAvatarSrc(selectedAgent) ?? seatAvatarSrc(selectedCli) ?? undefined
+  // #1362: the navbar group-chat face is the team's membership — declared
+  // personas when the blueprint declares a roster, else the live team members.
+  // `ChatHeader` caps the ring at three faces and shows a `+N` remainder.
+  const headerGroupMembers = teamFromUrl
+    ? teamDeclaredRoster
+      ? facesFromDeclaredRoster(teamDeclaredRoster, teamFromUrl)
+      : (selectedTeam?.members ?? []).map((member) => ({
+          id: member.id,
+          name: member.name || member.id,
+          agentId: member.id,
+          src: seatAvatarSrc(member),
+          working: isAgentTurnActive(member.id, agentTurns),
+        }))
+    : []
   const runtimeBlueprint = teamFromUrl ? '' : assignedBlueprintId(selectedBlueprint)
   const fallbackAgentName =
     selectedAgent?.name ||
@@ -1087,8 +1370,12 @@ const ChatPage = () => {
               id: selectedBlueprint,
               name: fallbackAgentName,
             })
-  const workspaceSubtitle =
-    teamFromUrl || remoteFromUrl ? '' : navbarWorkspaceSubtitle(selectedBlueprint)
+  const workspaceSubtitleParts =
+    teamFromUrl || remoteFromUrl
+      ? { full: '', display: '' }
+      : navbarWorkspaceSubtitleParts(selectedBlueprint)
+  const workspaceSubtitle = workspaceSubtitleParts.full
+  const workspaceSubtitleDisplay = workspaceSubtitleParts.display
   // #69: the top bar shows the agent NAME; an assigned role rides beside it as
   // its own badge so a role seat can never look like it renamed the agent.
   const headerRole = agentRole({
@@ -1119,6 +1406,28 @@ const ChatPage = () => {
     void persistDefaultLlmTipDismissed()
     setDefaultLlmTipDismissed(true)
   }, [])
+  // #1703: reuse the `/v1/cli-agents/` PATH seed the chat already fetches —
+  // a detected-but-unconfigured CLI is the whole trigger.
+  const showHostCliTip = shouldShowHostCliTip({
+    info: cliQuery.data,
+    dismissed: hostCliTipNeverDismissed || hostCliTipHidden,
+  })
+  const hostCliTipName = showHostCliTip ? hostCliDetectedName(cliQuery.data) : ''
+  const dismissHostCliTip = useCallback(() => {
+    setHostCliTipHidden(true)
+  }, [])
+  const neverShowHostCliTip = useCallback(() => {
+    void persistHostCliTipDismissed()
+    setHostCliTipNeverDismissed(true)
+    setHostCliTipHidden(true)
+  }, [])
+  /** #1700 (3): persist first, then update state — a dismissal that only lived
+   *  in component state would reappear on reload, the same defect class as the
+   *  rest of this batch. */
+  const dismissVanillaTip = useCallback(() => {
+    void persistVanillaTipDismissed(CONFIGURE_API_TIP_ID)
+    setVanillaTipDismissed(true)
+  }, [])
   useEffect(() => {
     if (!showRoleTip) return
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -1132,6 +1441,21 @@ const ChatPage = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showRoleTip, dismissRoleTip])
+  // #1703: Esc dismisses the host-CLI tip for this session, same guards as the
+  // role tip so it never steals Esc from the composer or an open overlay.
+  useEffect(() => {
+    if (!showHostCliTip) return
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (document.querySelector('[role="dialog"], .modal-open, [data-testid="search-palette"]')) {
+        return
+      }
+      e.preventDefault()
+      dismissHostCliTip()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showHostCliTip, dismissHostCliTip])
   const notifyCtxRef = useRef({
     agentId: activeChatAgentId,
     agentName: selectedAgentName,
@@ -1161,9 +1485,19 @@ const ChatPage = () => {
     ),
   )
 
+  // #1445: leftover `agentKind === 'remote'` from an AnythingLLM visit must
+  // not keep remotes chrome (or a remote send path) after the URL is a team
+  // or a named API/CLI seat. Kind state is only authoritative while `?remote=`
+  // is the seat; otherwise the selected agent's declared kind wins.
+  const headerKindForRemote = remoteFromUrl
+    ? agentKind
+    : teamFromUrl
+      ? undefined
+      : (selectedAgent as { kind?: string } | undefined)?.kind ||
+        classifyAgentKind(selectedBlueprint)
   const isRemoteAgent = isRemoteKindAgent({
     remoteFromUrl,
-    agentKind,
+    agentKind: headerKindForRemote,
     blueprintId: selectedBlueprint,
     selectedKind: (selectedAgent as { kind?: string } | undefined)?.kind,
     agentType: (selectedAgent as { agent_type?: string })?.agent_type,
@@ -1181,7 +1515,14 @@ const ChatPage = () => {
   /* #736: product-modes gating is retired — surfaces are always-on if
      configured. The remote control shows for any remote-backed seat. */
   const showRemotesControl =
-    Boolean(remoteFromUrl) || Boolean(isRemoteAgent || isRemoteBackedTeam)
+    Boolean(remoteFromUrl) ||
+    Boolean(isRemoteBackedTeam) ||
+    (!teamFromUrl && Boolean(isRemoteAgent))
+  const headerSeat = headerSeatKey({
+    teamId: teamFromUrl,
+    remoteId: remoteFromUrl,
+    blueprintId: selectedBlueprint,
+  })
   // REQ-904 / #502: the binding subject is the agent — never the provider.
   // With `?remote=X` in the URL the user is viewing a remote *seat*; there is
   // no named agent in context, so nothing may be written under X itself.
@@ -1205,22 +1546,77 @@ const ChatPage = () => {
   // #504: the cross-kind union the routing palette's "show all" reveals. Each
   // row declares its kind so a pick outside the current scope navigates (#502)
   // instead of rebinding the current seat.
+  // #1352/#1353: each row also declares its **provider** (from Edit agent's
+  // configured inference list, falling back to the row's own kind) so the
+  // navbar Agent / Session pickers can scope to the selected agent's provider.
+  // The default inference profile is never consulted here.
   const allPaletteAgents = useMemo(() => {
-    const rows: Array<{ id: string; label: string; kind: 'api' | 'cli' | 'remote' | 'team' }> = []
+    const rows: Array<{
+      id: string
+      label: string
+      kind: 'api' | 'cli' | 'remote' | 'team'
+      provider: string
+    }> = []
+    const cliById = new Map(cliAgents.map((row) => [row.id, row]))
+    const urlCli = (searchParams.get('cli') ?? '').trim()
+    const scopeKey = (
+      id: string,
+      kind: 'api' | 'cli' | 'remote' | 'team',
+      providerId: string,
+    ): string => {
+      // Edit agent (REQ-69) always wins over the row's declared kind.
+      const scope = providerScopeForAgent({
+        id,
+        kind,
+        providerId,
+        inference: loadInferenceList(id)[0] ?? null,
+      })
+      return scope ? providerScopeKey(scope) : `${kind}:${providerId || id}`
+    }
     for (const bp of blueprints) {
-      rows.push({ id: bp.id, label: bp.name || bp.id, kind: 'api' })
+      const railCli = cliById.get(bp.id)
+      const kind: 'api' | 'cli' = railCli
+        ? 'cli'
+        : isApiBlueprintId(bp.id)
+          ? 'api'
+          : isCliBlueprintId(bp.id)
+            ? 'cli'
+            : 'api'
+      const providerId =
+        kind === 'cli' ? railCli?.cli || bp.cli || urlCli || bp.id : 'api'
+      rows.push({
+        id: bp.id,
+        label: bp.name || bp.id,
+        kind,
+        provider: scopeKey(bp.id, kind, providerId),
+      })
     }
     for (const cli of cliAgents) {
-      rows.push({ id: cli.id, label: cli.name || cli.id, kind: 'cli' })
+      rows.push({
+        id: cli.id,
+        label: cli.name || cli.id,
+        kind: 'cli',
+        provider: scopeKey(cli.id, 'cli', cli.cli || cli.id),
+      })
     }
     for (const remote of remotes) {
-      rows.push({ id: remote.id, label: remote.title || remote.id, kind: 'remote' })
+      rows.push({
+        id: remote.id,
+        label: remote.title || remote.id,
+        kind: 'remote',
+        provider: scopeKey(remote.id, 'remote', remote.id),
+      })
     }
     for (const team of teams) {
-      rows.push({ id: team.id, label: team.name || team.id, kind: 'team' })
+      rows.push({
+        id: team.id,
+        label: team.name || team.id,
+        kind: 'team',
+        provider: scopeKey(team.id, 'team', team.id),
+      })
     }
     return rows
-  }, [blueprints, cliAgents, remotes, teams])
+  }, [blueprints, cliAgents, remotes, teams, searchParams, editsTick])
   // #502 doctrine: choosing an out-of-scope agent navigates to it — it never
   // rewrites the current seat's provider/model binding.
   // #804: the destination kind decides which seat param gets written —
@@ -1234,9 +1630,9 @@ const ChatPage = () => {
       kind?: RoutingSeatKind | 'team',
       detail?: { apiModel?: string },
     ) => {
-      const pickKind: SeatPickKind =
-        kind === 'cli' ? 'cli' : kind === 'remote' ? 'remote' : kind === 'team' ? 'team' : 'api'
-      const patch = seatParamsForPick(pickKind, targetId, { apiModel: detail?.apiModel })
+      const pickKind = seatPickKindForTarget(kind, targetId)
+      const seatId = canonicalSeatTargetId(pickKind, targetId)
+      const patch = seatParamsForPick(pickKind, seatId, { apiModel: detail?.apiModel })
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev)
         for (const key of patch.delete) next.delete(key)
@@ -1252,15 +1648,26 @@ const ChatPage = () => {
       ? remoteFromUrl
       : ''
   const activeRemoteId = (selectedRemoteId || remoteFromUrl || '').trim()
+  // #1358: a TrueForge seat lists agents + sessions from the dedicated
+  // TrueForge endpoint — the source is TrueForge only, never the generic
+  // operate path and never the default inference profile.
+  const isTrueForgeSeat = isTrueForgeKind(selectedRemote?.kind || activeRemoteId)
   const remoteAgentsQuery = useQuery({
-    queryKey: ['remote-operate-list', activeRemoteId],
-    queryFn: () => operateRemote(activeRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
+    queryKey: ['remote-operate-list', activeRemoteId, isTrueForgeSeat ? 'trueforge' : 'operate'],
+    queryFn: () =>
+      isTrueForgeSeat
+        ? fetchTrueForgeNavbarCatalog(activeRemoteId)
+        : operateRemote(activeRemoteId, { op: 'list' }, { timeoutMs: 12000 }),
     enabled: showRemotesControl && Boolean(activeRemoteId),
     retry: 1,
   })
   const remoteNavbarAgents = useMemo(
     () => (activeRemoteId ? remoteAgentsFromOperate(remoteAgentsQuery.data?.data) : []),
     [activeRemoteId, remoteAgentsQuery.data],
+  )
+  const ombBots = useMemo(
+    () => ombBotsFromOperate(remoteAgentsQuery.data?.data),
+    [remoteAgentsQuery.data],
   )
   const remoteAgentWarning = !activeRemoteId
     ? null
@@ -1277,7 +1684,7 @@ const ChatPage = () => {
         : remoteAgentsQuery.isSuccess && remoteNavbarAgents.length === 0 && ombRemoteId
           ? OMB_NO_AGENTS_WARNING
           : null
-  const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl)
+  const ombSelectedBotId = ombSendTarget(sessionFromUrl, ombRemoteId || remoteFromUrl, ombBots)
   // #581: any failed remote query that trips the throttle shows one friendly
   // retry toast with the countdown — never the raw DRF line.
   const throttleToastRef = useRef(0)
@@ -1327,6 +1734,35 @@ const ChatPage = () => {
       !isCliAgent,
   )
   const showContextUsage = isApiAgent || agentKind === 'blueprint'
+  // #1257: folder picker applies to local-bound seats only — remote bridges
+  // own a different filesystem and must not offer it.
+  //
+  // #1713 split this in two, because the two consumers CANNOT share one gate.
+  // `workspaceFolderEditable` feeds `AgentConfigSidepane`, which renders a real
+  // free-text "Working folder" input for any local-bound seat — including an API
+  // agent, whose folder the navbar subtitle reads back. Narrowing that gate to
+  // CLI would delete working behaviour.
+  //
+  // The second consumer is the pill's `os-navbar-workspace-subtitle-unset`
+  // control, whose destination is the full `AgentEditor`. That editor routes its
+  // Workspace section through `AgentWorkspaceBinding`, which offers a folder
+  // input and the server directory picker for `kind === 'cli'` ONLY and renders
+  // an explicit "Coming soon" stub otherwise. So an API seat was offered a
+  // "Select folder" affordance whose destination had no folder control at all.
+  //
+  // `workspaceFolderPickerSeat` is the one-line gate #1713 asks for, and it is
+  // derived from the seat the EDITOR will see rather than from a hand-kept list,
+  // so the offer and the destination cannot drift apart.
+  const workspaceFolderEditable = Boolean(
+    !teamFromUrl && !remoteFromUrl && (isCliAgent || isApiAgent),
+  )
+  // What `AgentEditor` maps to `kind`, and what `AgentWorkspaceBinding` keys its
+  // folder control on. `AgentEditor.tsx` maps anything that is not cli/remote to
+  // 'api', and the binding renders the picker for `kind === 'cli'` only — so
+  // this is the exact set of seats whose editor destination has the control.
+  const workspaceFolderPickerSeat = Boolean(
+    !teamFromUrl && !remoteFromUrl && isCliAgent,
+  )
 
   useEffect(() => {
     if (!showContextUsage || !conversationId) {
@@ -1388,9 +1824,7 @@ const ChatPage = () => {
 
   // #550: the composer `+` menu's contents are derived from the seat rather than
   // hardcoded per item, so an item cannot be added ungated. See lib/composerMenu.
-  // #636: CLI Compact lights up when a default API is configured (the same
-  // `default_llm_ready` signal DefaultLlmTip consumes) or when the seat's CLI
-  // declares a native cli_compact hook in the catalog.
+  // #1230: Compact is API-only — no CLI/remote opt-in lights it up any more.
   // #551: the kind base's published declarations (GET /v1/cli-agents/), when
   // the backend publishes them. The seat's own kind row wins; older payloads
   // leave this undefined and the menu falls back to the kind-derived gates.
@@ -1406,20 +1840,8 @@ const ChatPage = () => {
     isApi: isApiAgent,
     isCli: isCliAgent,
     isRemote: isRemoteAgent || isRemoteBackedTeam,
-    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready === true,
-    cliCompactCapable: Boolean(
-      isCliAgent &&
-        currentCli &&
-        (cliQuery.data?.cli_compact as Record<string, unknown> | undefined)?.[currentCli],
-    ),
-    // #830: the reason names the PROVIDER ("not implemented for Herdr"), and
-    // a remote that declares a native compact hook gains the action — the
-    // remote analogue of #636's cli_compact. No catalog payload carries a
-    // compact flag yet, so nothing lights up until a provider ships one.
-    providerName: selectedRemote ? remoteDisplayName(selectedRemote) : undefined,
-    remoteCompactCapable: Boolean(
-      (selectedRemote?.capabilities as { compact?: boolean } | undefined)?.compact,
-    ),
+    // #1220: the operator's rewrite opt-in gates the + menu item.
+    rewriteEnabled: composerRewriteEnabled,
     // #516: the same swarm-owned reading the rail's Plugins entry gates on,
     // using the exact seat pair ChatPage publishes (id + kind) so the composer
     // menu cannot disagree with the badge.
@@ -1427,6 +1849,46 @@ const ChatPage = () => {
     // #551: declarations outrank kind-derived gates (one channel, ADR-005).
     declaredCapabilities,
   })
+
+  // #1202: the navbar Agent / Session pickers consume ONE declared predicate
+  // (never a re-derived per-surface kind identity) plus the operator's
+  // hide-unsupported toggles. The Agent control never switches the seat.
+  const navbarCapabilities = useMemo(
+    () =>
+      navbarSeatCapabilities({
+        kind: teamFromUrl
+          ? 'team'
+          : remoteFromUrl
+            ? 'remote'
+            : isCliAgent
+              ? 'cli'
+              : 'api',
+        isCli: isCliAgent,
+        remoteSessions:
+          (configuredRemoteRows.find((row) => row.id === activeRemoteId)?.capabilities as
+            | { sessions?: boolean }
+            | undefined)?.sessions ??
+          (selectedRemote?.capabilities as { sessions?: boolean } | undefined)?.sessions,
+        declared: declaredCapabilities,
+        providerName: selectedRemote
+          ? remoteDisplayName(selectedRemote)
+          : isCliAgent
+            ? currentCli || 'CLI host'
+            : selectedAgentName,
+      }),
+    [
+      teamFromUrl,
+      remoteFromUrl,
+      isCliAgent,
+      selectedRemote,
+      configuredRemoteRows,
+      activeRemoteId,
+      declaredCapabilities,
+      currentCli,
+      selectedAgentName,
+    ],
+  )
+  const navbarPickerPrefs = useNavbarPickerPrefs()
 
   /** The agent's own configured remote endpoint, if any. */
   const agentRemote = useMemo(
@@ -1470,14 +1932,37 @@ const ChatPage = () => {
     () => honestChatCliModels(cliModelsQuery.data),
     [cliModelsQuery.data],
   )
+  // #1356: the set of API / LiteLLM profile ids. They are a *different*
+  // namespace from CLI model ids — a CLI seat must never offer one (it would
+  // fail at `<cli> --model`).
+  const apiProfileModelIds = useMemo(
+    () =>
+      new Set(
+        apiModelOptionsFromProfiles(
+          llmProfilesQuery.data?.profiles,
+          llmProfilesQuery.data?.default_llm_profile
+            ? [llmProfilesQuery.data.default_llm_profile]
+            : [],
+        ).map((opt) => opt.id),
+      ),
+    [llmProfilesQuery.data],
+  )
   const availableCliModels = useMemo(() => {
-    const merged = [...cliModelProbe.models]
+    // #1356: keep only the CLI's own probed models; a stale saved model that
+    // is an API profile id (leaked from a previous API seat or `?model=`) is
+    // foreign and must not be listed.
+    const merged = filterCliModels(cliModelProbe.models, apiProfileModelIds)
     const saved = (persistedDropdown.model || '').trim()
-    if (saved && !isHiddenRoutingLabel(saved) && !merged.includes(saved)) {
+    if (
+      saved &&
+      !isHiddenRoutingLabel(saved) &&
+      !apiProfileModelIds.has(saved) &&
+      !merged.includes(saved)
+    ) {
       merged.push(saved)
     }
     return merged
-  }, [cliModelProbe.models, persistedDropdown.model])
+  }, [cliModelProbe.models, persistedDropdown.model, apiProfileModelIds])
   const cliModelWarning = useMemo(() => {
     if (availableCliModels.length > 0) return cliModelProbe.warning
     if (cliModelsQuery.isFetching || cliModelsQuery.isLoading) return null
@@ -1520,7 +2005,13 @@ const ChatPage = () => {
     setSearchParams,
     addToast,
   })
-  const { recordDropdownChange, reconfigureProviderForSeat, applyCliRoutingChange, applyApiRoutingChange } = routingHook
+  const {
+    recordDropdownChange,
+    reconfigureProviderForSeat,
+    applyCliRoutingChange,
+    applyApiRoutingChange,
+    warnBeforeEngineSwitch,
+  } = routingHook
 
   useEffect(() => {
     // REQ-28: a selected composition team uses ?team=; do not clobber it
@@ -1616,11 +2107,13 @@ const ChatPage = () => {
     const onEdits = () => setEditsTick((tick) => tick + 1)
     const onDropdowns = () => setDropdownTick((tick) => tick + 1)
     window.addEventListener(AGENT_EDITS_CHANGED_EVENT, onEdits)
+    window.addEventListener(AGENT_PROFILE_CHANGED_EVENT, onEdits)
     window.addEventListener(TEAM_EDITS_CHANGED_EVENT, onEdits)
     window.addEventListener(AGENT_REMOTE_BINDINGS_CHANGED_EVENT, onEdits)
     window.addEventListener(AGENT_DROPDOWNS_CHANGED_EVENT, onDropdowns)
     return () => {
       window.removeEventListener(AGENT_EDITS_CHANGED_EVENT, onEdits)
+      window.removeEventListener(AGENT_PROFILE_CHANGED_EVENT, onEdits)
       window.removeEventListener(TEAM_EDITS_CHANGED_EVENT, onEdits)
       window.removeEventListener(AGENT_REMOTE_BINDINGS_CHANGED_EVENT, onEdits)
       window.removeEventListener(AGENT_DROPDOWNS_CHANGED_EVENT, onDropdowns)
@@ -1628,7 +2121,12 @@ const ChatPage = () => {
   }, [])
 
   useEffect(() => {
-    if (!showRemotesControl) return
+    if (!showRemotesControl) {
+      // #1445: leaving AnythingLLM / a remote seat must drop the bound id so
+      // the header session switcher cannot keep showing that remote.
+      setSelectedRemoteId('')
+      return
+    }
     setSelectedRemoteId(
       resolveBoundRemoteId({
         remoteFromUrl,
@@ -1729,6 +2227,7 @@ const ChatPage = () => {
       setUseSuggestions(settings.use_suggestions)
       setVoiceBind(parseVoiceBind(settings))
     })
+    void fetchAgentProfile(agent)
     return () => {
       cancelled = true
       window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChange)
@@ -1820,6 +2319,25 @@ const ChatPage = () => {
     })
   }, [])
 
+  useEffect(() => {
+    void hydrateHostCliTipDismissed().then((dismissed) => {
+      if (dismissed) setHostCliTipNeverDismissed(true)
+    })
+  }, [])
+
+  // #1700 (3): pull the server-persisted dismissal in on mount. A tip dismissed
+  // yesterday must not greet the operator again today.
+  useEffect(() => {
+    let cancelled = false
+    void hydrateVanillaTipDismissals([CONFIGURE_API_TIP_ID]).then((ids) => {
+      if (cancelled || ids.length === 0) return
+      setVanillaTipDismissed(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const noteHydrateFailure = useCallback((bucketKey: string, err: unknown) => {
     const hadMessages = (threadsRef.current[bucketKey] ?? []).length > 0
     const detail = err instanceof Error ? err.message.trim() : ''
@@ -1842,8 +2360,12 @@ const ChatPage = () => {
         ? 'The transcript could not be fetched. Existing messages were kept.'
         : detail || fallback,
     })
+    // #1793: a failed load says so EVEN WHEN a previous copy is on screen.
+    // Recording it unconditionally lets the transcript label the rows it is
+    // showing as the kept copy rather than live data; the empty-thread error
+    // block still requires an empty transcript to render.
+    setHydrateError(detail || fallback)
     if (!hadMessages) {
-      setHydrateError(detail || fallback)
       setRestoreNotice(null)
     }
     setThreadReady(true)
@@ -1914,7 +2436,9 @@ const ChatPage = () => {
     setHydrateError(null)
     setSuggestionChips([])
     if (remoteFromUrl) {
-      const key = `remote-${remoteFromUrl}${sessionFromUrl ? `-${sessionFromUrl}` : ''}`
+      // #1793: the same remoteThreadId() the render key uses, so the request
+      // and the render can never address different conversations.
+      const key = remoteConversationId
       const switched =
         lastHydratedAgentRef.current !== null && lastHydratedAgentRef.current !== key
       lastHydratedAgentRef.current = key
@@ -2045,7 +2569,7 @@ const ChatPage = () => {
     return () => {
       cancelled = true
     }
-  }, [selectedBlueprint, sessionFromUrl, teamFromUrl, remoteFromUrl, newChatPerTask, threadKey, selectedCli, noteHydrateFailure])
+  }, [selectedBlueprint, sessionFromUrl, teamFromUrl, remoteFromUrl, remoteConversationId, newChatPerTask, threadKey, selectedCli, noteHydrateFailure])
 
   const attachToolToThread = useCallback(
     (tool: ToolCallState) => {
@@ -2144,6 +2668,17 @@ const ChatPage = () => {
 
   // #856 slice 5: the WS frame dispatcher moved verbatim to
   // features/chat/useChatWsDispatcher.ts.
+  const stopFanOutLeg = useCallback((legId: string) => {
+    const id = String(legId || '').trim()
+    const ws = wsRef.current
+    if (!id || !ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(buildCancelFanOutLegFrame(id))
+  }, [])
+
+  useEffect(() => {
+    setFanOutLegs([])
+  }, [threadKey])
+
   const handleWsEvent = useChatWsDispatcher({
     activeChatAgentId,
     attachQuestionToThread,
@@ -2155,6 +2690,7 @@ const ChatPage = () => {
     pinnedToBottomRef,
     setContextUsage,
     setAgentTurns,
+    setFanOutLegs,
     setAuxTasks,
     setSuggestionChips,
     setThreads,
@@ -2274,6 +2810,7 @@ const ChatPage = () => {
     currentCliSource,
     currentCliModel,
     persistedDropdown,
+    companyRoute: companyRouteQuery.data,
     agentKind,
     selectedAgentName,
     searchParams,
@@ -2283,8 +2820,10 @@ const ChatPage = () => {
     messages,
     remoteFromUrl,
     sessionFromUrl,
+    ombBots,
     addToast,
     activeChatAgentId,
+    bubbleTheme,
   })
 
   const submitUserText = useCallback(
@@ -2297,11 +2836,7 @@ const ChatPage = () => {
       // (#1149: queued rows stay in the queue pane — no echo here; the echo
       // happens when the row actually drains through this function.)
       if (status !== 'open') {
-        const fallbackText =
-          trimmed ||
-          (readyAttach.length > 0
-            ? attachmentCaption(pendingAttachments.map((item) => item.name))
-            : '')
+        const fallbackText = composeOutboundDisplayText(trimmed, pendingAttachments)
         if (fallbackText) {
           queued.enqueue(fallbackText)
           // #1168: a resend attempted while the socket is down hands the text
@@ -2348,11 +2883,7 @@ const ChatPage = () => {
           memberTarget !== ALL_MEMBERS_TARGET &&
           memberTarget.trim() !== ''
         if (!apiSeatProven && !memberDirectSend) {
-          const fallbackText =
-            trimmed ||
-            (readyAttach.length > 0
-              ? attachmentCaption(pendingAttachments.map((item) => item.name))
-              : '')
+          const fallbackText = composeOutboundDisplayText(trimmed, pendingAttachments)
           if (fallbackText) {
             queued.enqueue(fallbackText)
           }
@@ -2364,7 +2895,7 @@ const ChatPage = () => {
       // the row instead of duplicating it (see useChatWsDispatcher).
       // #1168: resend reuses the ORIGINAL echo row (same key) instead of
       // appending a duplicate — the failed row flips back to pending.
-      const echoText = trimmed || attachmentCaption(pendingAttachments.map((item) => item.name))
+      const echoText = composeOutboundDisplayText(trimmed, pendingAttachments)
       let echoKey: string | null = resendKey ?? null
       if (echoText && !echoKey) {
         optimisticEchoCounterRef.current += 1
@@ -2465,6 +2996,9 @@ const ChatPage = () => {
     showDemoChips,
     showSuggestionChips,
     chooseSuggestion,
+    gettingStartedFlow,
+    gettingStartedChips,
+    showGettingStartedFlow,
     handleSend,
   } = useSlashLifecycle({
     hasSendableDraft,
@@ -2473,6 +3007,9 @@ const ChatPage = () => {
     setSkillCatalog,
     setDynamicSkills,
     isCliAgent,
+    // #1230: the `/compact` slash action follows the same API-only gate as the
+    // `+` menu item, so a CLI/remote seat never lists a compact at all.
+    compactAvailable: isApiAgent,
     currentCli,
     selectedCli,
     cliQueryData: cliQuery.data,
@@ -2533,6 +3070,7 @@ const ChatPage = () => {
     clearCliSessionHistory,
     interruptRunningTurn,
     saveEditedMessage,
+    toggleMessageReaction,
   } = useChatTurnOps({
     selectedBlueprint,
     setSearchParams,
@@ -2575,11 +3113,6 @@ const ChatPage = () => {
     selectedBlueprint,
     teamFromUrl,
     threadKey,
-    isCliAgent,
-    currentCli,
-    selectedCli,
-    llmDefaultReady: llmProfilesQuery.data?.default_llm_ready === true,
-    cliCompactCapableMap: cliQuery.data?.cli_compact as Record<string, unknown> | undefined,
     cullTriggerPct,
     contextStrategy,
     contextMaxRef,
@@ -2589,7 +3122,6 @@ const ChatPage = () => {
     setStartFromHereWarning,
     setPlusOpen,
     setContextMenu,
-    setConversationId,
     addToast,
   })
 
@@ -2612,6 +3144,27 @@ const ChatPage = () => {
   const resumeComposerSession = slashHook.resumeComposerSession
 
   const tokenCount = estimateTokensInContext(contextTextsForMeter(messages, summaries))
+
+  // #1700 (3): the first-run tip, from the one host fact the server owns and
+  // nothing else reads (`GET /v1/support/context/`). `firstVanillaTip` fails
+  // open on a missing payload, so a failed read produces no tip rather than a
+  // guess, and it stands down while the #1703 host-CLI tip owns the slot.
+  //
+  // Deliberately NOT gated on the seat in the URL. ChatPage writes
+  // `?blueprint=support` as its default a moment after mount, so a
+  // "did the operator ask for a seat?" check reads that default and the tip
+  // never fires on a greenfield install — which is the one case it exists for.
+  // A first-run banner is also the right thing on a deep link: without a
+  // provider the very next turn is what fails, and the tip is why.
+  const vanillaTip = firstVanillaTip({
+    supportContext: supportContextQuery.data ?? null,
+    cliAgents: cliQuery.data ?? null,
+    defaultLlmReady: llmProfilesQuery.data?.default_llm_ready,
+    dismissedIds: vanillaTipDismissed ? [CONFIGURE_API_TIP_ID] : [],
+  })
+  const vanillaTipNode = vanillaTip ? (
+    <VanillaSetupTip tip={vanillaTip} onDismiss={dismissVanillaTip} />
+  ) : null
 
   // #856 slice 19: routing-picker inputs & derived chat metrics moved
   // verbatim to features/chat/useChatDerived.ts.
@@ -2639,6 +3192,7 @@ const ChatPage = () => {
     currentCli,
     currentCliModel,
     persistedDropdown,
+    companyRoute: companyRouteQuery.data,
     llmProfilesQuery,
     llmDefaultProfile: llmProfilesQuery.data?.default_llm_profile,
     input,
@@ -2666,7 +3220,18 @@ const ChatPage = () => {
 
   // #856 slice 17: composer input controls (handleMic, handleComposerKeyDown)
   // moved verbatim to features/chat/useComposerControls.ts.
-  const { handleMic, handleComposerKeyDown } = useComposerControls({
+  const {
+    handleMic,
+    handleComposerKeyDown,
+    handleMicPointerDown,
+    handleMicPointerUp,
+    handleMicPointerCancel,
+    voiceNoteRecording,
+    voiceNoteOffer,
+    sendVoiceNote,
+    cancelVoiceNote,
+    chooseVoiceNoteTranscription,
+  } = useComposerControls({
     sttListening,
     speechSettings,
     activeChatAgentId,
@@ -2693,6 +3258,7 @@ const ChatPage = () => {
     queuedRows: queued.rows,
     queuedHoldIds,
     interruptRunningTurn,
+    enqueueComposerFiles,
   })
 
   // #856 slice P: the six pass-through props objects collapse into one
@@ -2706,6 +3272,7 @@ const ChatPage = () => {
 
   const allChatScope = {
     AgentAvatar,
+    GroupAvatar,
     ChatMessageActions,
     ChatMessageBubble,
     ChatNewRule,
@@ -2733,6 +3300,7 @@ const ChatPage = () => {
     blueprints,
     bubbleTheme,
     cacheRowSelection,
+    CarriedSummaryBlock,
     chipsDisabled,
     chooseSuggestion,
     clearCliSessionHistory,
@@ -2754,6 +3322,8 @@ const ChatPage = () => {
     getBubbleTheme,
     handleBubbleContextMenu,
     interruptRunningTurn: stopActiveAgentTurn,
+    fanOutLegs,
+    stopFanOutLeg,
     handleContextToHere,
     handleSaveSummary,
     handleToggleSummaryContext,
@@ -2761,6 +3331,10 @@ const ChatPage = () => {
     hiddenSummaryIds,
     hydrateError,
     isApiAgent,
+    isRemoteBackedTeam,
+    navbarCapabilities,
+    hideUnsupportedAgentPicker: navbarPickerPrefs.hideUnsupportedAgentPicker,
+    hideUnsupportedSessionPicker: navbarPickerPrefs.hideUnsupportedSessionPicker,
     isHerdrSeat,
     isStatusRole,
     jumpToPrOpener,
@@ -2780,6 +3354,7 @@ const ChatPage = () => {
     restoreNotice,
     retryCliSession,
     saveEditedMessage,
+    toggleMessageReaction,
     selectedAgent,
     selectedAgentName,
     selectedBlueprint,
@@ -2798,6 +3373,9 @@ const ChatPage = () => {
     settingsTargetForProvider,
     showCliSessionRecovery,
     showSupportJourneyChips,
+    showGettingStartedFlow,
+    gettingStartedFlow,
+    gettingStartedChips,
     skillCatalog,
     startFreshCliSession,
     streamingMessage,
@@ -2821,8 +3399,13 @@ const ChatPage = () => {
     applyApiRoutingChange,
     applyCliRoutingChange,
     applyRemoteRoutingChange,
+    capabilityCatalog: seatCapabilitiesQuery.data ?? null,
+    warnBeforeEngineSwitch,
     applyTeamMemberSessionParam,
     availableCliModels,
+    // #1356: API/LiteLLM profile ids — the foreign namespace a CLI seat must
+    // never offer (renderRoutingPicker forwards this to NavbarRoutingPicker).
+    foreignModelIds: [...apiProfileModelIds],
     bindingAgentId,
     cliModelWarning,
     cliModelsQuery,
@@ -2856,6 +3439,13 @@ const ChatPage = () => {
     resumeComposerSession,
     saveAgentRemoteBinding,
     selectedModelId,
+    companyRouteSource:
+      isApiAgent &&
+      companyRouteQuery.data?.applied &&
+      companyRouteQuery.data.model &&
+      selectedModelId === companyRouteQuery.data.model.trim()
+        ? companyRouteQuery.data.source
+        : '',
     selectedRemoteId,
     sessionFromUrl,
     setComposerSessionsOpen,
@@ -2906,6 +3496,14 @@ const ChatPage = () => {
     handleComposerPaste,
     handleInputChange,
     handleMic,
+    handleMicPointerDown,
+    handleMicPointerUp,
+    handleMicPointerCancel,
+    voiceNoteRecording,
+    voiceNoteOffer,
+    sendVoiceNote,
+    cancelVoiceNote,
+    chooseVoiceNoteTranscription,
     handleSelectSlashItem,
     handleSend,
     hasSendableDraft,
@@ -2914,6 +3512,18 @@ const ChatPage = () => {
     // #1070: Send-now mirrors the composer's Enter-on-empty contract —
     // interrupt the running turn; the drain effect promotes the queued row.
     onSendNow: interruptRunningTurn,
+    // #1232: per-row immediate send — promote the picked row to the queue
+    // head, then interrupt if a turn is in flight so the drain sends it now.
+    // Other queued rows stay queued (out-of-order send without dropping).
+    onSendQueuedImmediately: useCallback(
+      (id: string) => {
+        queued.moveToTop(id)
+        if (generationIsInFlight(messages, awaitingAssistant)) {
+          interruptRunningTurn()
+        }
+      },
+      [queued, messages, awaitingAssistant, interruptRunningTurn],
+    ),
     pendingAttachments,
     pluginsPanelOpen,
     plusOpen,
@@ -2944,6 +3554,7 @@ const ChatPage = () => {
     CliSessionSwitcher,
     ComputerControlStub,
     OPEN_SETTINGS_EVENT,
+    Folder,
     PanelLeft,
     Pencil,
     PersonaRoster,
@@ -2956,9 +3567,12 @@ const ChatPage = () => {
     cliRemoteSession,
     generationsOpen,
     headerFaceAgentId,
+    headerSeat,
+    headerGroupMembers,
     headerFaceAvatarSrc,
     headerRole,
     headerRoleLabel,
+    headerWorking,
     identityTitleRef,
     isChiefOfStaff,
     isExampleRole,
@@ -2979,6 +3593,9 @@ const ChatPage = () => {
     teamChatMemberId,
     teamDeclaredRoster,
     workspaceSubtitle,
+    workspaceSubtitleDisplay,
+    workspaceFolderEditable,
+    workspaceFolderPickerSeat,
     wsRef,
     COPY_EMPTY_MESSAGE,
     COPY_EMPTY_TITLE,
@@ -3020,21 +3637,27 @@ const ChatPage = () => {
     ChatMessageList,
     ConsumerPills,
     DefaultLlmTip,
+    HostCliTip,
     RoleAgentTip,
+    VanillaSetupTip: vanillaTipNode,
     composerInsetCustomProperty,
     composerInsetPx,
     dismissDefaultLlmTip,
+    dismissHostCliTip,
     dismissRoleTip,
     handleTranscriptScroll,
+    hostCliTipName,
     ircGutterDragging,
     ircGutterPx,
     isRemoteAgent,
+    neverShowHostCliTip,
     onIrcRailDoubleClick,
     onIrcRailPointerDown,
     onIrcRailPointerMove,
     onIrcRailPointerUp,
     scrollBoxRef,
     showDefaultLlmTip,
+    showHostCliTip,
     showRoleTip,
     statusLabel,
     renderRoutingPicker,
@@ -3042,11 +3665,41 @@ const ChatPage = () => {
 
   return (
     <div className="os-chat flex h-full min-h-0 w-full flex-col">
-      {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
-          header's box (the flyout is an absolutely-positioned child of the
-          picker inside this header), leaving only its first row reachable.
-          Titles still clamp in `.os-navbar-identity-label`. */}
-      <ChatHeader {...allChatScope} />
+      {/* Mounted-but-hidden only while it holds focus (gear restore); otherwise
+          the header is unmounted so no stale identity is queryable. */}
+      <div ref={headerWrapRef} hidden={showChatHeader ? undefined : true}>
+        {renderChatHeader && (
+        <>
+        {activeRemoteOffline && (
+          // #1196: warn before the send fails, not after — the backing gateway
+          // for this seat is unreachable right now.
+          <div
+            role="alert"
+            className="alert alert-warning py-2 px-3 text-sm rounded-none"
+            data-testid="remote-offline-banner"
+          >
+            <span className="min-w-0 flex-1">
+              Remote backend <strong>{selectedRemote?.title || selectedRemote?.id}</strong> appears
+              to be offline. Message delivery or streaming may fail.
+            </span>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline"
+              data-testid="remote-offline-manage"
+              onClick={() => openSettingsSheet({ section: 'remotes' })}
+            >
+              Manage Remotes
+            </button>
+          </div>
+        )}
+        {/* #445: no `overflow-hidden` here. It clipped the routing flyout to the
+            header's box (the flyout is an absolutely-positioned child of the
+            picker inside this header), leaving only its first row reachable.
+            Titles still clamp in `.os-navbar-identity-label`. */}
+        <ChatHeader {...allChatScope} />
+        </>
+        )}
+      </div>
       <ChatTranscriptShell {...allChatScope} />
       <ChatOverlays {...allChatScope} />
 

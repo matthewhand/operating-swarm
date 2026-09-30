@@ -1,6 +1,6 @@
-# Open Swarm Roadmap
+# Operating Swarm Roadmap
 
-Open Swarm is an agent framework — a derivative of OpenAI's experimental
+Operating Swarm is an agent framework — a derivative of OpenAI's experimental
 [Swarm](https://github.com/openai/swarm) concept, since migrated to the
 [openai-agents SDK](https://github.com/openai/openai-agents-python) — providing
 blueprints (reusable multi-agent workflows), a Django REST API

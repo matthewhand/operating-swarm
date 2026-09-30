@@ -1,5 +1,5 @@
 import { Select } from './DaisyUI'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 import {
   ADD_REMOTE_VALUE,
   configuredRemotes,

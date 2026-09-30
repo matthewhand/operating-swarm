@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  COMPACT_NO_API_REASON,
   COMPOSER_MENU_ITEM_IDS,
   composerMenuCapabilities,
 } from '../composerMenu'
@@ -19,13 +18,13 @@ describe('composerMenu (#550)', () => {
     expect(composerMenuCapabilities({}).compact.enabled).toBe(false)
   })
 
-  it('keeps a disabled item visible with its reason rather than dropping it', () => {
-    // #636: a CLI seat without a default API names the missing API as the
-    // reason (the old provider-transcript copy was the wrong explanation).
-    const cli = composerMenuCapabilities({ isCli: true })
+  it('#1230: a CLI seat carries no usable Compact and no "not available" state', () => {
+    // The reason string may exist for payload consumers, but the UI never
+    // renders it: `enabled === false` means the item is absent (see the dock
+    // test). Pin the fact that no CLI opt-in can flip it on any more.
+    const cli = composerMenuCapabilities({ isCli: true, cliCompactCapable: true })
     expect(cli.compact.enabled).toBe(false)
-    expect(cli.compact.reason).toBe(COMPACT_NO_API_REASON)
-    expect(cli.compact.reason.length).toBeGreaterThan(20)
+    expect(cli.compact.reason).toMatch(/api-only/i)
   })
 
   it('scopes Add files to non-CLI, non-remote seats — the same rule the input uses', () => {

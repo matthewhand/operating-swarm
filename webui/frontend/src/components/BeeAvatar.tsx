@@ -5,6 +5,7 @@ import {
   type BeeSpec,
 } from '../lib/beeAvatar'
 import { seededMotionDelays } from '../lib/avatarMotion'
+import { useAvatarMotionEnabled } from '../lib/motionPreference'
 
 export type BeeEyeState = 'idle' | 'active'
 
@@ -37,11 +38,12 @@ export default function BeeAvatar({
   // honoured by both the JS scheduler here and the CSS blocks in index.css.
   const [blinking, setBlinking] = useState(false)
   const delays = useMemo(() => seededMotionDelays(agentId, 'bee'), [agentId])
+  // #1244: the shared preference also covers the explicit opt-in, so a host
+  // that broadcasts reduced motion can still animate avatars when the operator
+  // asks for it (CSS loops read the same `data-avatar-motion` gate).
+  const motionEnabled = useAvatarMotionEnabled()
   useEffect(() => {
-    const media = typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-reduced-motion: reduce)')
-      : null
-    if (media?.matches) return
+    if (!motionEnabled) return
     let t: ReturnType<typeof setTimeout>
     const schedule = () => {
       const [lo, hi] = [2500, 5500]
@@ -53,7 +55,7 @@ export default function BeeAvatar({
     }
     schedule()
     return () => clearTimeout(t)
-  }, [])
+  }, [motionEnabled])
 
   return (
     <svg

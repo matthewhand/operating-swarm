@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Open Swarm · Multi-Tier Safety &amp; Sandbox Isolation Stack</title>
+  <title>Operating Swarm · Multi-Tier Safety &amp; Sandbox Isolation Stack</title>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -49,12 +49,12 @@
 </head>
 <body>
   <div class="frame">
-    <p class="eyebrow">Layer Stack · Open Swarm</p>
+    <p class="eyebrow">Layer Stack · Operating Swarm</p>
     <h1>Multi-Tier Safety &amp; Sandbox Isolation Stack</h1>
 
     <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="safety-stack-title safety-stack-desc">
       <title id="safety-stack-title">Multi-Tier Safety &amp; Sandbox Isolation Stack</title>
-      <desc id="safety-stack-desc">Layer stack diagram illustrating compensating defense tiers: User Policy Gate, Safety Interceptor, Execution Sandbox Dispatcher, and Egress Governance.</desc>
+      <desc id="safety-stack-desc">Layer stack diagram illustrating compensating defense tiers: per-agent tool policy, the safety/tool gate, execution sandbox backends (LangChain harness, Daytona remote sandbox, local subprocess fallback), and egress governance with redaction and audit.</desc>
       <defs>
         <pattern id="grid-dots-safety" width="20" height="20" patternUnits="userSpaceOnUse">
           <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
@@ -125,17 +125,17 @@
         <g transform="translate(16, 46)">
           <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
           <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">LangChain Sandbox Harness</text>
-          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Issue #195 tool execution wrapper</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">langchain_repl · sandbox tools</text>
         </g>
         <g transform="translate(320, 46)">
           <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
-          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Docker &amp; Container Isolation</text>
-          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Rootless container filesystem</text>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Daytona Remote Sandbox</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">daytona · DAYTONA_API_KEY</text>
         </g>
         <g transform="translate(624, 46)">
           <rect width="280" height="54" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
-          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">OpenShell / E2B Backend</text>
-          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">Remote sandbox ephemeral microVM</text>
+          <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Local Subprocess Fallback</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">docker / e2b fall back to host</text>
         </g>
       </g>
 
@@ -148,7 +148,7 @@
         <g transform="translate(16, 44)">
           <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
           <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Token &amp; Secret Redaction</text>
-          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">redact.py regex sanitization</text>
+          <text x="14" y="38" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">utils/redact.py · [REDACTED]</text>
         </g>
         <g transform="translate(320, 44)">
           <rect width="280" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>

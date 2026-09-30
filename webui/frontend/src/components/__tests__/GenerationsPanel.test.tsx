@@ -89,9 +89,10 @@ describe('GenerationsPanel (#224)', () => {
     expect(body).toHaveTextContent('export const x = 1')
   })
 
-  it('Raw view fetches the model context and renders it read-only', async () => {
+  it('Raw view fetches the model context and renders it read-only (#1354: open by default)', async () => {
     renderPanel()
-    fireEvent.click(screen.getByTestId('generations-raw-toggle'))
+    // #1354: Raw is expanded by default — no toggle click needed.
+    expect(screen.getByTestId('generations-raw-toggle')).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => {
       expect(screen.getByTestId('generations-raw-view')).toBeTruthy()
     })
@@ -110,7 +111,7 @@ describe('GenerationsPanel (#224)', () => {
       vi.fn().mockResolvedValue({ ok: false, status: 500 } as Response),
     )
     renderPanel()
-    fireEvent.click(screen.getByTestId('generations-raw-toggle'))
+    // #1354: Raw is open by default, so the fetch already ran on mount.
     expect(await screen.findByTestId('generations-raw-error')).toHaveTextContent(
       'HTTP 500',
     )

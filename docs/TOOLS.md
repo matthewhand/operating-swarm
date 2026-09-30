@@ -1,6 +1,6 @@
 # Tools & the injectable Filesystem Toolset
 
-Open Swarm blueprints get capabilities three ways today:
+Operating Swarm blueprints get capabilities three ways today:
 
 | Mechanism | Where | Used by |
 |---|---|---|

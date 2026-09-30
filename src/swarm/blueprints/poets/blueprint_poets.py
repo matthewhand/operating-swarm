@@ -289,7 +289,7 @@ class PoetsBlueprint(TeamKindBase):
             "agent-as-tool for collaboration, and MCPs for creative augmentation."
         ),
         "version": "1.2.0", # Refactored version
-        "author": "Open Swarm Team (Refactored)",
+        "author": "Operating Swarm Team (Refactored)",
         "tags": ["poetry", "writing", "collaboration", "multi-agent", "sqlite", "mcp"],
         "required_mcp_servers": [ # List all potential servers agents might use
             "memory", "filesystem", "mcp-shell", "sqlite", "sequential-thinking",

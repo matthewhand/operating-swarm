@@ -15,7 +15,7 @@ import { REMOTE_THEME_FACES, monogramFaceFor, remoteThemeFace } from '../RemoteT
 describe('#747 registry', () => {
   it('covers the first-class remote platforms', () => {
     expect(Object.keys(REMOTE_THEME_FACES).sort()).toEqual(
-      ['anythingllm', 'flowise', 'letta', 'n8n', 'openwebui'].sort(),
+      ['anythingllm', 'flowise', 'n8n', 'openwebui'].sort(),
     )
     for (const [, face] of Object.entries(REMOTE_THEME_FACES)) {
       expect(face.label.length).toBeGreaterThan(0)
@@ -24,9 +24,10 @@ describe('#747 registry', () => {
   })
 
   it('resolves kinds case-insensitively and rejects unknowns', () => {
-    expect(remoteThemeFace('Letta')?.label).toBe('Letta')
+    expect(remoteThemeFace('OpenWebUI')?.label).toBe('Open WebUI')
     expect(remoteThemeFace('AnythingLLM')?.label).toBe('AnythingLLM')
     expect(remoteThemeFace('herdr')).toBeUndefined()
+    expect(remoteThemeFace('letta')).toBeUndefined()
     expect(remoteThemeFace(null)).toBeUndefined()
   })
 
@@ -42,7 +43,7 @@ function renderAvatar(props: Record<string, unknown>) {
 
 describe('#747 AgentAvatar remote theme resolution', () => {
   it('renders the themed face for a known remote kind', () => {
-    const { container } = renderAvatar({ remoteKind: 'letta' })
+    const { container } = renderAvatar({ remoteKind: 'openwebui' })
     expect(container.querySelector("[data-avatar-theme='remote']")).not.toBeNull()
     expect(container.querySelector('.os-remote-face')).not.toBeNull()
   })
@@ -72,7 +73,7 @@ describe('#747 AgentAvatar remote theme resolution', () => {
 
   it('a custom uploaded face wins over the themed face', () => {
     const { container } = renderAvatar({
-      remoteKind: 'letta',
+      remoteKind: 'openwebui',
       src: 'data:image/png;base64,iVBORw0KGgo=',
     })
     expect(container.querySelector("[data-avatar-theme='remote']")).toBeNull()

@@ -1,6 +1,6 @@
-# Open Swarm — Bee Avatar Suite
+# Operating Swarm — Bee Avatar Suite
 
-Comprehensive suite of 12 vector SVG default avatar icons for Open Swarm agents and user profiles.
+Comprehensive suite of 12 vector SVG default avatar icons for Operating Swarm agents and user profiles.
 
 ## Summary
 
@@ -8,7 +8,7 @@ Comprehensive suite of 12 vector SVG default avatar icons for Open Swarm agents 
 - **Full Profile Bees:** 6
 - **Close-up Bee Faces:** 6
 - **Format:** Pure SVG (64x64 viewBox, scalable vector, zero runtime dependencies)
-- **Palette:** Open Swarm dark theme badge background (`#1D2226` / `#17212A`), signature golds (`#EFAB22`, `#EBA222`, `#F4C400`, `#C48A1C`), and translucent flight wings.
+- **Palette:** Operating Swarm dark theme badge background (`#1D2226` / `#17212A`), signature golds (`#EFAB22`, `#EBA222`, `#F4C400`, `#C48A1C`), and translucent flight wings.
 
 ---
 
@@ -38,7 +38,7 @@ Comprehensive suite of 12 vector SVG default avatar icons for Open Swarm agents 
 
 ---
 
-## Serving & Usage in Open Swarm
+## Serving & Usage in Operating Swarm
 
 ### 1. SPA WebUI (Static Public Assets)
 The icons are served directly at `/avatars/bee/<filename>` (e.g. `/avatars/bee/bee-profile-worker.svg`).

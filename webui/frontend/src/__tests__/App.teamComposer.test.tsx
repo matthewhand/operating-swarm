@@ -3,15 +3,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import App from '../App'
 
-function renderApp() {
+async function renderApp() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: the chat surface is a lazy chunk now; wait for the first painted
+  // frame instead of racing the dynamic import.
+  await screen.findByRole('textbox', { name: 'Chat message' })
+  return view
 }
 
 describe('SPA + team composer entry', () => {
@@ -32,7 +36,7 @@ describe('SPA + team composer entry', () => {
   })
 
   it('opens the overlay from + without restoring a Home/Chat top nav', async () => {
-    renderApp()
+    await renderApp()
 
     expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Home' })).toBeNull()
@@ -42,8 +46,8 @@ describe('SPA + team composer entry', () => {
     ).toBeNull()
 
     fireEvent.click(screen.getByTestId('os-teams-button'))
-    // The #892 redesign retitled the dialog to 'Manage Teams' (role entry).
-    expect(await screen.findByRole('dialog', { name: /manage teams/i })).toBeInTheDocument()
+    // #1222: the dialog is the Rigs composer now.
+    expect(await screen.findByRole('dialog', { name: /group chats/i })).toBeInTheDocument()
     expect(screen.getByTestId('team-drop-zone')).toHaveTextContent(/drop agents here/i)
     expect(screen.getByTestId('team-cos-select')).toBeDisabled()
     expect(screen.getAllByText(/add agents first/i).length).toBeGreaterThan(0)

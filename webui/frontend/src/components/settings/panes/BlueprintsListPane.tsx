@@ -16,6 +16,7 @@ import {
 import { catalogLabel } from '../../../lib/supportAgent'
 import { customToCatalogBlueprint, EMPTY_BLUEPRINTS } from '../shared'
 import { BlueprintEditorPane } from './BlueprintEditorPane'
+import { LibraryScopeBar } from '../../LibraryScopeBar'
 
 export function BlueprintsListPane({
   selectedId,
@@ -60,6 +61,11 @@ export function BlueprintsListPane({
           Catalog recipes this instance can assign to an agent. Select one to
           inspect its Python — this is not Remotes or other instance Settings.
         </p>
+        <LibraryScopeBar
+          surface="library"
+          itemKey={selectedId || undefined}
+          itemTitle={selectedId || undefined}
+        />
       </div>
       {blueprintsQuery.isPending ? (
         <p className="text-sm text-base-content/60">Loading blueprints…</p>

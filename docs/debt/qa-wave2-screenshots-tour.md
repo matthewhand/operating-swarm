@@ -107,7 +107,7 @@ aim at REQ-5 large Home cards.
 
 | Stem | Why retake | After recapture, captions must say |
 | --- | --- | --- |
-| `landing` + `mobile/landing` | `/` is Chat + Grok rail, not a Dashboard catalog. PNG still sells rainbow Quick Actions + six-link top nav. `README.md` embeds `landing.png` as “Open Swarm dashboard”. | Left rail (`aria-label="Agent list"`) + selected-agent chat. No Home catalog. No top-nav phrase. No five-tab dock. |
+| `landing` + `mobile/landing` | `/` is Chat + Grok rail, not a Dashboard catalog. PNG still sells rainbow Quick Actions + six-link top nav. `README.md` embeds `landing.png` as “Operating Swarm dashboard”. | Left rail (`aria-label="Agent list"`) + selected-agent chat. No Home catalog. No top-nav phrase. No five-tab dock. |
 | `spa-chat` + `mobile/spa-chat` | Visible **Connected** pill + top nav + no rail. Product forbids a visible `^Connected$` node. Healthy WS is silent (`statusLabel === ''`). | Rail + composer. No standing Connected badge. Empty state is “Message {agent}”, not “Connected and ready”. |
 | `settings` + `mobile/settings` | Pixels are 36/30/83%; captions lock 0 of 0. Nav in the PNG is pre-Chat Django. | **Whatever the isolated capture server actually paints** (see Settings meter). Also current Django chrome (Chat in nav + Agents pane). |
 | `spa-settings` + `mobile/spa-settings` | Same populated meter under Redirected banner; captions claim 0 of 0. | Keep the Redirected banner (still honest). Meter + chrome must match the new `settings` twin, not “empty 0 of 0”. |
@@ -167,7 +167,7 @@ not the old lockfile.
 | `docs/GUIDED_TOUR.md` Settings + `spa-settings` | Empty meter **0 of 0** | Match recaptured meter + current Django chrome. |
 | `docs/USER_JOURNEY.md` | Date **2026-08-19**; `/` is a lightweight SPA dashboard; top nav phrase; **Connected** after login; Settings **0 of 0**. | Same as tour. Keep redirect + `fs_introspect` + seeded `resp_journey_seed` honesty if those pixels still hold. |
 | `docs/SCREENSHOTS.md` | Every journey row dated **2026-08-19** and marked **current**. `landing` / `spa-chat` / settings / mobile dock / **Connected** copy. | New date. `landing` row must stop saying “React SPA dashboard” + Quick Actions + Home·Chat·… `spa-chat` must stop hardclaiming a visible **Connected** pill. Settings rows must stop claiming 0 of 0 unless the new PNG is actually empty. |
-| `README.md` | `<img … landing.png alt="Open Swarm dashboard">` | Alt text = Grok rail + chat (or whatever the new frame is). |
+| `README.md` | `<img … landing.png alt="Operating Swarm dashboard">` | Alt text = Grok rail + chat (or whatever the new frame is). |
 | `FEATURE_STATUS.md` API/ws row | “Journey `spa-chat.png` shows **Connected** after login” | Grok-chrome row already says “no standing Connected”. Align this leftover. |
 | `docs/websocket_chat.md` | “checked-in desktop/mobile frames (2026-08-19) show **Connected**” | Badge table can stay as protocol language. Drop the claim that the **PNG** shows a visible Connected pill. |
 

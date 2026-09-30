@@ -4,10 +4,13 @@ import pytest
 
 from swarm.core.team_rosters import (
     MEMBER_KINDS,
+    add_member_if_absent,
     blueprint_id_for_team_target,
+    get_roster,
     normalize_member,
     normalize_roster,
     normalize_tool,
+    remove_members_with_source,
     reset_team_rosters,
     serialize_roster,
     upsert_roster,
@@ -73,6 +76,56 @@ def test_member_display_name_is_preserved():
     )
     assert stored["members"][0]["name"] == "OpenMousBot Remote"
     assert stored["members"][0]["name"] != "OMB"
+
+
+def test_add_member_if_absent_is_idempotent():
+    upsert_roster({"id": "eng", "name": "Engineering", "members": []})
+    first = add_member_if_absent(
+        "eng", {"id": "bug-repro", "name": "Bug Reproduction", "kind": "api"}
+    )
+    second = add_member_if_absent(
+        "eng", {"id": "bug-repro", "name": "Bug Reproduction", "kind": "api"}
+    )
+    assert [row["id"] for row in first["members"]] == ["bug-repro"]
+    assert [row["id"] for row in second["members"]] == ["bug-repro"]
+
+
+def test_remove_members_with_source_keeps_other_members():
+    upsert_roster(
+        {
+            "id": "eng",
+            "name": "Engineering",
+            "members": [
+                {"id": "pat", "name": "Pat", "kind": "api", "role": "engineer"},
+                {
+                    "id": "bug-repro",
+                    "name": "Bug Reproduction",
+                    "kind": "api",
+                    "role": "default",
+                    "source": "org-library:bug-repro",
+                },
+            ],
+        }
+    )
+    upsert_roster(
+        {
+            "id": "ops",
+            "name": "Ops",
+            "members": [
+                {
+                    "id": "bug-repro",
+                    "name": "Bug Reproduction",
+                    "kind": "api",
+                    "role": "default",
+                    "source": "org-library:bug-repro",
+                }
+            ],
+        }
+    )
+    assert remove_members_with_source("org-library:bug-repro") == 2
+    assert [row["id"] for row in get_roster("eng")["members"]] == ["pat"]
+    assert get_roster("ops")["members"] == []
+    assert remove_members_with_source("org-library:bug-repro") == 0
 
 
 def test_role_engineer_persists_on_member():

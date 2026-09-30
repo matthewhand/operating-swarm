@@ -23,7 +23,7 @@ import {
 describe('formatDropdownStatus', () => {
   it('names from → to for every chat dropdown kind', () => {
     expect(formatDropdownStatus('team', 'All members', 'Codey (agent/coder)')).toBe(
-      'Team target: All members → Codey (agent/coder)',
+      'Rig target: All members → Codey (agent/coder)',
     )
     expect(formatDropdownStatus('cli', 'antigravity', 'grok')).toBe('CLI: antigravity → grok')
     expect(formatDropdownStatus('model', 'gpt-4', 'grok-4')).toBe('Model: gpt-4 → grok-4')

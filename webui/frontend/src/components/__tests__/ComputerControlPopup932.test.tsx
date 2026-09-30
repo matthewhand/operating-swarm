@@ -4,10 +4,11 @@
  * A. Every actionable row is a bordered button (no bare labels).
  * B. The screen-session row sits ABOVE the tab strip and persists across
  *    tab switches.
- * C. Agent customisation inline: name (all kinds) +, for API agents,
- *    system instruction with an AI-writer overlay and a provider/model pick.
+ *
+ * #1447 superseded C: agent customisation left this pane. Config lives on
+ * `AgentConfigSidepane`; this popup keeps Routines + Test schedule.
  */
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ComputerControlStub } from '../ComputerControlStub'
@@ -50,41 +51,20 @@ const AGENT = {
 
 describe('#932 computer popup rework', () => {
   let routines: RoutineRow[]
-  let patchBody: Record<string, unknown> | null
 
   beforeEach(() => {
     routines = []
-    patchBody = null
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input)
-        const method = (init?.method || 'GET').toUpperCase()
-        if (url.includes('/assist-draft')) {
-          return jsonResponse({ status: 'success', draft: 'Drafted instruction by AI.' })
-        }
-        if (url.includes('/llm-profiles')) {
-          return jsonResponse({
-            object: 'llm_profiles',
-            profiles: [
-              { id: 'openai/gpt-5-mini', owned_by: 'openai', model: 'gpt-5-mini' },
-              { id: 'anthropic/claude-4', owned_by: 'anthropic', model: 'claude-4' },
-            ],
-            default_llm_profile: 'openai/gpt-5-mini',
-            warnings: [],
-          })
-        }
-        if (url.includes('/blueprints/custom/charles') && method === 'PATCH') {
-          patchBody = init?.body ? JSON.parse(String(init.body)) : {}
-          return jsonResponse({ object: 'blueprint', id: 'charles', ...patchBody })
-        }
         if (url.includes('/test-schedules/status')) {
           return jsonResponse({ object: 'test_schedule_status', failure_count: 0, failures: [] })
         }
-        if (url.includes('/test-schedules') && method === 'GET') {
+        if (url.includes('/test-schedules')) {
           return jsonResponse({ object: 'test_schedule_list', schedules: [], failure_count: 0 })
         }
-        if (url.includes('/routines') && method === 'GET') {
+        if (url.includes('/routines')) {
           return jsonResponse({ object: 'routine_list', agent_id: AGENT.id, routines })
         }
         return jsonResponse({ data: [] })
@@ -125,72 +105,14 @@ describe('#932 computer popup rework', () => {
     expect(within(dialog).getByTestId('computer-session-row')).toBeInTheDocument()
   })
 
-  it('C: an API agent exposes name, system instruction + writer, and provider/model', async () => {
+  it('#1447: the Agent tab is gone; Routines and Test schedule remain', async () => {
     const dialog = await openPane({ ...AGENT })
-    fireEvent.click(within(dialog).getByRole('tab', { name: /Agent/i }))
-    const nameField = await within(dialog).findByLabelText('Agent name')
-    expect(nameField).toHaveValue('Charles Prime')
-    const instruction = within(dialog).getByLabelText('System instruction')
-    expect(instruction).toHaveValue('You are Charles.')
-    // AI-writer overlay drafts and applies back only on Apply.
-    const writerBtn = within(dialog).getByRole('button', { name: /AI (draft|writer)/i })
-    await act(async () => {
-      fireEvent.click(writerBtn)
-    })
-    const overlay = await within(dialog).findByTestId('ai-writer-overlay')
-    expect(await within(overlay).findByText('Drafted instruction by AI.')).toBeInTheDocument()
-    fireEvent.click(within(overlay).getByRole('button', { name: /^Apply$/ }))
-    await waitFor(() =>
-      expect(within(dialog).getByLabelText('System instruction')).toHaveValue(
-        'Drafted instruction by AI.',
-      ),
-    )
-    // Provider/model pick is present for API agents.
-    expect(within(dialog).getByLabelText('Provider / model')).toBeInTheDocument()
-    // Save persists everything through PATCH.
-    fireEvent.change(within(dialog).getByLabelText('Agent name'), {
-      target: { value: 'Charles Prime X' },
-    })
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: /^Save agent$/ }))
-    })
-    await waitFor(() => expect(patchBody).not.toBeNull())
-    expect(patchBody).toMatchObject({
-      name: 'Charles Prime X',
-      instructions: 'Drafted instruction by AI.',
-    })
-  })
-
-  it('C: non-API agents do not get the instruction/provider fields', async () => {
-    const dialog = await openPane({ ...AGENT, kind: 'cli' })
-    fireEvent.click(within(dialog).getByRole('tab', { name: /Agent/i }))
-    expect(await within(dialog).findByLabelText('Agent name')).toBeInTheDocument()
+    const tabs = within(dialog).getAllByRole('tab')
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Routines', 'Test schedule'])
+    expect(within(dialog).queryByRole('tab', { name: /^Agent$/i })).toBeNull()
+    expect(within(dialog).queryByTestId('agent-customisation-pane')).toBeNull()
+    expect(within(dialog).queryByLabelText('Agent name')).toBeNull()
     expect(within(dialog).queryByLabelText('System instruction')).toBeNull()
-    expect(within(dialog).queryByLabelText('Provider / model')).toBeNull()
-  })
-
-  it('#719: sandbox opt-in select persists through PATCH and can clear', async () => {
-    const dialog = await openPane({ ...AGENT })
-    fireEvent.click(within(dialog).getByRole('tab', { name: /Agent/i }))
-    const select = await within(dialog).findByTestId('sandbox-opt-in')
-    expect(select).toHaveValue('settings')
-    // Opt in to Daytona → PATCH carries the provider choice.
-    fireEvent.change(select, { target: { value: 'daytona' } })
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: /^Save agent$/ }))
-    })
-    await waitFor(() => expect(patchBody).not.toBeNull())
-    expect((patchBody as Record<string, unknown>).sandbox).toEqual({ provider: 'daytona' })
-    // Back to 'Follow global Settings' → the clear sentinel is sent.
-    fireEvent.change(select, { target: { value: 'settings' } })
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: /^Save agent$/ }))
-    })
-    await waitFor(() =>
-      expect((patchBody as Record<string, unknown>).sandbox).toEqual({
-        provider: 'none',
-        _clear: true,
-      }),
-    )
+    expect(within(dialog).getByRole('heading', { name: 'Routines' })).toBeInTheDocument()
   })
 })

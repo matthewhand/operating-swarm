@@ -6,6 +6,12 @@ PUT    /v1/llm-profiles/     same as POST
 PATCH  /v1/llm-profiles/     persist settings.default_llm_profile (+ override)
 POST   /v1/llm-profiles/test live key/model probe (REQ-854). Never persists.
 
+#1745: every profile carries a ``model_type`` (``chat`` / ``categorizer``).
+System1 is a first-class type here, not a hidden custom base URL. A
+``categorizer`` profile is a gate and can never become the chat default or a
+chat task-class route, so the API refuses those writes instead of accepting a
+mis-assignment that would only fail at request time.
+
 Permissions follow ``api_permission_classes()`` — never guest-only. Responses
 never include api keys or other secrets.
 """
@@ -22,6 +28,13 @@ from rest_framework.views import APIView
 
 from swarm.auth import api_permission_classes
 from swarm.core import llm_task_routing as routing
+from swarm.core.llm_provider import (
+    MODEL_TYPE_CATEGORIZER,
+    MODEL_TYPES,
+    is_categorizer_model_type,
+    model_type_for_provider,
+)
+from swarm.core.llm_task_routing import model_type_for_profile
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +49,36 @@ def _truthy(raw) -> bool:
     return bool(raw)
 
 
+def _spec_model_type(spec: dict) -> str:
+    """The #1745 model type an upsert payload is asking for."""
+    raw = spec.get(routing.MODEL_TYPE_KEY)
+    if raw is None or not str(raw).strip():
+        for legacy in routing._LEGACY_MODEL_TYPE_KEYS:
+            if str(spec.get(legacy) or "").strip():
+                raw = spec.get(legacy)
+                break
+    return model_type_for_provider(spec.get("provider"), raw)
+
+
+def _categorizer_refusal(profile, what: str) -> dict | None:
+    """400 body when ``profile`` is a #1745 System1 categorizer, else ``None``."""
+    if not isinstance(profile, dict):
+        return None
+    if not is_categorizer_model_type(model_type_for_profile(profile)):
+        return None
+    return {
+        "error": (
+            f"{what} resolves to a System1 categorizer "
+            f"(model_type={MODEL_TYPE_CATEGORIZER!r}). Categorizers gate seats; "
+            "they cannot serve chat or a chat task class."
+        ),
+        "code": "categorizer_not_chat",
+    }
+
+
 def _upsert_named_profile(body: dict):
+    from swarm.core.config_ownership import ConfigOwnershipError
+
     nested = body.get("profile") if isinstance(body.get("profile"), dict) else None
     src = nested if nested is not None else body
     profile_id = str(src.get("id") or src.get("name") or body.get("id") or "").strip()
@@ -54,6 +96,16 @@ def _upsert_named_profile(body: dict):
     set_default = _truthy(src.get("set_default") if "set_default" in src else body.get("set_default"))
     if str(body.get("default_llm_profile") or "").strip() == profile_id:
         set_default = True
+    # #1745: a System1 categorizer gates a seat; it is not a chat model. Refuse
+    # the default before it is written rather than leaving chat unroutable.
+    if set_default and is_categorizer_model_type(_spec_model_type(spec)):
+        raise ConfigOwnershipError(
+            f"{profile_id!r} is a System1 categorizer "
+            f"(model_type={MODEL_TYPE_CATEGORIZER!r}) and cannot be the default "
+            "chat model. Pick a chat LLM profile instead.",
+            status=400,
+            code="categorizer_not_default",
+        )
     return routing.persist_named_llm_profile(
         profile_id=profile_id,
         spec=spec,
@@ -101,6 +153,7 @@ class LlmProfilesView(APIView):
                     "warnings": ["Failed to load LLM profiles; using default."],
                     "routes": {},
                     "task_classes": list(routing.TASK_CLASSES),
+                    "model_types": list(MODEL_TYPES),
                     "list_models_source": "stub",
                     "cli_model_lists": [],
                 },
@@ -117,6 +170,7 @@ class LlmProfilesView(APIView):
                 "model": serializers.CharField(),
                 "base_url": serializers.CharField(required=False, allow_blank=True),
                 "provider": serializers.CharField(required=False, allow_blank=True),
+                "model_type": serializers.CharField(required=False, allow_blank=True),
                 "api_key": serializers.CharField(required=False, allow_blank=True),
                 "set_default": serializers.BooleanField(required=False),
             },
@@ -185,6 +239,26 @@ class LlmProfilesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # #1745: a System1 categorizer gates a seat. Neither the chat default nor
+        # a chat task class may point at one — refuse the write so a gate can
+        # never become the model a user's turn is routed to.
+        if default:
+            refusal = _categorizer_refusal(
+                routing.get_profile_dict(default, routing.load_swarm_config()),
+                f"default_llm_profile {default!r}",
+            )
+            if refusal is not None:
+                return Response(refusal, status=status.HTTP_400_BAD_REQUEST)
+        for cls, name in (task_map or {}).items():
+            if not str(name or "").strip():
+                continue
+            refusal = _categorizer_refusal(
+                routing.get_profile_dict(str(name), routing.load_swarm_config()),
+                f"task profile {name!r} for {cls}",
+            )
+            if refusal is not None:
+                return Response(refusal, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             cfg, path = routing.persist_llm_settings(
                 default_llm_profile=default,
@@ -210,7 +284,6 @@ class LlmProfilesView(APIView):
         payload = _payload(cfg)
         payload["persisted_to"] = str(path)
         return Response(payload)
-
 
 class LlmProfilesTestView(APIView):
     """POST /v1/llm-profiles/test — live provider probe. Never persists."""

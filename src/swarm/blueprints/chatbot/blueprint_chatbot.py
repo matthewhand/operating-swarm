@@ -5,9 +5,14 @@ import sys
 from pathlib import Path
 from typing import Any, ClassVar
 
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
+# NOTE: no module-scope load_dotenv() here. swarm/settings.py already calls
+# load_swarm_dotenv() at import, which reads BOTH the project-root .env and
+# the user-config .env and honours the documented precedence (process env
+# wins, never overwritten). Blueprint discovery imports every blueprint at
+# startup, so a per-blueprint load runs for every deployment -- and with
+# override=True it also stomps real shell/systemd env, which is how a
+# developer's user-config .env leaked API_AUTH_TOKEN into the test
+# suite (#1335).
 
 
 # Set logging to WARNING by default unless SWARM_DEBUG=1
@@ -158,16 +163,34 @@ class ChatbotBlueprint(ApiKindBase):
         logger.debug(f"Creating new Model instance for profile '{profile_name}'.")
         profile_data = dict(self.get_llm_profile(profile_name) or {})
         import os
-        from swarm.core.config_loader import named_profile_model
-        from swarm.core.llm_provider import is_openai_chat_provider, openai_sdk_provider
+        from swarm.core.config_loader import drop_unresolved_env_values, named_profile_model
+        from swarm.core.llm_provider import (
+            apply_provider_defaults,
+            is_openai_chat_provider,
+            openai_sdk_provider,
+            provider_owns_endpoint,
+        )
+        profile_data = apply_provider_defaults(profile_data)
         model_name = named_profile_model(self.config, profile_name, profile_data)
         if not model_name:
             model_name = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM")
         profile_data["model"] = model_name
-        if os.getenv("LITELLM_BASE_URL"):
-            profile_data["base_url"] = os.getenv("LITELLM_BASE_URL")
-        if os.getenv("LITELLM_API_KEY"):
-            profile_data["api_key"] = os.getenv("LITELLM_API_KEY")
+        # Vendor endpoints (Mistral) keep the URL and key just applied.
+        # Gateway env still redirects litellm / openai profiles.
+        if not provider_owns_endpoint(profile_data.get("provider")):
+            if os.getenv("LITELLM_BASE_URL"):
+                profile_data["base_url"] = os.getenv("LITELLM_BASE_URL")
+            if os.getenv("LITELLM_API_KEY"):
+                profile_data["api_key"] = os.getenv("LITELLM_API_KEY")
+        profile_data, missing_env = drop_unresolved_env_values(profile_data)
+        if missing_env:
+            names = ", ".join(missing_env)
+            logger.warning(
+                "LLM profile %r references %s, but that variable is not set; "
+                "ignoring those values.",
+                profile_name,
+                names,
+            )
         provider = profile_data.get("provider", "openai")
         if not is_openai_chat_provider(provider):
             raise ValueError(f"Unsupported provider: {provider}")
@@ -223,6 +246,10 @@ Use them responsibly when the user asks for file or system operations.
                 "Respond directly to the user's input in a conversational manner. "
                 "Do not call tools."
             )
+
+        from swarm.core.operator_profile import instructions_with_about_me
+
+        chatbot_instructions = instructions_with_about_me(chatbot_instructions)
 
         chatbot_agent = Agent(
             name="Chatbot",
@@ -301,19 +328,24 @@ Use them responsibly when the user asks for file or system operations.
                     border='╔'
                 )
                 await asyncio.sleep(0.09)
-        async for chunk in self._run_non_interactive(instruction, **kwargs):
+        async for chunk in self._run_non_interactive(instruction, messages=messages, **kwargs):
             yield chunk
         logger.info("ChatbotBlueprint run method finished.")
 
-    async def _run_non_interactive(self, instruction: Any, **kwargs) -> Any:
+    async def _run_non_interactive(self, instruction: Any, messages: list | None = None, **kwargs) -> Any:
         mcp_servers = kwargs.get("mcp_servers", [])
         agent = self.create_starting_agent(mcp_servers=mcp_servers)
+        # #1323: this runner forwards only the latest user turn. Keep the
+        # About me card on the agent instructions for this call.
+        from swarm.core.operator_profile import apply_operator_profile_to_agent
+
+        apply_operator_profile_to_agent(agent, messages)
 
         from agents import Runner
-        try:
-            timeout = float(os.getenv("SWARM_CHATBOT_RUN_TIMEOUT", "20"))
-        except (TypeError, ValueError):
-            timeout = 20.0
+
+        from swarm.core.agent_run_timeout import agent_run_timeout
+
+        timeout = agent_run_timeout(self.config)
         try:
             result = await asyncio.wait_for(Runner.run(agent, instruction), timeout=timeout)
             response = getattr(result, 'final_output', str(result))

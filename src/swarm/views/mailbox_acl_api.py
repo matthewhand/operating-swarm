@@ -16,6 +16,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from swarm.core.activity_log import bound_activity_actor, request_actor_id
 from swarm.core.agent_mailbox_acl import (
     delete_agent_policy,
     delete_role_policy,
@@ -98,7 +99,8 @@ class MailboxAclAgentAPIView(APIView):
         body = request.data if isinstance(request.data, dict) else {}
         role = _agent_role(agent, request)
         try:
-            put_agent_policy(agent, body.get("mode"), body.get("entries"))
+            with bound_activity_actor(request_actor_id(request)):
+                put_agent_policy(agent, body.get("mode"), body.get("entries"))
         except ValueError as exc:
             return _error(str(exc), status.HTTP_400_BAD_REQUEST)
         except OSError:
@@ -154,7 +156,8 @@ class MailboxAclRoleAPIView(APIView):
             return _error(f"Unknown role {role!r}.", status.HTTP_400_BAD_REQUEST)
         body = request.data if isinstance(request.data, dict) else {}
         try:
-            put_role_policy(canonical, body.get("mode"), body.get("entries"))
+            with bound_activity_actor(request_actor_id(request)):
+                put_role_policy(canonical, body.get("mode"), body.get("entries"))
         except ValueError as exc:
             return _error(str(exc), status.HTTP_400_BAD_REQUEST)
         except OSError:

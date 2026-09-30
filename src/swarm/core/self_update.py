@@ -17,7 +17,6 @@ import os
 import re
 import shutil
 from pathlib import Path
-import os
 from typing import Any
 
 from swarm.core.pr_opened import is_github_pr_url, parse_pr_opened

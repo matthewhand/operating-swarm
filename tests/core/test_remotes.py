@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from swarm.core import remotes as remotes_core
+from functools import partial
 
 
 @pytest.fixture(autouse=True)
@@ -55,17 +56,26 @@ class _Router(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
 @pytest.fixture
 def http_router():
     _Router.routes = {}
     _Router.posted = []
     server = HTTPServer(("127.0.0.1", 0), _Router)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     thread.start()
     host, port = "127.0.0.1", server.server_address[1]
     yield host, port, _Router
     server.shutdown()
+    server.server_close()
     _Router.routes = {}
     _Router.posted = []
 
@@ -254,6 +264,38 @@ def test_add_and_remove_openmousbot(tmp_path: Path, monkeypatch):
     assert "omb" not in (data.get("remotes") or {})
 
 
+def test_persist_remote_company_stamp_roundtrips(tmp_path: Path, monkeypatch):
+    """#1317: Company stamp is written with the remote and returned on reload."""
+    cfg = tmp_path / "swarm_config.json"
+    cfg.write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("HERMES_BASE_URL", raising=False)
+    spec, _path = remotes_core.persist_remote(
+        "hermes",
+        base_url="http://127.0.0.1:9",
+        config_path=cfg,
+        extra={
+            "company_id": "acme-id",
+            "company_slug": "acme",
+            "company_name": "Acme",
+            "model": "cli/agy",
+            "api_key": "sk-should-not-land",
+        },
+    )
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    entry = data["remotes"]["hermes"]
+    assert entry["company_id"] == "acme-id"
+    assert entry["company_slug"] == "acme"
+    assert entry["model"] == "cli/agy"
+    assert "api_key" not in entry or entry["api_key"] != "sk-should-not-land"
+    pub = spec.public_dict()
+    assert pub["company_id"] == "acme-id"
+    assert pub["company_slug"] == "acme"
+    assert pub["company_name"] == "Acme"
+    assert pub["model"] == "cli/agy"
+    reloaded = remotes_core.load_remote("hermes", config=data)
+    assert reloaded.public_dict()["company_id"] == "acme-id"
+
+
 def test_persist_and_reload(tmp_path: Path, monkeypatch):
     cfg = tmp_path / "swarm_config.json"
     cfg.write_text(json.dumps({"llm": {"default": {"model": "x"}}}), encoding="utf-8")
@@ -278,6 +320,38 @@ def test_persist_and_reload(tmp_path: Path, monkeypatch):
     assert pub["api_key_set"] is False  # unresolved placeholder
     assert "hermes-secret" not in json.dumps(pub)
     assert remotes_core.added_remote_ids(data) == ["hermes"]
+
+
+def test_per_instance_api_key_env_outranks_kind_env(monkeypatch):
+    """Two remotes of the same kind must resolve distinct credentials.
+
+    Regression for multi-hermes: a per-instance ``api_key_env``
+    (``nemohermes`` → ``NEMOHERMES_API_KEY``) was outranked by the kind-level
+    ``HERMES_API_KEY``, so both seats authenticated with the same key.
+    """
+    monkeypatch.setenv("HERMES_API_KEY", "kind-key-118")
+    monkeypatch.setenv("NEMOHERMES_API_KEY", "instance-key-8642")
+    cfg = {
+        "remotes": {
+            "hermes": {
+                "base_url": "http://127.0.0.1:18642",
+                "api_key_env": "HERMES_API_KEY",
+            },
+            "nemohermes": {
+                "kind": "hermes",
+                "base_url": "http://127.0.0.1:8642",
+                "api_key_env": "NEMOHERMES_API_KEY",
+            },
+        }
+    }
+
+    spec_kind = remotes_core.load_remote("hermes", config=cfg)
+    spec_instance = remotes_core.load_remote("nemohermes", config=cfg)
+
+    assert spec_kind.api_key_env == "HERMES_API_KEY"
+    assert spec_kind.api_key == "kind-key-118"
+    assert spec_instance.api_key_env == "NEMOHERMES_API_KEY"
+    assert spec_instance.api_key == "instance-key-8642"
 
 
 def test_refuse_fly_litellm_persist(tmp_path: Path):
@@ -595,6 +669,63 @@ def test_omb_send_kind_id_target_does_not_post_to_omb_bot(http_router, monkeypat
     assert sent.data["text"] == "minted-hello"
 
 
+def test_omb_send_without_target_uses_chief_of_staff_bot(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    user = {"id": "u1", "role": "user", "kind": "text", "text": "hi"}
+    reply = {
+        "id": "a1",
+        "role": "bot",
+        "kind": "text",
+        "text": "cos-hello",
+        "turnTerminal": True,
+    }
+    router.routes = {
+        ("GET", "/api/bots"): (
+            200,
+            {
+                "bots": [
+                    {
+                        "id": "cos-1",
+                        "name": "Chief of Staff",
+                        "threadId": "th-cos",
+                        "busy": False,
+                        "activity": "waiting-on-you",
+                        "messages": [user, reply],
+                    },
+                    {"id": "spec-1", "name": "Specialist"},
+                ]
+            },
+        ),
+        ("POST", "/api/bots"): (201, {"bot": {"id": "should-not-mint"}}),
+        ("POST", "/api/bots/cos-1/messages"): (
+            202,
+            {"ok": True, "threadId": "th-cos", "message": {"id": "u1"}},
+        ),
+        ("GET", "/api/threads/th-cos/messages"): (200, {"messages": [user, reply]}),
+    }
+    sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
+    assert sent.ok is True
+    assert sent.data["bot_id"] == "cos-1"
+    assert sent.data["minted"] is False
+    assert sent.data["text"] == "cos-hello"
+    assert all(path != "/api/bots" for path, _ in router.posted)
+
+
+def test_omb_send_without_target_and_no_cos_reports_omb_bot_required(http_router, monkeypatch):
+    host, port, router = http_router
+    monkeypatch.setattr(remotes_core, "_OMB_REPLY_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(remotes_core, "_OMB_POLL_INTERVAL_S", 0.01)
+    router.routes = {
+        ("GET", "/api/bots"): (200, {"bots": [{"id": "spec-1", "name": "Specialist"}]}),
+        ("POST", "/api/bots"): (500, {"error": "mint refused"}),
+    }
+    sent = remotes_core.operate("omb", "send", prompt="hi", config=_cfg(host, port))
+    assert sent.ok is False
+    assert sent.gap == remotes_core.OMB_BOT_REQUIRED_GAP
+
+
 def test_openmousbot_health_down_is_report_not_crash():
     result = remotes_core.check_health(
         "omb",
@@ -710,14 +841,38 @@ def test_swarm_list_and_send_stub_child(http_router):
 
 
 def test_swarm_missing_child_is_clean_error():
+    """A nested-swarm seat on the catalog placeholder is *unconfigured*, not DOWN.
+
+    ``http://127.0.0.1:9`` is the RFC 863 discard port: nothing can ever
+    answer there. Reporting DOWN would claim a reachability probe happened
+    against an instance that was never configured, so the verdict is UNKNOWN
+    with an actionable gap. ``test_swarm_real_but_absent_base_url_is_down``
+    keeps the DOWN path covered for a genuine, non-placeholder address.
+    """
     spec_cfg = {"remotes": {"swarm": {"base_url": "http://127.0.0.1:9", "api_key": "CHANGE_ME"}}}
     listed = remotes_core.operate("swarm", "list", config=spec_cfg, timeout=0.4)
     assert listed.ok is False
     assert listed.detail
     assert "hang" not in listed.detail.lower()
+    assert remotes_core.NOT_POINTED_MARKER in listed.detail
     health = remotes_core.check_health("swarm", config=spec_cfg, timeout=0.4)
     assert health.ok is False
+    assert health.state == "UNKNOWN"
+    assert remotes_core.NOT_POINTED_MARKER in health.detail
+
+
+def test_swarm_real_but_absent_base_url_is_down(monkeypatch):
+    """A real address with nothing on it is still honestly DOWN.
+
+    Guards the other half of the placeholder rule: the fail-fast must not
+    swallow a genuine reachability verdict.
+    """
+    monkeypatch.setenv("SWARM_REWRITE_LOOPBACK", "0")
+    cfg = {"remotes": {"swarm": {"base_url": "http://127.0.0.1:1"}}}
+    health = remotes_core.check_health("swarm", config=cfg, timeout=0.4)
+    assert health.ok is False
     assert health.state == "DOWN"
+    assert remotes_core.NOT_POINTED_MARKER not in health.detail
 
 
 # --- #849 close-out: single flexible ssh_target passthrough -----------------

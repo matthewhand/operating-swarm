@@ -20,7 +20,7 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
     })
   })
 
-  it('renders fade, plugins button opens modal', () => {
+  it('renders fade, plugins button opens modal', async () => {
     seedBlueprints(queryClient, [
       {
         id: 'support_agent',
@@ -68,7 +68,7 @@ describe('AgentSidebar Rail Scroll Fade (REQ-99)', () => {
     const pluginsBtn = screen.getByRole('button', { name: 'Plugins' })
     expect(pluginsBtn).toBeInTheDocument()
     fireEvent.click(pluginsBtn)
-    expect(screen.getByRole('dialog', { name: 'Plugins' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Plugins' })).toBeInTheDocument()
   })
 
   it('activates fade opacity when scrollable list can scroll', () => {

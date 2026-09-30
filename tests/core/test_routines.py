@@ -22,6 +22,7 @@ def test_list_empty_then_create(tmp_path, monkeypatch):
     )
     assert created["name"] == "Ship notes"
     assert created["active"] is True
+    assert created["model"] == ""
     assert created["trigger"]["kind"] == "github_pr_merged"
     assert created["trigger"]["owner_repo"] == "owner/repo"
     assert created["trigger"]["event"] == "merged"
@@ -48,24 +49,76 @@ def test_update_active_and_delete(tmp_path, monkeypatch):
     assert store.delete_routine("codey", created["id"]) is False
 
 
-def test_test_run_appends_history_and_records_prompt(tmp_path, monkeypatch):
+def test_test_run_is_dry_run_preview_without_firing(tmp_path, monkeypatch):
+    """#1405 — Test is a documented preview, not a live fire."""
     _isolate(tmp_path, monkeypatch)
     created = store.create_routine(
         "codey",
-        {"name": "Ship notes", "instruction": "Write the merge recap."},
+        {
+            "name": "Ship notes",
+            "instruction": "Write the merge recap.",
+            "model": "orchestration",
+            "trigger": {"kind": "github_pr_merged", "owner_repo": "owner/repo"},
+        },
     )
     ran = store.test_run("codey", created["id"])
-    assert len(ran["history"]) == 1
-    assert ran["history"][0]["status"] == "success"
-    assert ran["history"][0]["source"] == "test_run"
-    assert ran["history"][0]["duration_ms"] >= 0
-    fired = store.fired_prompts()
-    assert len(fired) == 1
-    assert fired[0]["agent_id"] == "codey"
-    assert fired[0]["instruction"] == "Write the merge recap."
-    assert fired[0]["source"] == "test_run"
-    assert "token" not in fired[0]["instruction"].lower()
-    assert "ghp_" not in fired[0]["instruction"]
+    assert ran["history"] == []
+    preview = ran["preview"]
+    assert preview["dry_run"] is True
+    assert preview["side_effects"] == "none"
+    assert preview["prompt"] == "Write the merge recap."
+    assert preview["model"] == "orchestration"
+    assert preview["trigger_kind"] == "github_pr_merged"
+    assert "owner/repo" in preview["trigger_summary"]
+    assert "No messages sent" in preview["note"]
+    assert "token" not in preview["prompt"].lower()
+    assert store.fired_prompts() == []
+    again = store.get_routine("codey", created["id"])
+    assert again is not None
+    assert again["history"] == []
+
+
+def test_save_inactive_draft_and_model_round_trip(tmp_path, monkeypatch):
+    """#1405 — Save persists a draft without requiring Active; model stores."""
+    _isolate(tmp_path, monkeypatch)
+    created = store.create_routine(
+        "codey",
+        {
+            "name": "Draft recap",
+            "instruction": "Summarize the merge.",
+            "active": False,
+            "model": "auxiliary",
+        },
+    )
+    assert created["active"] is False
+    assert created["model"] == "auxiliary"
+    store.reset_routines_cache()
+    loaded = store.get_routine("codey", created["id"])
+    assert loaded is not None
+    assert loaded["active"] is False
+    assert loaded["model"] == "auxiliary"
+    updated = store.update_routine(
+        "codey",
+        created["id"],
+        {"active": True, "model": "delegation", "instruction": "Keep the draft."},
+    )
+    assert updated["active"] is True
+    assert updated["model"] == "delegation"
+    assert updated["instruction"] == "Keep the draft."
+    store.reset_routines_cache()
+    again = store.get_routine("codey", created["id"])
+    assert again is not None
+    assert again["active"] is True
+    assert again["model"] == "delegation"
+
+
+def test_model_rejects_secrets(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    try:
+        store.create_routine("codey", {"name": "No", "model": "ghp_abcdefghijklmnopqrstuvwxyz012345"})
+        raise AssertionError("expected secret rejection")
+    except ValueError as exc:
+        assert "secrets" in str(exc).lower()
 
 
 def test_inactive_routine_does_not_fire_on_fake_merge(tmp_path, monkeypatch):
@@ -132,6 +185,96 @@ def test_github_shaped_payload_and_actor_filter(tmp_path, monkeypatch):
     ids = {row["routine"]["id"] for row in fired}
     assert anyone["id"] in ids
     assert only_me["id"] not in ids
+
+
+def test_trailing_slash_full_name_still_matches_merge(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    created = store.create_routine(
+        "codey",
+        {"name": "Ship", "instruction": "Note the merge.", "trigger": {"owner_repo": "owner/repo"}},
+    )
+    fired = store.deliver_github_pr_merged(
+        {
+            "action": "closed",
+            "pull_request": {"merged": True},
+            "repository": {"full_name": "owner/repo/"},
+            "sender": {"login": "mona"},
+        }
+    )
+    assert [row["routine"]["id"] for row in fired] == [created["id"]]
+
+
+def test_merge_event_uses_the_same_repo_pairing(tmp_path, monkeypatch):
+    """Merge delivery pairs a repository object the same way a trigger does.
+
+    A slash-only or slash-less ``full_name`` must not hide ``name`` or the
+    object's owner. A qualified ``full_name`` still wins, and a bare name
+    with no owner is still rejected.
+    """
+    _isolate(tmp_path, monkeypatch)
+    cases = [
+        (
+            {"repository": {"full_name": "/", "name": "widgets", "owner": {"login": "/", "name": "acme"}}},
+            "acme/widgets",
+        ),
+        (
+            {"repository": {"full_name": "   ", "name": "widgets", "owner": {"login": "acme"}}},
+            "acme/widgets",
+        ),
+        (
+            {"repository": {"full_name": "widgets", "owner": {"login": "acme"}}},
+            "acme/widgets",
+        ),
+        (
+            {"owner": "outer", "repository": {"full_name": "widgets/", "owner": {"login": "inner"}}},
+            "inner/widgets",
+        ),
+        (
+            {"owner": {"login": "/", "name": "acme"}, "repo": "widgets"},
+            "acme/widgets",
+        ),
+        (
+            {"owner_repo": "/", "repository": "acme/widgets"},
+            "acme/widgets",
+        ),
+        (
+            {"repository_full_name": "acme/widgets/"},
+            "acme/widgets",
+        ),
+        (
+            {
+                "owner": "outer",
+                "repository": {"full_name": "acme/widgets/", "name": "nope", "owner": {"login": "inner"}},
+            },
+            "acme/widgets",
+        ),
+    ]
+    for extra, expected in cases:
+        payload = {"action": "closed", "pull_request": {"merged": True}, "sender": {"login": "mona"}, **extra}
+        got = store.parse_github_merge_event(payload)["owner_repo"]
+        assert got == expected, extra
+
+    created = store.create_routine(
+        "codey",
+        {"name": "Ship", "instruction": "Note the merge.", "trigger": {"owner_repo": "acme/widgets"}},
+    )
+    fired = store.deliver_github_pr_merged(
+        {
+            "action": "closed",
+            "pull_request": {"merged": True},
+            "repository": {"full_name": "widgets", "owner": {"login": "acme"}},
+            "sender": {"login": "mona"},
+        }
+    )
+    assert [row["routine"]["id"] for row in fired] == [created["id"]]
+    try:
+        store.parse_github_merge_event(
+            {"action": "closed", "pull_request": {"merged": True}, "repository": {"full_name": "widgets"}}
+        )
+    except ValueError as exc:
+        assert "owner/repo" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_rejects_unknown_trigger_and_bad_repo(tmp_path, monkeypatch):

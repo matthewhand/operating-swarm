@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign out &middot; Operating Swarm</title>
+    {% load static %}
+    {% include "includes/brand_icons.html" %}
+    <link href="{% static 'css/operator.css' %}" rel="stylesheet">
+</head>
+<body class="os-login">
+    <main class="login-card">
+        <div class="brand">
+            <img src="{% static 'brand/webui-geometric.svg' %}" alt="" width="64" height="64" class="brand-mark">
+            <h1 class="brand-name">Operating Swarm</h1>
+            <p class="brand-sub">End your session?</p>
+        </div>
+        <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.GET.next }}">
+            <button type="submit">Sign out</button>
+        </form>
+        <p class="brand-sub"><a href="/">Cancel</a></p>
+    </main>
+</body>
+</html>

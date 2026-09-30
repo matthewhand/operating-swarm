@@ -1,4 +1,10 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { HerdrStatusDot } from './HerdrStatusDot'
+import {
+  herdrStatusFor,
+  subscribeHerdrStatus,
+  type HerdrSeatStatus,
+} from '../lib/herdrStatus'
 
 /**
  * #500 / #501: the rail row's name-line right slot.
@@ -41,6 +47,54 @@ import type { ReactNode } from 'react'
  * then the badge, and the time survives longest. The name is `flex: 1 1 0%`, so
  * it always wins the remaining space and is cut with the existing fade.
  */
+/**
+ * #1729 — resolve the row's own seat id and keep re-reading it.
+ *
+ * The rail's row renderers already tag every row with `data-agent-id`
+ * (`herdr:<pane>` for a Herdr row), so the status surface can identify itself
+ * from the DOM instead of threading a new prop through `rowsRender` /
+ * `AgentSidebar` — both of which are owned elsewhere. The subscription
+ * re-renders on every status change, which is what makes the indicator appear
+ * without a reload.
+ */
+const HERDR_SEAT_PREFIX = 'herdr:'
+
+function useRailHerdrStatus(
+  ref: React.RefObject<HTMLElement | null>,
+  explicit?: string,
+): { seatId: string; status: HerdrSeatStatus } {
+  // The *status* is state, not a read-during-render: the store is external
+  // and its changes arrive on their own schedule, so reading it inline would
+  // leave the indicator frozen until something else re-rendered the row.
+  const [reading, setReading] = useState<{ seatId: string; status: HerdrSeatStatus }>({
+    seatId: '',
+    status: 'unknown',
+  })
+
+  useEffect(() => {
+    const resolve = () => {
+      const fromProp = (explicit ?? '').trim()
+      const node = ref.current
+      const owner = node?.closest('[data-agent-id]') as HTMLElement | null
+      const rowId = fromProp || owner?.getAttribute('data-agent-id')?.trim() || ''
+      // Only a Herdr row can carry a Herdr status. Every other seat kind
+      // shares this component, and a stale reading must never bleed onto one.
+      const seatId = rowId.startsWith(HERDR_SEAT_PREFIX) ? rowId : ''
+      setReading((current) => {
+        const status = seatId ? herdrStatusFor(seatId) : 'unknown'
+        if (current.seatId === seatId && current.status === status) return current
+        return { seatId, status }
+      })
+    }
+    resolve()
+    // Re-resolve on mount and on every status change: the id is not a prop,
+    // and the status can move while the row is mounted.
+    return subscribeHerdrStatus(resolve)
+  }, [explicit, ref])
+
+  return reading
+}
+
 export interface RailRowSlotProps {
   unread?: boolean
   /** Static role badge. Rendered alongside the time, yielding before it. */
@@ -48,6 +102,14 @@ export interface RailRowSlotProps {
   /** `formatRailTimestamp` returns null when there is no activity to show. */
   timestampLabel?: string | null
   dataRole?: string
+  /**
+   * #1729: the row's seat id. Optional — when omitted it is resolved from the
+   * owning row's own `data-agent-id`, which every rail row already carries, so
+   * the status surface needs no new plumbing through the row renderers.
+   */
+  seatId?: string
+  /** Row label, used for the indicator's accessible name. */
+  dataLabel?: string
 }
 
 export default function RailRowSlot({
@@ -55,13 +117,27 @@ export default function RailRowSlot({
   badge,
   timestampLabel,
   dataRole,
+  seatId,
+  dataLabel,
 }: RailRowSlotProps) {
+  const ref = useRef<HTMLSpanElement | null>(null)
+  const { seatId: herdrSeatId, status: herdrStatus } = useRailHerdrStatus(ref, seatId)
   return (
     <span
+      ref={ref}
       className="os-rail-slot relative flex shrink-0 items-center" 
       data-testid="rail-row-slot"
       data-role={dataRole}
+      data-herdr-status={herdrSeatId ? herdrStatus : undefined}
     >
+      {/* #1729: the Herdr status indicator yields to the unread dot, exactly
+          like the badge yields to both. A seat that is *waiting on you* is the
+          more urgent of the two, so `waiting` is the one case that outranks
+          unread — otherwise the question dot would be hidden by the very
+          unread state it is about to clear. */}
+      {herdrStatus === 'waiting' ? (
+        <HerdrStatusDot seatId={herdrSeatId} status={herdrStatus} label={dataLabel} />
+      ) : null}
       {/* Static badge first: it yields at narrow widths, so it cannot be the
           reason a role-assigned row shows no recency. */}
       {badge && !unread ? <span className="os-rail-slot__badge">{badge}</span> : null}

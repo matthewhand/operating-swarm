@@ -10,19 +10,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import {
-  clampPillWidth,
-  COMPOSER_PILL_AUTO_MAX,
-  loadPillWidth,
-  pillWidthFromDrag,
-  savePillWidth,
-} from '../lib/composerPillResize'
-
-const COMPOSER_PILL_FULL_TEXT_FALLBACK = COMPOSER_PILL_AUTO_MAX
+import { truncatePillLabel } from '../lib/routingPillLabel'
 import ModelSearchPalette, { type ModelSearchOption } from './ModelSearchPalette'
+import { openSettingsSheet } from './settings/kernel'
 import ComposerPickerDialog from './ComposerPickerDialog'
 import type { ComposerProviderOption } from '../lib/composerPicker'
+import { filterCliModels } from '../lib/composerPicker'
+import { canonicalSeatTargetId, seatPickKindForTarget } from '../lib/seatRouting'
 import { getProviderIcon } from '../lib/providerIcons'
+import { emptyArray } from '../lib/stableEmpty'
+import {
+  capabilityDelta,
+  capabilitySideFromDirectory,
+  type SeatCapabilityDirectory,
+} from '../lib/seatRouting'
 import {
   displayableModels,
   familyHasEffort,
@@ -58,6 +59,8 @@ export interface RoutingPathChange {
   modelBase: string
   effort: EffortToken | null
   previous: RoutingPath
+  /** #1324 — set when the operator acknowledged a capability-loss warning. */
+  capabilityWarning?: string
 }
 
 export interface NavbarRoutingPickerProps {
@@ -66,9 +69,21 @@ export interface NavbarRoutingPickerProps {
   selectedAgent: string
   models: string[]
   selectedModel: string
+  /**
+   * #1317: ``company`` or ``fallback`` when the pill is showing the
+   * auto-applied Company route. Empty when the operator picked a model.
+   * Never used to switch the seat.
+   */
+  companyRouteSource?: string
   /** Nested options with labels (OpenMousBot bots, etc.). Ids feed `models`. */
   modelOptions?: RoutingAgentOption[]
   modelWarning?: string | null
+  /**
+   * #1356 — API/LiteLLM profile ids, which belong to a different namespace
+   * than CLI model ids. A CLI seat never offers them (they would fail at
+   * `<cli> --model`); they are filtered out of the model list.
+   */
+  foreignModelIds?: readonly string[]
   /** #494: machine-readable remedy stamped by the backend (REQ-890 taxonomy).
    * When present, the warning renders with a "Fix in Settings" link. */
   modelWarningAction?: {
@@ -110,6 +125,13 @@ export interface NavbarRoutingPickerProps {
      * agent pick nor a model pick. Session-tagged rows route here.
      */
     onResumeSession?: (sessionId: string) => void
+    /**
+     * #1288: the client-side WebGPU provider is not a server seat. A pick
+     * activates the tab-local seat via this callback (model id), and every
+     * normal routing pick clears it (`null`) — the active agent seat and
+     * `blueprint_id` are never touched.
+     */
+    onSelectClientProvider?: (modelId: string | null) => void
   }
   /**
    * #711: fired once when the two-stage dialog opens (not on descend), so
@@ -122,7 +144,15 @@ export interface NavbarRoutingPickerProps {
    * seat keeps its identity); the legacy seat-jump fallback only fires when
    * this callback is absent.
    */
-  onProviderReconfigure?: (profile: string) => void
+  onProviderReconfigure?: (profile: string, detail?: { capabilityWarning?: string }) => void
+  /**
+   * #1324 — declared seat directory (`GET /v1/capabilities/seats/`). When a
+   * pick drops capabilities, the picker names the loss and waits for
+   * acknowledgment before `onChange` / navigate / reconfigure.
+   */
+  capabilityCatalog?: SeatCapabilityDirectory | null
+  /** Fired on acknowledgment, immediately before the switch is applied. */
+  onEngineSwitchWarning?: (warning: string) => void
   'aria-label'?: string
 }
 
@@ -132,9 +162,11 @@ export function NavbarRoutingPicker({
   selectedAgent,
   models,
   selectedModel,
+  companyRouteSource,
   modelOptions,
   modelWarning,
   modelWarningAction,
+  foreignModelIds,
   preferredEffort,
   onChange,
   footerAction,
@@ -145,67 +177,30 @@ export function NavbarRoutingPicker({
   onTwoStageOpen,
   onNavigateAgent,
   onProviderReconfigure,
+  capabilityCatalog,
+  onEngineSwitchWarning,
   loading = false,
   'aria-label': ariaLabel,
 }: NavbarRoutingPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // #770: hover-revealed double-slit drag handle resizes the pill's visible
-  // width. `pillWidth === null` means auto (pre-#770 sizing, capped by CSS).
-  const [pillWidth, setPillWidth] = useState<number | null>(() => loadPillWidth())
-  const dragStateRef = useRef<{ startX: number; startWidth: number; fullText: number } | null>(null)
-  const labelRef = useRef<HTMLSpanElement>(null)
-
-  const measureFullTextWidth = useCallback((): number => {
-    const label = labelRef.current
-    if (!label) return COMPOSER_PILL_FULL_TEXT_FALLBACK
-    // scrollWidth of an ellipsed nowrap span IS the unclipped text width.
-    const text = label.scrollWidth
-    return text > 0 ? text + 24 : COMPOSER_PILL_FULL_TEXT_FALLBACK // + paddings/chevron
-  }, [])
-
-  const onHandlePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLSpanElement>) => {
-      event.stopPropagation()
-      event.preventDefault()
-      const full = measureFullTextWidth()
-      dragStateRef.current = {
-        startX: event.clientX,
-        startWidth: pillWidth ?? COMPOSER_PILL_AUTO_MAX,
-        fullText: full,
-      }
-      const handle = event.currentTarget
-      handle.setPointerCapture?.(event.pointerId)
-      document.body.style.cursor = 'col-resize'
-    },
-    [measureFullTextWidth, pillWidth],
-  )
-
-  const onHandlePointerMove = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
-    const state = dragStateRef.current
-    if (!state) return
-    const next = pillWidthFromDrag(state.startWidth, event.clientX - state.startX, state.fullText)
-    setPillWidth(next)
-  }, [])
-
-  const onHandlePointerUp = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
-    const state = dragStateRef.current
-    dragStateRef.current = null
-    document.body.style.cursor = ''
-    const handle = event.currentTarget
-    if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId)
-    if (state) {
-      setPillWidth((current) => {
-        savePillWidth(current)
-        return current
-      })
-    }
-  }, [])
+  const pendingSwitchRef = useRef<{ warning: string; commit: () => void } | null>(null)
+  const [pendingWarning, setPendingWarning] = useState<string | null>(null)
+  // #1231: the #770 drag-resize grip is retired — the pill caps its label at
+  // 32 chars with ellipsis and the full path lives on the tooltip.
 
   const resolvedModels = useMemo(() => {
-    if (models.length > 0) return models
-    return (modelOptions ?? []).map((row) => row.id)
-  }, [models, modelOptions])
+    // #1356: a CLI seat only offers ids its own provider exposes — API /
+    // LiteLLM profile ids are filtered out (different namespace). API seats
+    // keep sourcing from the API profile list unchanged.
+    const allowed =
+      seatKind === 'cli'
+        ? filterCliModels(models, new Set(foreignModelIds ?? []))
+        : models
+    if (allowed.length > 0) return allowed
+    const fallback = (modelOptions ?? []).map((row) => row.id)
+    return seatKind === 'cli' ? filterCliModels(fallback, new Set(foreignModelIds ?? [])) : fallback
+  }, [models, modelOptions, seatKind, foreignModelIds])
   const modelLabelById = useMemo(() => {
     const map = new Map<string, string>()
     for (const row of modelOptions ?? []) {
@@ -303,8 +298,71 @@ export function NavbarRoutingPicker({
     return () => document.removeEventListener('keydown', onKey)
   }, [paletteOpen])
 
+  const optionLabel = useCallback(
+    (id: string, fallbackKind: string) => {
+      const row = agents.find((item) => item.id === id) || allAgents?.find((item) => item.id === id)
+      return row?.label || id || fallbackKind
+    },
+    [agents, allAgents],
+  )
+
+  const lossWarning = useCallback(
+    (dest: { kind: string; id: string; label: string }) => {
+      if (!capabilityCatalog) return null
+      if (dest.kind === seatKind && dest.id === selectedAgent) return null
+      const warning = capabilityDelta(
+        capabilitySideFromDirectory(capabilityCatalog, {
+          kind: seatKind,
+          id: selectedAgent,
+          label: agentLabel,
+        }),
+        capabilitySideFromDirectory(capabilityCatalog, dest),
+      ).warning
+      return warning
+    },
+    [agentLabel, capabilityCatalog, seatKind, selectedAgent],
+  )
+
+  const considerSwitch = useCallback((warning: string | null, commit: () => void) => {
+    if (!warning) {
+      commit()
+      return
+    }
+    pendingSwitchRef.current = { warning, commit }
+    setPendingWarning(warning)
+    setPaletteOpen(false)
+  }, [])
+
+  const acknowledgePending = useCallback(() => {
+    const pending = pendingSwitchRef.current
+    if (!pending) return
+    pendingSwitchRef.current = null
+    setPendingWarning(null)
+    onEngineSwitchWarning?.(pending.warning)
+    pending.commit()
+  }, [onEngineSwitchWarning])
+
+  const stayOnEngine = useCallback(() => {
+    pendingSwitchRef.current = null
+    setPendingWarning(null)
+  }, [])
+  const stayButtonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!pendingWarning) return
+    stayButtonRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      stayOnEngine()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [pendingWarning, stayOnEngine])
+
   const emit = useCallback(
-    (changed: RoutingDimension, next: Partial<RoutingPath> & { agent: string }) => {
+    (changed: RoutingDimension, next: Partial<RoutingPath> & { agent: string }, capabilityWarning?: string | null) => {
+      // #1288: any server-side routing pick ends the tab-local WebGPU seat.
+      twoStage?.onSelectClientProvider?.(null)
       const resolved: RoutingPath = {
         agent: next.agent,
         model: next.model ?? '',
@@ -315,9 +373,10 @@ export function NavbarRoutingPicker({
         changed,
         ...resolved,
         previous: path,
+        ...(capabilityWarning ? { capabilityWarning } : {}),
       })
     },
-    [onChange, path],
+    [onChange, path, twoStage],
   )
 
   const pickAgent = useCallback(
@@ -331,13 +390,21 @@ export function NavbarRoutingPicker({
       // destination kind rides along so ChatPage can set the seat param that
       // kind actually reads (?cli= for cli, ?blueprint= for api, …) instead
       // of writing a dead ?agent=.
+      const destKind = kind || seatKind
+      const warning = lossWarning({
+        kind: destKind,
+        id: agentId,
+        label: optionLabel(agentId, destKind),
+      })
       if (kind && kind !== seatKind && onNavigateAgent) {
-        onNavigateAgent(agentId, kind)
+        considerSwitch(warning, () => onNavigateAgent(agentId, kind))
         return
       }
-      emit('agent', { agent: agentId, model: '', modelBase: '', effort: null })
+      considerSwitch(warning, () =>
+        emit('agent', { agent: agentId, model: '', modelBase: '', effort: null }, warning),
+      )
     },
-    [emit, footerAction, onNavigateAgent, seatKind],
+    [considerSwitch, emit, footerAction, lossWarning, onNavigateAgent, optionLabel, seatKind],
   )
 
   const pickModel = useCallback(
@@ -451,9 +518,34 @@ export function NavbarRoutingPicker({
       if (provider.kind === 'blueprint' || option?.tag === 'blueprint' || option?.tag === 'team') {
         if (!onNavigateAgent) return
         const rawId = option?.id ?? provider.defaultOptionId ?? ''
-        const isTeam = option?.tag === 'team' || rawId.startsWith('team:')
-        const targetId = rawId.replace(/^(team|blueprint):/, '')
-        onNavigateAgent(targetId, isTeam ? 'team' : 'api')
+        const hinted =
+          option?.tag === 'team' || rawId.startsWith('team:')
+            ? 'team'
+            : option?.kind === 'remote' || provider.kind === 'remote'
+              ? 'remote'
+              : 'api'
+        // #1436: remote ids stored in the blueprint bucket stay remote seats.
+        const pickKind = seatPickKindForTarget(hinted, rawId)
+        const targetId = canonicalSeatTargetId(pickKind, rawId)
+        const warning = lossWarning({
+          kind: pickKind,
+          id: targetId,
+          label: option?.label || targetId || pickKind,
+        })
+        considerSwitch(warning, () => onNavigateAgent(targetId, pickKind))
+        return
+      }
+      // #1288: the client-side WebGPU provider is not a seat kind and has no
+      // server route — picking it activates the tab-local seat and must never
+      // repoint or reconfigure a server-side seat (no emit/navigate).
+      if (provider.kind === 'webgpu') {
+        const modelId = option?.id ?? provider.defaultOptionId ?? ''
+        const warning = lossWarning({
+          kind: 'webgpu',
+          id: modelId,
+          label: option?.label || 'WebGPU',
+        })
+        considerSwitch(warning, () => twoStage?.onSelectClientProvider?.(modelId))
         return
       }
       if (provider.kind !== seatKind) {
@@ -462,7 +554,7 @@ export function NavbarRoutingPicker({
         // that kind actually reads — an API pick (previously dropped here)
         // resolves to ?blueprint= (the api_agent gateway for a default pick,
         // or a named api blueprint); a CLI pick resolves to ?cli=.
-        if (!onNavigateAgent) return
+        if (!onNavigateAgent && !onProviderReconfigure) return
         const dest = option?.id ?? provider.defaultOptionId ?? bare
         const destKind = provider.kind === 'team' ? 'team' : provider.kind
         // #804: stage-2 options under API are LLM PROFILES, not blueprint ids
@@ -471,14 +563,28 @@ export function NavbarRoutingPicker({
         if (provider.kind === 'api' && option) {
           // #899: reconfigure the CURRENT seat's provider backend — switching
           // the user to api_agent here dropped their CLI/remote context.
+          const warning = lossWarning({
+            kind: 'api',
+            id: option.id,
+            label: option.label || option.id,
+          })
           if (onProviderReconfigure) {
-            onProviderReconfigure(option.id)
-            setPaletteOpen(false)
+            considerSwitch(warning, () => {
+              if (warning) onProviderReconfigure(option.id, { capabilityWarning: warning })
+              else onProviderReconfigure(option.id)
+            })
             return
           }
-          onNavigateAgent('', 'api', { apiModel: option.id })
+          if (!onNavigateAgent) return
+          considerSwitch(warning, () => onNavigateAgent('', 'api', { apiModel: option.id }))
         } else {
-          onNavigateAgent(dest, destKind)
+          if (!onNavigateAgent) return
+          const warning = lossWarning({
+            kind: destKind,
+            id: dest,
+            label: option?.label || optionLabel(dest, destKind),
+          })
+          considerSwitch(warning, () => onNavigateAgent(dest, destKind))
         }
         return
       }
@@ -499,7 +605,7 @@ export function NavbarRoutingPicker({
       if (provider.kind === 'api' && !provider.defaultOptionId) return
       pickAgent(chosen || selectedAgent, seatKind)
     },
-    [seatKind, onNavigateAgent, pickAgent, pickModel, selectedAgent, twoStage],
+    [considerSwitch, lossWarning, onNavigateAgent, onProviderReconfigure, optionLabel, pickAgent, pickModel, seatKind, selectedAgent, twoStage],
   )
 
   // #711: both open affordances (pill, face) funnel through one opener so the
@@ -511,11 +617,30 @@ export function NavbarRoutingPicker({
     })
   }, [onTwoStageOpen])
 
+  // #1356: the two-stage dialog's CLI stage-2 model rows come from the same
+  // probed source; drop foreign API/LiteLLM profile ids there too (the model
+  // dimension only — session rows are a different axis).
+  // `?? []` allocated a fresh array every render while the list was empty, so
+  // this memo missed every render and built a fresh Set each time — and the
+  // `useCallback` below depends on it. See `lib/stableEmpty`.
+  const foreignModelSet = useMemo(
+    () => new Set(foreignModelIds ?? emptyArray<string>()),
+    [foreignModelIds],
+  )
+  const getProviderOptionsFiltered = useCallback(
+    (provider: ComposerProviderOption): readonly ModelSearchOption[] => {
+      const options = twoStage?.getProviderOptions(provider) ?? []
+      if (!foreignModelSet.size || provider.kind !== 'cli') return options
+      return options.filter((opt) => opt.tag !== 'model' || !foreignModelSet.has(opt.id))
+    },
+    [twoStage, foreignModelSet],
+  )
+
   const twoStageDialog = twoStage ? (
     <ComposerPickerDialog
       open={paletteOpen}
       providers={twoStage.providers}
-      getProviderOptions={twoStage.getProviderOptions}
+      getProviderOptions={getProviderOptionsFiltered}
       onPick={(provider, option) => {
         onTwoStagePick(provider, option)
         setPaletteOpen(false)
@@ -530,12 +655,10 @@ export function NavbarRoutingPicker({
               text: modelWarning,
               onAction: modelWarningAction
                 ? () =>
-                    import('./SettingsSheet').then(({ openSettingsSheet }) =>
-                      openSettingsSheet({
-                        section: modelWarningAction.section,
-                        remoteId: modelWarningAction.remote,
-                      }),
-                    )
+                    openSettingsSheet({
+                      section: modelWarningAction.section,
+                      remoteId: modelWarningAction.remote,
+                    })
                 : undefined,
             }
           : null
@@ -549,17 +672,9 @@ export function NavbarRoutingPicker({
     <button
       type="button"
       className={`os-routing-pill join-item ${paletteOpen ? 'os-routing-pill--hot' : ''}`}
-      style={
-        pillWidth !== null
-          ? {
-              width: `${clampPillWidth(pillWidth, measureFullTextWidth())}px`,
-              maxWidth: 'none',
-            }
-          : undefined
-      }
       data-routing-pill="agent"
       data-testid="routing-pill-agent"
-      data-pill-resized={pillWidth !== null ? 'true' : undefined}
+      data-company-route={companyRouteSource || undefined}
       data-value={joined}
       aria-label={groupLabel}
       aria-haspopup="dialog"
@@ -570,20 +685,6 @@ export function NavbarRoutingPicker({
         openTwoStage()
       }}
     >
-      {/* #770 / #1110: double-slit grab handle — hover-reveal, col-resize cursor,
-          pointer-captured drag, click-through suppressed so the dialog
-          never opens mid-resize. Sits on the leading (left) edge facing the
-          composer input so dragging left expands into input space. */}
-      <span
-        className="os-routing-pill__grip"
-        aria-hidden="true"
-        data-testid="routing-pill-grip"
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-        onPointerCancel={onHandlePointerUp}
-        onClick={(event) => event.stopPropagation()}
-      />
       {/* #795: provider glyph — hidden on desktop (the label names it),
           shown on mobile where it replaces the text in an icon circle. */}
       <span className="os-routing-pill__icon" aria-hidden="true">
@@ -593,7 +694,7 @@ export function NavbarRoutingPicker({
           modelId: selectedModel,
         })}
       </span>
-      <span ref={labelRef} className="os-routing-pill__label">{label}</span>
+      <span className="os-routing-pill__label">{truncatePillLabel(label)}</span>
       <ChevronDown className="os-routing-pill__chevron" aria-hidden="true" />
     </button>
   )
@@ -638,6 +739,34 @@ export function NavbarRoutingPicker({
       >
         {pill(leafLabel)}
       </div>
+      {pendingWarning ? (
+        <div
+          className="os-engine-switch-warning"
+          role="status"
+          data-testid="engine-switch-warning"
+        >
+          <p className="os-engine-switch-warning__text">{pendingWarning}</p>
+          <div className="os-engine-switch-warning__actions">
+            <button
+              type="button"
+              className="os-engine-switch-warning__ack"
+              data-testid="engine-switch-acknowledge"
+              onClick={acknowledgePending}
+            >
+              Switch anyway
+            </button>
+            <button
+              type="button"
+              ref={stayButtonRef}
+              className="os-engine-switch-warning__stay"
+              data-testid="engine-switch-stay"
+              onClick={stayOnEngine}
+            >
+              Stay
+            </button>
+          </div>
+        </div>
+      ) : null}
       {twoStage ? (
         twoStageDialog
       ) : (
@@ -655,12 +784,10 @@ export function NavbarRoutingPicker({
                 text: modelWarning,
                 onAction: modelWarningAction
                   ? () =>
-                      import('./SettingsSheet').then(({ openSettingsSheet }) =>
-                        openSettingsSheet({
-                          section: modelWarningAction.section,
-                          remoteId: modelWarningAction.remote,
-                        }),
-                      )
+                      openSettingsSheet({
+                        section: modelWarningAction.section,
+                        remoteId: modelWarningAction.remote,
+                      })
                   : undefined,
               }
             : undefined

@@ -42,7 +42,7 @@ class ZeusSpinner:
 class ZeusCoordinatorBlueprint(BlueprintBase):
     NAME = "zeus"
     CLI_NAME = "zeus"
-    DESCRIPTION = "Zeus: The coordinator agent for Open Swarm, using all other gods as tools."
+    DESCRIPTION = "Zeus: The coordinator agent for Operating Swarm, using all other gods as tools."
     VERSION = "1.0.0"
     # Add more Zeus features here as needed
 

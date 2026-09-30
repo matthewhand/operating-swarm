@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Swarm">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Operating Swarm">
   <!--
     Mono of favicon-minimal.svg. currentColor (defaults to black) for
     masks / light UI. Same silhouette as the colour minimal mark.
   -->
-  <title>Open Swarm</title>
+  <title>Operating Swarm</title>
   <g fill="currentColor" stroke="currentColor">
     <ellipse cx="15.5" cy="31" rx="13.2" ry="8.4" transform="rotate(-22 15.5 31)" stroke="none"/>
     <ellipse cx="48.5" cy="31" rx="13.2" ry="8.4" transform="rotate(22 48.5 31)" stroke="none"/>

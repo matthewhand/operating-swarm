@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auth &amp; Ownership · Sequence</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Operating Swarm</p>
+    <h1>Auth, Principals &amp; Ownership</h1>
+
+    <svg viewBox="0 0 1000 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="auth-seq-title auth-seq-desc">
+      <title id="auth-seq-title">Auth, principals and ownership flow</title>
+      <desc id="auth-seq-desc">Sequence diagram showing two authentication paths: an API client presenting a Bearer token resolved to a token: principal with strict same-principal ownership, and a browser session cookie resolving to a user: principal that also unlocks the Session Explorer operator bridge; anonymous websocket upgrades close with code 4401.</desc>
+      <defs>
+        <pattern id="dots-auth" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="auth-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="auth-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-auth)" opacity="0.55"/>
+
+      <!-- Lifelines -->
+      <line x1="130" y1="112" x2="130" y2="544" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="384" y1="112" x2="384" y2="544" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="660" y1="112" x2="660" y2="544" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="890" y1="112" x2="890" y2="544" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Activation bars -->
+      <rect x="126" y="140" width="8" height="64" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="380" y="236" width="8" height="248" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="656" y="132" width="8" height="388" fill="rgba(240,138,89,0.12)" stroke="#f08a59" stroke-width="1"/>
+      <rect x="886" y="172" width="8" height="272" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+
+      <!-- 1 API client -> edge -->
+      <line x1="134" y1="148" x2="656" y2="148" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <rect x="286" y="132" width="188" height="14" rx="2" fill="#2d3142"/>
+      <text x="380" y="143" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /v1/* · Authorization: Bearer</text>
+
+      <!-- 2 edge self loop -->
+      <path d="M 664 172 L 704 172 L 704 192 L 664 192" fill="none" stroke="#f08a59" stroke-width="1.2" marker-end="url(#auth-arrow-accent)"/>
+      <rect x="712" y="174" width="176" height="14" rx="2" fill="#2d3142"/>
+      <text x="800" y="185" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">→ token:&lt;sha256[:24]&gt;</text>
+
+      <!-- 3 edge -> store -->
+      <line x1="664" y1="212" x2="886" y2="212" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <rect x="706" y="196" width="148" height="14" rx="2" fill="#2d3142"/>
+      <text x="780" y="207" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">owner_allows(record, principal)</text>
+
+      <!-- 4 store -> edge -->
+      <line x1="886" y1="248" x2="664" y2="248" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#auth-arrow)"/>
+      <rect x="700" y="232" width="152" height="14" rx="2" fill="#2d3142"/>
+      <text x="776" y="243" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">exact match only · fail-closed</text>
+
+      <!-- 5 browser -> edge -->
+      <line x1="388" y1="288" x2="656" y2="288" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <rect x="440" y="272" width="164" height="14" rx="2" fill="#2d3142"/>
+      <text x="522" y="283" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /login/ (CSRF) → session</text>
+
+      <!-- 6 edge self loop -->
+      <path d="M 664 312 L 704 312 L 704 332 L 664 332" fill="none" stroke="#f08a59" stroke-width="1.2" marker-end="url(#auth-arrow-accent)"/>
+      <rect x="712" y="314" width="176" height="14" rx="2" fill="#2d3142"/>
+      <text x="800" y="325" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">AuthMiddlewareStack → user:&lt;name&gt;</text>
+
+      <!-- 7 browser -> edge ws -->
+      <line x1="388" y1="364" x2="656" y2="364" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <rect x="460" y="348" width="144" height="14" rx="2" fill="#2d3142"/>
+      <text x="532" y="359" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ws upgrade + cookie</text>
+
+      <!-- 8 edge -> browser 4401 -->
+      <line x1="656" y1="404" x2="388" y2="404" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#auth-arrow-accent)"/>
+      <rect x="436" y="388" width="172" height="14" rx="2" fill="#2d3142"/>
+      <text x="522" y="399" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">anonymous → accept-then-close 4401</text>
+
+      <!-- 9 edge -> store bridge -->
+      <line x1="664" y1="444" x2="886" y2="444" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <rect x="688" y="428" width="184" height="14" rx="2" fill="#2d3142"/>
+      <text x="780" y="439" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Session Explorer: user + token rows</text>
+
+      <!-- 10 edge -> api client 200 -->
+      <line x1="656" y1="492" x2="134" y2="492" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#auth-arrow-accent)"/>
+      <rect x="330" y="476" width="132" height="14" rx="2" fill="#2d3142"/>
+      <text x="396" y="487" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">200 token stream</text>
+
+      <!-- Actor boxes -->
+      <g transform="translate(40,48)">
+        <rect width="180" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="90" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">API client</text>
+        <text x="90" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">curl / SDK / Open WebUI</text>
+      </g>
+      <g transform="translate(294,48)">
+        <rect width="180" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="90" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Browser SPA</text>
+        <text x="90" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">session cookie + CSRF</text>
+      </g>
+      <g transform="translate(570,48)">
+        <rect width="180" height="52" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="90" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Django edge</text>
+        <text x="90" y="40" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">auth · permissions</text>
+      </g>
+      <g transform="translate(800,48)">
+        <rect width="180" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="90" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Ownership store</text>
+        <text x="90" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">responses / chat / prefs</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="40" y1="580" x2="960" y2="580" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="40" y="600" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="126" y1="596" x2="162" y2="596" stroke="#f08a59" stroke-width="1.6" marker-end="url(#auth-arrow-accent)"/>
+      <text x="174" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Auth / response</text>
+      <line x1="380" y1="596" x2="416" y2="596" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#auth-arrow)"/>
+      <text x="428" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Request / lookup</text>
+      <line x1="640" y1="596" x2="676" y2="596" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#auth-arrow)"/>
+      <text x="688" y="600" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Denial / return</text>
+      <text x="40" y="624" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/auth.py · src/swarm/permissions.py · src/swarm/consumers.py · docs/AUTH.md</text>
+    </svg>
+  </div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 import {
   formatRateLimitWait,
   settingsTargetForProvider,

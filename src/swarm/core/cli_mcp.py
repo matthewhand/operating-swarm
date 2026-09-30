@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,20 @@ MCP_CLI_NAMES = frozenset({"grok", "agy", "claude"})
 _HELP_CACHE: dict[str, str] = {}
 
 
+def mcp_entry_disabled(spec: Any) -> bool:
+    """True when a server config is explicitly off.
+
+    Boolean ``False`` and ``"false"`` (any case, surrounding space) count.
+    A missing ``enabled`` flag stays on.
+    """
+    if not isinstance(spec, Mapping):
+        return False
+    flag = spec.get("enabled")
+    if flag is False:
+        return True
+    return isinstance(flag, str) and flag.strip().lower() == "false"
+
+
 def normalize_mcp_servers(raw: Any) -> dict[str, dict[str, Any]]:
     """Keep stdio (command/args/env) and HTTP (url/type/headers) MCP entries."""
     if not isinstance(raw, dict):
@@ -36,7 +51,7 @@ def normalize_mcp_servers(raw: Any) -> dict[str, dict[str, Any]]:
         key = str(name).strip()
         if not key or not isinstance(spec, dict):
             continue
-        if spec.get("enabled") is False:
+        if mcp_entry_disabled(spec):
             continue
         entry: dict[str, Any] = {}
         command = spec.get("command")

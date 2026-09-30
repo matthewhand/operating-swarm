@@ -36,6 +36,13 @@ Lifecycle:
 - The legacy endpoint stays untouched — it is the per-socket escape hatch
   and keeps the Django-template HTMx UI working.
 
+Herdr agent status (#1729) deliberately does **not** ride this socket. It is a
+strict per-conversation transport whose contract is that every frame is a reply
+to something the client asked for; unsolicited seat status would interleave
+frames nobody requested, and arming a *chat* socket on a page with no chat is
+its own kind of lie. It has its own push-only socket instead —
+see :mod:`swarm.herdr_status_ws` (``/ws/herdr-status/``).
+
 Auth mirrors the legacy consumer: session cookie via ``AuthMiddlewareStack``;
 anonymous sockets are allowed only when ``swarm_allow_anonymous`` says so,
 and the mux closes them with 4401 otherwise.
@@ -71,6 +78,10 @@ class SpaSession:
         self.subscriptions = 0
         self.worker: Optional[DjangoChatConsumer] = None
         self.lock = asyncio.Lock()
+        # Turn dispatches run off the mux receive loop so control frames
+        # (question_answer / tool_decision / cancel_turn) stay readable while
+        # a turn awaits its own elicit future. See ``spawn``.
+        self._dispatch_tasks: "set[asyncio.Task]" = set()
         # Set by the collector when the worker's connect() ends the
         # headless lifecycle (e.g. 4401 auth rejection).
         self.rejected_code: Optional[int] = None
@@ -147,9 +158,35 @@ class SpaSession:
             )
             await self.dispose()
 
+    def spawn(self, text: str) -> None:
+        """Dispatch a chat turn without blocking the mux receive loop.
+
+        ``DjangoChatConsumer.receive`` awaits the whole turn, and a turn
+        pauses on its own elicit future (``ask_user`` / tool approval) until
+        the client answers. Awaiting that inline here serialised every later
+        frame behind the turn, so the ``question_answer`` was only read after
+        the elicitation had already timed out — the answer never resumed the
+        run (#221 / TrueForge ask-user). Running the turn as a task lets the
+        mux keep reading; the worker still serialises real turns on its own
+        per-agent lock, and the answering frame is handled inline (it returns
+        immediately).
+        """
+        task = asyncio.ensure_future(self.dispatch(text))
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+
     async def dispose(self) -> None:
         async with self.lock:
             worker, self.worker = self.worker, None
+            tasks, self._dispatch_tasks = self._dispatch_tasks, set()
+        current = asyncio.current_task()
+        for task in tasks:
+            if task is not current:
+                task.cancel()
+        if tasks:
+            await asyncio.gather(
+                *[t for t in tasks if t is not current], return_exceptions=True
+            )
         if worker is None:
             return
         try:
@@ -218,7 +255,16 @@ class SpaMultiplexConsumer(AsyncWebsocketConsumer):
                 )
                 if session is None:
                     return
-            await session.dispatch(json.dumps(frame))
+            text = json.dumps(frame)
+            if isinstance(frame.get("message"), str):
+                # A chat turn may await its own elicit future (ask_user / tool
+                # approval) until the client answers. Never await it inline:
+                # that blocked this socket's frame loop, so the answer frame
+                # behind it was not read until the elicit had timed out and
+                # the remote was never resumed (#221 / TrueForge ask-user).
+                session.spawn(text)
+            else:
+                await session.dispatch(text)
         else:
             await self._send_error(f"unknown frame kind: {kind!r}", conversation_id)
 

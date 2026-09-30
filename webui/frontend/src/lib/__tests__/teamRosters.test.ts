@@ -226,6 +226,18 @@ describe('labels and ids', () => {
     expect(isAllMembersChoice(null)).toBe(false)
     expect(isAllMembersChoice('stewie')).toBe(false)
   })
+
+  it('#1445 drops leftover AnythingLLM params when writing a team member', () => {
+    const mixed = new URLSearchParams(
+      'team=demo-team&remote=anythingllm&session=ws-docs:t1&blueprint=codey&cli=grok',
+    )
+    const member = applyTeamMemberSessionParam(mixed, 'demo-team', 'stewie')
+    expect(member.get('team')).toBe('demo-team')
+    expect(member.get('session')).toBe('stewie')
+    expect(member.get('remote')).toBeNull()
+    expect(member.get('blueprint')).toBeNull()
+    expect(member.get('cli')).toBeNull()
+  })
 })
 
 describe('fetchTeamRosters', () => {

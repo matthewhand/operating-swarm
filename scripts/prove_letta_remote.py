@@ -44,7 +44,7 @@ print("\n=== 4. SEND (SYNC) ===")
 sync_sent = r.operate(
     "letta",
     "send",
-    prompt="Hello from Open Swarm prove (sync)",
+    prompt="Hello from Operating Swarm prove (sync)",
     config=cfg,
     timeout=30,
     session_id=agent_id,
@@ -61,7 +61,7 @@ try:
     stream_err = None
     for delta, done, err in r.iter_letta_chat(
         spec,
-        "Hello from Open Swarm prove (stream)",
+        "Hello from Operating Swarm prove (stream)",
         session_id=agent_id,
         timeout=30,
     ):

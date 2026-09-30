@@ -29,7 +29,7 @@ export interface PendingAttachment {
   abortController?: AbortController
 }
 
-export type AttachmentCategory = 'image' | 'code' | 'table' | 'document' | 'other'
+export type AttachmentCategory = 'image' | 'audio' | 'code' | 'table' | 'document' | 'other'
 
 export function attachmentCategory(fileOrItem: { name?: string; type?: string }): AttachmentCategory {
   const type = (fileOrItem.type || '').toLowerCase()
@@ -39,6 +39,12 @@ export function attachmentCategory(fileOrItem: { name?: string; type?: string })
     /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name)
   ) {
     return 'image'
+  }
+  if (
+    !type.startsWith('video/') &&
+    (type.startsWith('audio/') || /\.(webm|wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(name))
+  ) {
+    return 'audio'
   }
   if (
     type.includes('spreadsheet') ||
@@ -128,7 +134,10 @@ export function nextAttachmentLocalId(): string {
 }
 
 export function createPendingAttachment(file: File): PendingAttachment {
-  const previewUrl = isImageFile(file) ? createPreviewUrl(file) : null
+  // Images and voice notes both get a blob URL so dismiss can revoke it (#1322).
+  const category = attachmentCategory(file)
+  const previewUrl =
+    category === 'image' || category === 'audio' ? createPreviewUrl(file) : null
   const abortController = typeof AbortController !== 'undefined' ? new AbortController() : undefined
   return {
     localId: nextAttachmentLocalId(),

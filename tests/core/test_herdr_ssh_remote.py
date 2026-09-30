@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from swarm.core import remotes as remotes_core
+from helpers.private_net import assert_no_private_ip
 from swarm.herdr import (
     HERDR_HTTP_REMOTE_REFUSED,
     HOP_MODEL,
@@ -54,7 +55,7 @@ def test_hop_model_is_one_ssh_then_herdr():
     assert "SSH" in HOP_MODEL
     assert "HTTP" in HOP_MODEL or "OpenMousBot" in HOP_MODEL
     assert "agy" in HOP_MODEL
-    assert "10.0.0." not in HOP_MODEL
+    assert_no_private_ip(HOP_MODEL)
 
 
 def test_persist_local_herdr_without_ssh(tmp_path: Path, monkeypatch):
@@ -136,7 +137,7 @@ def test_missing_ssh_config_is_clear_error():
     health = remotes_core.check_health("herdr", config=cfg, timeout=0.2)
     assert health.ok is False
     assert "SSH-shaped" in health.detail
-    assert "10.0.0." not in health.detail
+    assert_no_private_ip(health.detail)
     listed = remotes_core.operate("herdr", "list", config=cfg)
     assert listed.ok is False
     assert "ssh_host" in listed.detail or "SSH-shaped" in listed.detail

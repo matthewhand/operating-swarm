@@ -30,4 +30,14 @@ describe('demo REST stubs', () => {
     const body = await read('/v1/skills/')
     expect(body).toMatchObject({ object: 'list', data: [] })
   })
+
+  it('serves a secret-free plugin pack status for #1397', async () => {
+    const status = await read('/v1/agents/support/plugins/')
+    expect(status.object).toBe('agent_plugins')
+    expect(JSON.stringify(status)).not.toMatch(/sk-|bearer |\"command\"|\"token\"/i)
+    expect(status.enabled).toContain('web_search')
+    const pack = await read('/v1/agents/support/plugins/pack/')
+    expect(pack.object).toBe('agent_plugin_pack')
+    expect((pack.plugins as { pluginId: string }[])[0].pluginId).toBe('web_search')
+  })
 })

@@ -10,6 +10,9 @@ import {
   __resetUserPrefsCacheForTests,
   hydrateRailPrefs,
   parseAutoCompressPct,
+  aboutMeLooksSecret,
+  parseAboutMe,
+  parseOperatorProfile,
   parseUserPrefs,
   saveUserPrefs,
 } from '../userPrefs'
@@ -80,9 +83,23 @@ describe('userPrefs', () => {
       theme: undefined,
       theme_navbar_mode: undefined,
       bubble_theme: undefined,
+      hide_unsupported_agent_picker: false,
+      hide_unsupported_session_picker: false,
+      operator_profile: { name: '', timezone: '', about: '' },
+      about_me: '',
       values: {},
       agent_dropdowns: {},
     })
+    expect(
+      parseUserPrefs({
+        object: 'user_preferences',
+        empty: false,
+        favourites: [],
+        hidden_agents: [],
+        hostname_override: '',
+        activity_log_visibility: 'all',
+      })?.activity_log_visibility,
+    ).toBe('all')
   })
 
   it('reads agent_dropdowns from values and top-level', () => {
@@ -542,5 +559,75 @@ describe('#786 rail_sections sync', () => {
     )
     const body = JSON.parse(String(patch?.[1]?.body || '{}'))
     expect(body.rail_sections?.sections[0]?.id).toBe('sec_x')
+  })
+
+  it('#1323 parseOperatorProfile trims, caps, and drops junk', () => {
+    expect(parseOperatorProfile(null)).toEqual({ name: '', timezone: '', about: '' })
+    expect(
+      parseOperatorProfile({
+        name: '  Ada\n',
+        timezone: 'UTC',
+        about: 'Be brief.',
+        api_key: 'sk-nope',
+      }),
+    ).toEqual({ name: 'Ada', timezone: 'UTC', about: 'Be brief.' })
+    expect(parseUserPrefs({
+      object: 'user_preferences',
+      empty: false,
+      favourites: [],
+      hidden_agents: [],
+      hostname_override: '',
+      operator_profile: { name: 'Ada', timezone: 'UTC', about: 'Be brief.' },
+    })?.operator_profile).toEqual({ name: 'Ada', timezone: 'UTC', about: 'Be brief.' })
+  })
+
+  it('#1323 saveUserPrefs writes operator_profile on the PATCH body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        object: 'user_preferences',
+        empty: false,
+        favourites: [],
+        hidden_agents: [],
+        hostname_override: '',
+        operator_profile: { name: 'Ada', timezone: 'UTC', about: 'Be brief.' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const saved = await saveUserPrefs({
+      operator_profile: { name: 'Ada', timezone: 'UTC', about: 'Be brief.' },
+    })
+    expect(saved?.operator_profile).toEqual({ name: 'Ada', timezone: 'UTC', about: 'Be brief.' })
+    const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === 'PATCH')
+    expect(JSON.parse(String(call?.[1]?.body || '{}')).operator_profile).toEqual({
+      name: 'Ada',
+      timezone: 'UTC',
+      about: 'Be brief.',
+    })
+  })
+
+  it('#1323 parseAboutMe caps length and drops secret-looking notes', () => {
+    expect(parseAboutMe(null)).toBe('')
+    expect(parseAboutMe('  Works nights.  ')).toBe('Works nights.')
+    expect(parseAboutMe('x'.repeat(4100))).toHaveLength(4000)
+    expect(parseAboutMe('password=hunter2')).toBe('')
+    expect(aboutMeLooksSecret('I like short answers.')).toBe(false)
+    expect(aboutMeLooksSecret('api_key=sk-abcdefghij')).toBe(true)
+  })
+
+  it('#1323 saveUserPrefs writes about_me, including an explicit clear', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        object: 'user_preferences',
+        empty: false,
+        favourites: [],
+        hidden_agents: [],
+        hostname_override: '',
+        about_me: '',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await saveUserPrefs({ about_me: '' })
+    const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === 'PATCH')
+    expect(JSON.parse(String(call?.[1]?.body || '{}')).about_me).toBe('')
   })
 })

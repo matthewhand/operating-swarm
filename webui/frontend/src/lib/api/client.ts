@@ -182,20 +182,100 @@ export async function fetchWithAuth(
   }
   return fetch(path, { ...init, headers, credentials: 'include' })
 }
-export async function apiGet<T>(
+/**
+ * Cold-mount GET pacing (transport kernel).
+ *
+ * A cold SPA mount fires a burst of read-only `/v1/*` GETs within one tick.
+ * Over HTTP/2 the browser multiplexes them, so the server sees the whole
+ * volley at once and the DRF anon throttle trips (429, retry-after ~17s).
+ * This gate is deterministic (no wall-clock delay):
+ *   1. coalesces identical in-flight GETs — N callers share one network call;
+ *   2. caps concurrent GETs so the burst is paced, not thundering.
+ * Writes are never gated: user actions stay prompt.
+ */
+export const MAX_CONCURRENT_GETS = 4
+
+let activeGets = 0
+const getQueue: Array<() => void> = []
+const inflightGets = new Map<string, Promise<unknown>>()
+
+function acquireGetSlot(): Promise<void> {
+  if (activeGets < MAX_CONCURRENT_GETS) {
+    activeGets += 1
+    return Promise.resolve()
+  }
+  return new Promise<void>((resolve) => {
+    getQueue.push(() => {
+      activeGets += 1
+      resolve()
+    })
+  })
+}
+
+function releaseGetSlot(): void {
+  // A test reset may have already zeroed the counter while a request was
+  // pending; never drive it negative.
+  if (activeGets > 0) activeGets -= 1
+  getQueue.shift()?.()
+}
+
+/** Test hook: drop queued/in-flight GET state between cases. */
+export function __resetGetSchedulerForTests(): void {
+  activeGets = 0
+  getQueue.length = 0
+  inflightGets.clear()
+}
+
+/** Run one read-only GET behind the pacer, coalescing identical in-flight paths.
+ *
+ * When a slot is free and no matching GET is in flight, `run` is invoked
+ * synchronously and its own promise is returned unchanged — the gate adds no
+ * scheduling tick to the common path. Only a saturated gate defers work. */
+export function pacedApiGet<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const existing = inflightGets.get(key)
+  if (existing) return existing as Promise<T>
+
+  const settle = () => {
+    inflightGets.delete(key)
+    releaseGetSlot()
+  }
+
+  if (activeGets < MAX_CONCURRENT_GETS) {
+    activeGets += 1
+    const pending = run()
+    // Attach cleanup without deriving a new promise: the caller observes
+    // `run`'s exact timing.
+    pending.then(settle, settle)
+    inflightGets.set(key, pending)
+    return pending
+  }
+
+  const pending = acquireGetSlot()
+    .then(run)
+    .finally(settle)
+  inflightGets.set(key, pending)
+  return pending
+}
+
+export function apiGet<T>(
   path: string,
   options?: { cache?: RequestCache; headers?: Record<string, string> },
 ): Promise<T> {
-  const response = await fetch(path, {
-    headers: { ...buildHeaders(false), ...(options?.headers ?? {}) },
-    ...(options?.cache ? { cache: options.cache } : {}),
+  const key = options
+    ? `${path}::${options.cache ?? ''}::${JSON.stringify(options.headers ?? {})}`
+    : path
+  return pacedApiGet(key, async () => {
+    const response = await fetch(path, {
+      headers: { ...buildHeaders(false), ...(options?.headers ?? {}) },
+      ...(options?.cache ? { cache: options.cache } : {}),
+    })
+
+    if (!response.ok) {
+      await throwApiError(path, response)
+    }
+
+    return (await response.json()) as T
   })
-
-  if (!response.ok) {
-    await throwApiError(path, response)
-  }
-
-  return (await response.json()) as T
 }
 export async function apiPatch<T>(
   path: string,

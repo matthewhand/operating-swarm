@@ -6,7 +6,7 @@ the Blueprint SDK documentation (REQ-921 / #540) — these examples are
 the worked half of that deliverable (REQ-920 / #539).
 
 Base: ApiKindBase (``swarm.core.kind_bases``). Why: this recipe hosts an
-openai-agents agent graph that runs *inside* Open Swarm — the API kind is
+openai-agents agent graph that runs *inside* Operating Swarm — the API kind is
 the only kind that fully runs programmatic workflows (forced pipelines,
 circular skeptic loops, agent-as-tool graphs). If your recipe never needs
 swarm-side code execution, look at ``example_cli_minimal`` instead.
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # System prompt for the demo agent. Keep teaching examples' prompts tiny and
 # self-describing — the point is the shape of the recipe, not the persona.
 _SYSTEM_PROMPT = (
-    "You are example_api_minimal, a teaching blueprint from the Open Swarm "
+    "You are example_api_minimal, a teaching blueprint from the Operating Swarm "
     "SDK. Answer in one short sentence and mention that you are an example."
 )
 
@@ -69,7 +69,7 @@ class ExampleApiMinimalBlueprint(ApiKindBase):
             "a turn. Read its source before copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "api", "minimal"],
         "required_mcp_servers": [],
         "env_vars": [],

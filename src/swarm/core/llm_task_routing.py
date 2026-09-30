@@ -32,6 +32,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from swarm.core import cli_catalog, inference_profile, llm_list_models
+from swarm.core.llm_provider import (
+    MODEL_TYPE_CHAT,
+    MODEL_TYPES,
+    is_categorizer_model_type,
+    model_type_for_provider,
+    normalize_model_type,
+)
 
 logger = logging.getLogger("swarm.llm_task_routing")
 
@@ -116,7 +123,12 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
             "claude-3.5-sonnet",
             "claude-sonnet",
         ),
-        TASK_CLASS_DELEGATION: ("claude-opus-4-8", "claude-3-opus", "claude-opus"),
+        TASK_CLASS_DELEGATION: (
+            "claude-opus-5-5",
+            "claude-opus-4-8",
+            "claude-3-opus",
+            "claude-opus",
+        ),
         TASK_CLASS_TINY: ("claude-haiku-4-5", "claude-3-haiku", "claude-haiku"),
         TASK_CLASS_COMPACTION: ("claude-sonnet-4-6", "claude-3.5-sonnet", "claude-sonnet"),
         TASK_CLASS_AUTOCOMPLETE: ("claude-haiku-4-5", "claude-3-haiku", "claude-haiku"),
@@ -168,7 +180,7 @@ VENDOR_PREFERRED: dict[str, dict[str, tuple[str, ...]]] = {
     "claude": {
         TASK_CLASS_AUXILIARY: ("claude-haiku-4-5", "claude-haiku"),
         TASK_CLASS_ORCHESTRATION: ("claude-sonnet-4-6", "claude-sonnet"),
-        TASK_CLASS_DELEGATION: ("claude-opus-4-8", "claude-opus"),
+        TASK_CLASS_DELEGATION: ("claude-opus-5-5", "claude-opus-4-8", "claude-opus"),
         TASK_CLASS_TINY: ("claude-haiku-4-5", "claude-haiku"),
         TASK_CLASS_COMPACTION: ("claude-sonnet-4-6", "claude-sonnet"),
         TASK_CLASS_AUTOCOMPLETE: ("claude-haiku-4-5", "claude-haiku"),
@@ -227,6 +239,7 @@ _SECRET_KEY_NEEDLES = ("api_key", "apikey", "token", "secret", "password", "cook
 _PUBLIC_PROFILE_KEYS = (
     "provider",
     "model",
+    "model_type",
     "base_url",
     "intelligence",
     "speed",
@@ -238,6 +251,57 @@ _PUBLIC_PROFILE_KEYS = (
     "context_window",
     "max_context",
 )
+
+#: ``llm.<id>`` keys that carry the #1745 model type. ``type`` is the legacy
+#: spelling accepted on write and normalised to ``model_type``.
+MODEL_TYPE_KEY = "model_type"
+_LEGACY_MODEL_TYPE_KEYS = ("type", "profile_type")
+
+#: Catalog ``source`` → model namespace. Only ``config`` (a named LLM profile)
+#: is an API id; CLI agents and their live model lists are CLI ids; remotes own
+#: theirs. Anything unknown falls back to ``api`` (an API profile by default).
+_NAMESPACE_BY_SOURCE: dict[str, str] = {
+    "config": "api",
+    "cli": "cli",
+    "list_models": "cli",
+    "remote": "remote",
+}
+
+
+def namespace_for_source(source: str | None) -> str:
+    """Namespace of a catalog source (``api`` / ``cli`` / ``remote``)."""
+    return _NAMESPACE_BY_SOURCE.get((source or "").strip().lower(), "api")
+
+
+def model_type_for_profile(profile: dict[str, Any] | None) -> str:
+    """The #1745 model type of a stored profile.
+
+    An explicit ``model_type`` (or the legacy ``type``) wins; otherwise the
+    vendor decides — a ``system1`` profile is a categorizer even when the key
+    was never written, so an OpenRig-facing System1 endpoint can never be
+    mistaken for a chat LLM.
+    """
+    if not isinstance(profile, dict):
+        return MODEL_TYPE_CHAT
+    for key in (MODEL_TYPE_KEY, *_LEGACY_MODEL_TYPE_KEYS):
+        raw = profile.get(key)
+        if raw is not None and str(raw).strip():
+            return normalize_model_type(raw)
+    return model_type_for_provider(profile.get("provider"))
+
+
+def model_type_for_catalog_id(
+    profile_id: str,
+    catalog: Iterable[CatalogEntry] | None = None,
+    config: dict[str, Any] | None = None,
+) -> str:
+    """Model type of a picked id: catalog row first, then the stored profile."""
+    for entry in catalog or ():
+        if entry.id == profile_id:
+            return entry.model_type
+    if config is not None:
+        return model_type_for_profile(get_profile_dict(profile_id, config))
+    return MODEL_TYPE_CHAT
 
 
 @dataclass(frozen=True)
@@ -251,12 +315,33 @@ class CatalogEntry:
     base_url: str | None = None
     traits: dict[str, float] = field(default_factory=dict)
     context_length: int | None = None
+    #: #1745 ``chat`` / ``categorizer``. A categorizer never enters a chat
+    #: surface — the SPA and the backend auto-pick both filter on this.
+    model_type: str = MODEL_TYPE_CHAT
+
+    @property
+    def namespace(self) -> str:
+        """The id's model namespace (``api`` / ``cli`` / ``remote``).
+
+        A ``config`` LLM profile is an API-namespace id. Live CLI model lists
+        (``list_models``) and connected CLI agents (``cli``) are CLI-namespace;
+        ``remote`` ids belong to the remote. The API Model control must only
+        ever offer ``api`` ids — a CLI/remote id there just fails at the API
+        gateway.
+        """
+        return namespace_for_source(self.source)
+
+    @property
+    def is_categorizer(self) -> bool:
+        return is_categorizer_model_type(self.model_type)
 
     def public_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "id": self.id,
             "object": "llm_profile",
             "source": self.source,
+            "namespace": self.namespace,
+            "model_type": self.model_type,
             "owned_by": self.owned_by,
         }
         if self.model:
@@ -289,6 +374,9 @@ class TaskRoute:
     warning: str | None = None
     override_on: bool = False
     source: str = "default"
+    #: #1745 the resolved profile's model type, so the SPA can say "this route
+    #: fell back" and never render a gate as a chat option.
+    model_type: str = MODEL_TYPE_CHAT
 
     def public_dict(self) -> dict[str, Any]:
         return {
@@ -298,6 +386,7 @@ class TaskRoute:
             "warning": self.warning,
             "override_on": self.override_on,
             "source": self.source,
+            "model_type": self.model_type,
         }
 
 
@@ -445,6 +534,7 @@ def infer_vendor(entry_id: str, profile: dict[str, Any] | None = None, *, owned_
         ("gemini", ("gemini", "googleapis", "google")),
         ("groq", ("groq",)),
         ("openrouter", ("openrouter",)),
+        ("mistral", ("mistral", "codestral")),
         ("grok", ("grok", "x.ai")),
         ("codex", ("codex",)),
         ("opencode", ("opencode",)),
@@ -522,6 +612,11 @@ def _preferred_for_class(task_class: str, vendor: str, available: Iterable[str])
     return None
 
 
+def chat_catalog_entries(entries: Iterable[CatalogEntry]) -> list[CatalogEntry]:
+    """Drop #1745 categorizer rows — a gate model can never be auto-picked."""
+    return [entry for entry in entries if not entry.is_categorizer]
+
+
 def auto_pick_task_models(
     catalog: Iterable[str] | Iterable[CatalogEntry],
     *,
@@ -547,15 +642,25 @@ def auto_pick_task_models(
                     traits=resolve_traits(item.strip()),
                 )
             )
+    # #1745: System1 categorizers answer a gate, not chat tokens. They stay in
+    # the Settings catalog but never become the default or a task-class pick.
+    categorizer_ids = {entry.id for entry in entries if entry.is_categorizer}
+    if categorizer_ids:
+        entries = [entry for entry in entries if not entry.is_categorizer]
     ids = [entry.id for entry in entries]
     warnings: list[str] = []
+    if categorizer_ids:
+        warnings.append(
+            "System1 categorizer models are excluded from chat task picks: "
+            + ", ".join(sorted(categorizer_ids))
+        )
     if not ids:
         warning = "No models in catalog; falling back to 'default'."
         logger.warning(warning)
         return AutoPickResult(
             picks={cls: BUILTIN_FALLBACK for cls in CORE_TASK_CLASSES},
             default=BUILTIN_FALLBACK,
-            warnings=[warning],
+            warnings=warnings + [warning],
         )
 
     alias_set = {name for name in (aliases or ids) if name in CORE_TASK_CLASSES and name in ids}
@@ -652,6 +757,9 @@ def collect_catalog(
         window = context_length_from_mapping(profile)
         raw_base = profile.get("base_url")
         base_url = raw_base.strip() if isinstance(raw_base, str) and raw_base.strip() else None
+        # #1745: a System1 categorizer is a first-class catalog row, badged with
+        # its type so Settings can list it separately from chat LLMs.
+        model_type = model_type_for_profile(profile)
         _add(
             CatalogEntry(
                 id=name,
@@ -661,6 +769,7 @@ def collect_catalog(
                 base_url=base_url,
                 traits=traits,
                 context_length=window,
+                model_type=model_type,
             )
         )
         if model_id and model_id != name:
@@ -673,6 +782,7 @@ def collect_catalog(
                     base_url=base_url,
                     traits=resolve_traits(model_id, profile, owned_by=vendor),
                     context_length=window,
+                    model_type=model_type,
                 )
             )
 
@@ -797,6 +907,17 @@ def effective_default_profile(
     warnings.extend(auto.warnings)
     if stored:
         if profile_exists(stored, config) or any(entry.id == stored for entry in entries):
+            # #1745: a System1 categorizer is a gate, never the chat default.
+            # Chat surfaces filter it out; the resolver must agree, or a stored
+            # categorizer default would leave chat with no model at all.
+            if is_categorizer_model_type(model_type_for_catalog_id(stored, entries, config)):
+                warning = (
+                    f"Default LLM profile {stored!r} is a System1 categorizer; "
+                    f"falling back to {auto.default!r}."
+                )
+                logger.warning(warning)
+                warnings.append(warning)
+                return auto.default, warnings
             return stored, warnings
         warning = (
             f"LLM profile {stored!r} not found; falling back to "
@@ -862,16 +983,36 @@ def resolve_for_task(
             warning=extra,
             override_on=False,
             source="default",
+            model_type=model_type_for_catalog_id(default, entries, config),
         )
 
     mapped = stored_task_map(config).get(cls)
     if mapped:
         if mapped in known_ids or profile_exists(mapped, config):
+            # #1745: a chat task class never routes to a System1 gate. The
+            # operator's pick is honoured for filter seats (#1743), which do
+            # not come through this resolver.
+            if is_categorizer_model_type(model_type_for_catalog_id(mapped, entries, config)):
+                warning = (
+                    f"Task profile {mapped!r} for {cls} is a System1 categorizer; "
+                    f"falling back to default {default!r}."
+                )
+                logger.warning(warning)
+                return TaskRoute(
+                    profile=default,
+                    task_class=cls,
+                    used_fallback=True,
+                    warning=warning,
+                    override_on=True,
+                    source="fallback",
+                    model_type=model_type_for_catalog_id(default, entries, config),
+                )
             return TaskRoute(
                 profile=mapped,
                 task_class=cls,
                 override_on=True,
                 source="map",
+                model_type=model_type_for_catalog_id(mapped, entries, config),
             )
         warning = (
             f"Task profile {mapped!r} for {cls} not found; "
@@ -885,6 +1026,7 @@ def resolve_for_task(
             warning=warning,
             override_on=True,
             source="fallback",
+            model_type=model_type_for_catalog_id(default, entries, config),
         )
 
     auto = effective_auto_picks(config, catalog=entries)
@@ -896,6 +1038,7 @@ def resolve_for_task(
             task_class=cls,
             override_on=True,
             source=source,
+            model_type=model_type_for_catalog_id(picked, entries, config),
         )
 
     warning = (
@@ -909,6 +1052,7 @@ def resolve_for_task(
         warning=warning,
         override_on=True,
         source="fallback",
+        model_type=model_type_for_catalog_id(default, entries, config),
     )
 
 
@@ -1079,6 +1223,18 @@ def persist_named_llm_profile(
     cleaned["model"] = model
     provider = str(spec.get("provider") or cleaned.get("provider") or "openai").strip()
     cleaned["provider"] = provider or "openai"
+    # #1745: the model type is part of the profile, not a UI-only badge. Accept
+    # the legacy ``type`` spelling and always store the canonical key so a
+    # System1 categorizer can never persist as an unmarked chat profile.
+    raw_type = spec.get(MODEL_TYPE_KEY)
+    if raw_type is None or not str(raw_type).strip():
+        for legacy in _LEGACY_MODEL_TYPE_KEYS:
+            if str(spec.get(legacy) or "").strip():
+                raw_type = spec.get(legacy)
+                break
+    cleaned[MODEL_TYPE_KEY] = model_type_for_provider(cleaned["provider"], raw_type)
+    for legacy in _LEGACY_MODEL_TYPE_KEYS:
+        cleaned.pop(legacy, None)
     if "api_key" in spec:
         cleaned["api_key"] = spec.get("api_key")
     ownership.persist_webui_section("llm", upsert={pid: cleaned}, config_path=config_path)
@@ -1220,6 +1376,9 @@ def settings_public_payload(config: dict[str, Any] | None = None) -> dict[str, A
         "default_llm_ready": default_llm_ready(config),
         "routes": routes,
         "task_classes": list(TASK_CLASSES),
+        # #1745 so the SPA renders the type axis from the backend's registry
+        # instead of hardcoding a list it can drift from.
+        "model_types": list(MODEL_TYPES),
         "list_models_source": list_source,
         "cli_model_lists": cli_lists,
         "force_env": ownership.force_env_enabled(),

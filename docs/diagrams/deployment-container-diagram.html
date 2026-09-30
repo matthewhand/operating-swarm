@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operating Swarm · Deployment &amp; Containers</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1040px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Deployment · Operating Swarm</p>
+    <h1>Operating Swarm · Deployment &amp; Containers</h1>
+
+    <svg viewBox="0 0 1000 748" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="os-deploy-title os-deploy-desc">
+      <title id="os-deploy-title">Operating Swarm deployment and container topology</title>
+      <desc id="os-deploy-desc">A Linux host runs the default Docker Compose stack: the swarm application container publishing port 8000 and bind-mounting config, state, and CLI directories, plus an internal Postgres 16 container with a named volume. Alternate topologies are the dev overlay on port 8002, native systemd, Fly.io, and Oracle.</desc>
+      <defs>
+        <pattern id="grid-dots-deploy" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.07)"/>
+        </pattern>
+        <marker id="deploy-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="deploy-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#grid-dots-deploy)" opacity="0.6"/>
+
+      <!-- connectors first -->
+      <line x1="20" y1="204" x2="44" y2="204" stroke="#f08a59" stroke-width="2" marker-end="url(#deploy-arrow-accent)"/>
+      <line x1="600" y1="204" x2="628" y2="204" stroke="#bfc0c0" stroke-width="1" marker-end="url(#deploy-arrow)"/>
+
+      <!-- Host band -->
+      <text x="24" y="30" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">HOST</text>
+      <rect x="20" y="16" width="960" height="40" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.18)" stroke-width="1"/>
+      <text x="500" y="41" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Linux host · Docker Engine + Compose · host user DOCKER_UID:DOCKER_GID</text>
+
+      <!-- Compose network zone -->
+      <text x="24" y="86" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">DEFAULT DEPLOYMENT · docker compose up  (network: default bridge)</text>
+      <rect x="20" y="70" width="960" height="316" rx="8" fill="rgba(240,138,89,0.05)" stroke="rgba(240,138,89,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Ingress label -->
+      <text x="20" y="222" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" text-anchor="middle">host</text>
+      <text x="20" y="234" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" text-anchor="middle">:8000</text>
+
+      <!-- swarm container -->
+      <rect x="48" y="90" width="548" height="278" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+      <text x="68" y="114" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">swarm  ·  image open-swarm:local</text>
+      <text x="68" y="131" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">PID1: uvicorn swarm.asgi:application --host 0.0.0.0 --port $PORT --workers 1</text>
+
+      <g transform="translate(68,144)">
+        <rect width="248" height="40" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="124" y="17" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">published 8000:8000</text>
+        <text x="124" y="32" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">HTTP + WebSocket + SPA</text>
+      </g>
+      <g transform="translate(328,144)">
+        <rect width="248" height="40" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="124" y="17" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">healthcheck /health</text>
+        <text x="124" y="32" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">restart: on-failure:5</text>
+      </g>
+      <text x="68" y="206" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">ENV / CONFIG</text>
+      <text x="68" y="224" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">PORT=8000 · HOME=$HOME · SWARM_RUNTIME=sandbox-home</text>
+      <text x="68" y="240" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">DATABASE_URL · DJANGO_SECRET_KEY · API_AUTH_TOKEN</text>
+
+      <text x="68" y="270" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">BIND MOUNTS</text>
+      <g transform="translate(68,280)">
+        <rect width="118" height="34" rx="6" fill="rgba(245,245,245,0.05)" stroke="rgba(245,245,245,0.26)" stroke-width="1"/>
+        <text x="59" y="15" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">~/.config/swarm</text>
+        <text x="59" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">rw · config</text>
+      </g>
+      <g transform="translate(194,280)">
+        <rect width="132" height="34" rx="6" fill="rgba(245,245,245,0.05)" stroke="rgba(245,245,245,0.26)" stroke-width="1"/>
+        <text x="66" y="15" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">~/.local/share/swarm</text>
+        <text x="66" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">rw · responses/state</text>
+      </g>
+      <g transform="translate(334,280)">
+        <rect width="118" height="34" rx="6" fill="rgba(245,245,245,0.05)" stroke="rgba(245,245,245,0.26)" stroke-width="1"/>
+        <text x="59" y="15" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">CLI bin dirs</text>
+        <text x="59" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">ro · discovery</text>
+      </g>
+      <g transform="translate(460,280)">
+        <rect width="118" height="34" rx="6" fill="rgba(245,245,245,0.05)" stroke="rgba(245,245,245,0.26)" stroke-width="1"/>
+        <text x="59" y="15" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">CLI state homes</text>
+        <text x="59" y="28" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">rw · auth/session</text>
+      </g>
+
+      <!-- postgres container -->
+      <rect x="628" y="90" width="324" height="278" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+      <text x="648" y="114" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">postgres  ·  image postgres:16</text>
+      <text x="648" y="131" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">5432 internal only — not published</text>
+
+      <g transform="translate(648,148)">
+        <rect width="284" height="40" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="142" y="17" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">volume swarm_pgdata</text>
+        <text x="142" y="32" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">/var/lib/postgresql/data</text>
+      </g>
+      <text x="648" y="214" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">HEALTHCHECK</text>
+      <text x="648" y="232" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">pg_isready -U $POSTGRES_USER</text>
+      <text x="648" y="256" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">CREDENTIALS</text>
+      <text x="648" y="274" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">swarm / swarm (compose placeholder)</text>
+      <g transform="translate(648,296)">
+        <rect width="284" height="48" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="142" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">swarm waits for healthy DB</text>
+        <text x="142" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">depends_on: service_healthy</text>
+      </g>
+
+      <!-- Alternate topologies -->
+      <text x="24" y="416" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">ALTERNATE TOPOLOGIES</text>
+      <rect x="20" y="400" width="960" height="280" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.16)" stroke-width="1"/>
+
+      <g transform="translate(48,424)">
+        <rect width="442" height="112" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="20" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Dev overlay  ·  make dev</text>
+        <text x="20" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">docker-compose.dev.yml · host :8002</text>
+        <text x="20" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">uvicorn --reload · 1 worker · source bind-mounted</text>
+        <text x="20" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">restart: unless-stopped · SWARM_RUNTIME=sandbox-home</text>
+        <text x="20" y="102" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9">do NOT pair with a cloud DATABASE_URL</text>
+      </g>
+      <g transform="translate(510,424)">
+        <rect width="442" height="112" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="20" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Native  ·  systemd on host</text>
+        <text x="20" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">deploy/systemd/open-swarm-dev.service</text>
+        <text x="20" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">swarm-api :8000  ·  bare uvicorn :8002</text>
+        <text x="20" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">SQLite when DATABASE_URL unset · CLIs authed on host</text>
+        <text x="20" y="102" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">RestartPreventExitStatus=78 (fail-fast)</text>
+      </g>
+      <g transform="translate(48,548)">
+        <rect width="442" height="112" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="20" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Fly.io  ·  fly.toml</text>
+        <text x="20" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">image bakes frontend dist/ (multi-stage Dockerfile)</text>
+        <text x="20" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">TLS terminated by Fly proxy → SECURE_PROXY_SSL_HEADER</text>
+        <text x="20" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">/health liveness probe · demo variant fly.demo.toml</text>
+      </g>
+      <g transform="translate(510,548)">
+        <rect width="442" height="112" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="20" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">Oracle  ·  deploy/oracle</text>
+        <text x="20" y="48" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">nginx-open-swarm.conf optional static proxy</text>
+        <text x="20" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">systemd unit · DJANGO_DB_NAME SQLite path by default</text>
+        <text x="20" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9">--workers 1</text>
+      </g>
+
+      <!-- Legend -->
+      <text x="24" y="706" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">SOURCES: docker-compose.yml · docker-compose.dev.yml · Dockerfile · deploy/systemd · deploy/oracle · fly.toml · docs/DEPLOYMENT.md · docs/DATABASE.md</text>
+    </svg>
+  </div>
+</body>
+</html>

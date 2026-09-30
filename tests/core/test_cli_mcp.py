@@ -23,10 +23,11 @@ def test_normalize_skips_disabled_and_empty():
     out = normalize_mcp_servers({
         "ok": {"command": "uvx", "args": ["x"]},
         "off": {"command": "uvx", "enabled": False},
+        "off-text": {"command": "uvx", "enabled": " false "},
         "http": {"url": "https://example/mcp", "transport": "http", "headers": {"Authorization": "Bearer t"}},
         "bad": True,
     })
-    assert "ok" in out and "off" not in out
+    assert "ok" in out and "off" not in out and "off-text" not in out
     assert out["http"]["url"] == "https://example/mcp"
     assert out["http"]["headers"]["Authorization"] == "Bearer t"
 

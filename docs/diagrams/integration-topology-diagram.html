@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Integration Topology · Operating Swarm</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Integrations · Operating Swarm</p>
+    <h1>Integration Topology &amp; External Dependencies</h1>
+
+    <svg viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="integ-title integ-desc">
+      <title id="integ-title">Operating Swarm integration topology</title>
+      <desc id="integ-desc">Integration map: inbound clients and webhooks reach the core integration layer (CLI adapter, LLM profile client, remote adapter registry, MCP provider, GitHub client), which makes outbound calls to model providers, local model runtimes, remote HTTP harnesses, Herdr over CLI or SSH, GitHub, and MCP servers, each with its own transport and auth.</desc>
+      <defs>
+        <pattern id="dots-integ" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="integ-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="integ-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+        <marker id="integ-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#6ea8fe"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-integ)" opacity="0.55"/>
+
+      <!-- Inbound arrows (accent) -->
+      <line x1="240" y1="112" x2="240" y2="146" stroke="#f08a59" stroke-width="1.6" marker-end="url(#integ-arrow-accent)"/>
+      <line x1="500" y1="112" x2="500" y2="146" stroke="#f08a59" stroke-width="1.6" marker-end="url(#integ-arrow-accent)"/>
+      <line x1="760" y1="112" x2="760" y2="146" stroke="#f08a59" stroke-width="1.6" marker-end="url(#integ-arrow-accent)"/>
+      <!-- Outbound arrows (blue) -->
+      <line x1="90" y1="256" x2="90" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <line x1="254" y1="256" x2="254" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <line x1="418" y1="256" x2="418" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <line x1="582" y1="256" x2="582" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <line x1="746" y1="256" x2="746" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <line x1="910" y1="256" x2="910" y2="396" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+
+      <!-- Inbound band -->
+      <text x="24" y="30" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">INBOUND</text>
+      <rect x="130" y="16" width="220" height="96" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+      <text x="240" y="48" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">OpenAI-compatible clients</text>
+      <text x="240" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">/v1/chat · /v1/responses</text>
+      <text x="240" y="86" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Bearer token</text>
+      <rect x="390" y="16" width="220" height="96" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+      <text x="500" y="48" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">OS WebUI / tray</text>
+      <text x="500" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">HTTP + WebSocket</text>
+      <text x="500" y="86" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">session cookie + CSRF</text>
+      <rect x="650" y="16" width="220" height="96" rx="6" fill="rgba(191,192,192,0.10)" stroke="rgba(191,192,192,0.45)" stroke-width="1"/>
+      <text x="760" y="48" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">GitHub webhooks / routines</text>
+      <text x="760" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">github_pr_merged · github_event</text>
+      <text x="760" y="86" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">mailbox_message · schedule tick</text>
+
+      <!-- Core band -->
+      <text x="24" y="176" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">CORE INTEGRATION LAYER</text>
+      <rect x="24" y="160" width="952" height="96" rx="8" fill="rgba(240,138,89,0.06)" stroke="rgba(240,138,89,0.55)" stroke-width="1.5"/>
+      <g transform="translate(40,180)">
+        <rect width="176" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="88" y="23" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">CliAdapter</text>
+        <text x="88" y="41" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">subprocess / PTY</text>
+      </g>
+      <g transform="translate(232,180)">
+        <rect width="176" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="88" y="23" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">LlmProfile client</text>
+        <text x="88" y="41" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">OpenAI-compatible</text>
+      </g>
+      <g transform="translate(424,180)">
+        <rect width="176" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="88" y="23" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">RemoteAdapter registry</text>
+        <text x="88" y="41" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">kind → adapter</text>
+      </g>
+      <g transform="translate(616,180)">
+        <rect width="176" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="88" y="23" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">MCP provider</text>
+        <text x="88" y="41" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">tool servers</text>
+      </g>
+      <g transform="translate(808,180)">
+        <rect width="152" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="76" y="23" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">GitHub client</text>
+        <text x="76" y="41" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">marketplace</text>
+      </g>
+
+      <!-- External band -->
+      <text x="24" y="316" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">EXTERNAL SYSTEMS</text>
+      <g transform="translate(14,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Model providers</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">HTTPS</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">API key / OAuth</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">OpenAI · Anthropic</text>
+      </g>
+      <g transform="translate(178,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Local runtime</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">HTTP</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">no key (LAN)</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">Ollama · vLLM · LiteLLM</text>
+      </g>
+      <g transform="translate(342,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Remote harnesses</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">HTTP</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">per-harness token</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">Hermes · OMB · TrueForge</text>
+      </g>
+      <g transform="translate(506,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Herdr</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">local CLI / SSH</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">host key / agent</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">herdr bin · socket</text>
+      </g>
+      <g transform="translate(670,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">GitHub</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">REST / webhooks</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">personal token</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">marketplace catalog</text>
+      </g>
+      <g transform="translate(834,396)">
+        <rect width="152" height="96" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="76" y="30" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">MCP servers</text>
+        <text x="76" y="52" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">stdio / HTTP</text>
+        <text x="76" y="68" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">per-server config</text>
+        <text x="76" y="84" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">tools exposed to seats</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="24" y1="532" x2="976" y2="532" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="552" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="110" y1="548" x2="146" y2="548" stroke="#f08a59" stroke-width="1.6" marker-end="url(#integ-arrow-accent)"/>
+      <text x="158" y="552" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Inbound call / event</text>
+      <line x1="400" y1="548" x2="436" y2="548" stroke="#6ea8fe" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#integ-arrow-link)"/>
+      <text x="448" y="552" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Outbound call (core → external)</text>
+      <line x1="760" y1="548" x2="796" y2="548" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#integ-arrow)"/>
+      <text x="808" y="552" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Internal adapter</text>
+      <text x="24" y="620" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/remotes/registry.py · src/swarm/remotes/*.py · src/swarm/views/marketplace_api.py · src/swarm/mcp/provider.py · docs/REMOTE_HARNESSES.md · docs/HERDR.md</text>
+      <text x="24" y="636" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">ASSUMPTION: per-provider model IDs and endpoints are operator-configured in swarm_config.json / LlmProfiles; no provider hostname is hard-coded in source.</text>
+    </svg>
+  </div>
+</body>
+</html>

@@ -10,6 +10,7 @@ import { newConversationId } from './chatWs'
 import { asTranscriptRole, isStatusRole, type ChatTranscriptRole } from './chatStatus'
 import { messagesFromThreadPayload } from './transcriptReconstruct'
 import { parseContextMeta, type ContextMeta } from './contextCull'
+import { parseMessageReactions, type MessageReaction } from './messageReactions'
 
 export type { ContextMeta } from './contextCull'
 
@@ -149,6 +150,10 @@ export interface AgentThreadMessage {
   fatal_config_error?: boolean
   /** #527: openai-agents persona that produced this row, when the server says. */
   persona?: string
+  /** #1411: aggregated emoji reactions. */
+  reactions?: MessageReaction[]
+  /** #1411: assistant turn that is only an emoji reaction. */
+  reaction_only?: boolean
 }
 
 export interface AgentThread {
@@ -164,6 +169,10 @@ export interface AgentThread {
   /** Edited turn cannot rewind the CLI session; next message starts fresh (BE PATCH flag). */
   cli_session_reset?: boolean
   context_meta?: ContextMeta
+  /** #1319: older turns exist beyond this page — fetch them with `cursor`. */
+  has_more?: boolean
+  /** #1319: `before` cursor for the next older page (empty when `has_more` is false). */
+  cursor?: string
 }
 
 export interface ContextStartResult {
@@ -200,6 +209,8 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
     created_at?: unknown
     fatal_config_error?: unknown
     persona?: unknown
+    reactions?: unknown
+    reaction_only?: unknown
   }
   if (typeof row.role !== 'string' || typeof row.content !== 'string') return null
   if (row.edited !== undefined && row.edited !== true) return null
@@ -224,6 +235,9 @@ function parseThreadMessage(value: unknown): AgentThreadMessage | null {
   if (typeof ts === 'string' && ts.trim()) parsed.ts = ts.trim()
   if (row.fatal_config_error === true) parsed.fatal_config_error = true
   if (typeof row.persona === 'string' && row.persona.trim()) parsed.persona = row.persona.trim()
+  const reactions = parseMessageReactions(row.reactions)
+  if (reactions.length) parsed.reactions = reactions
+  if (row.reaction_only === true && reactions.length) parsed.reaction_only = true
   return parsed
 }
 
@@ -231,18 +245,41 @@ function parseSummaries(value: unknown): ConversationSummary[] {
   return Array.isArray(value) ? value.filter(isConversationSummary) : []
 }
 
-/** GET /chat/thread/?agent= — throws on auth/network/HTTP failure (REQ-171A-4 / #604). */
+/** #1319: default turns per hydration page (newest-first). */
+export const THREAD_PAGE_SIZE = 50
+
+/**
+ * GET /chat/thread/?agent= — throws on auth/network/HTTP failure (REQ-171A-4 / #604).
+ *
+ * #1319: hydrates the newest page by default (`THREAD_PAGE_SIZE` turns) and
+ * returns `has_more` + `cursor`. Pass `{ before }` to fetch an older page, or
+ * `{ limit }` to size the page explicitly. `flush` reloads the full thread so
+ * harness-synced panes are not truncated.
+ */
 export async function fetchAgentThread(
   agentId: string,
   conversationIdOverride?: string,
-  options?: { flush?: boolean },
+  options?: { flush?: boolean; limit?: number; before?: string | number },
 ): Promise<AgentThread> {
   const agent = agentIdFromBlueprint(agentId)
   const conversationId =
     (conversationIdOverride || '').trim() || conversationIdForAgent(agent)
-  const flushParam = options?.flush ? '&flush=1' : ''
+  const params = new URLSearchParams()
+  params.set('agent', agent)
+  params.set('conversation_id', conversationId)
+  if (options?.flush) params.set('flush', '1')
+  const explicitLimit = options?.limit
+  const limit =
+    typeof explicitLimit === 'number' && explicitLimit > 0
+      ? explicitLimit
+      : options?.flush
+        ? undefined
+        : THREAD_PAGE_SIZE
+  if (limit != null) params.set('limit', String(limit))
+  const before = options?.before != null ? String(options.before).trim() : ''
+  if (before) params.set('before', before)
   const data = await apiGet<AgentThread>(
-    `/chat/thread/?agent=${encodeURIComponent(agent)}&conversation_id=${encodeURIComponent(conversationId)}${flushParam}`,
+    `/chat/thread/?${params.toString()}`,
     { cache: 'no-store' },
   )
   const reconstructed = messagesFromThreadPayload(data || {})
@@ -263,7 +300,25 @@ export async function fetchAgentThread(
     kind,
     editable: data?.editable === true || (data?.editable !== false && kind === 'api'),
     session_missing: data?.session_missing === true,
+    has_more: data?.has_more === true,
+    cursor: typeof data?.cursor === 'string' ? data.cursor : '',
   }
+}
+
+/**
+ * #1319: fetch the next older page of a thread from its `before` cursor.
+ * Returns the page (newest-first ordering preserved) plus the next cursor.
+ */
+export async function fetchEarlierAgentThreadPage(
+  agentId: string,
+  conversationId: string,
+  cursor: string,
+  options?: { limit?: number },
+): Promise<AgentThread> {
+  return fetchAgentThread(agentId, conversationId, {
+    before: cursor,
+    limit: options?.limit,
+  })
 }
 
 export interface PatchAgentMessageRequest {

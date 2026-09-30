@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { History } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from './DaisyUI'
-import CliSessionPicker from './CliSessionPicker'
 import { fetchCliAgents } from '../lib/api'
 import { conversationIdForAgent } from '../lib/agentChat'
 import { persistSessionWorkspace } from '../lib/agentWorkspace'
@@ -16,12 +15,21 @@ import { hopCliSession, hopContinueTargets } from '../lib/cliSessionHop'
 import { persistAgentDropdownChoice } from '../lib/userPrefs'
 import { sessionHref } from '../lib/scaleOutSessions'
 import { FALLBACK_CLIS } from '../lib/chatStatus'
-import { openSettingsSheet } from './SettingsSheet'
+import { providerScopeKey } from '../lib/seatRouting'
+import { openSettingsSheet } from './settings/kernel'
+
+const CliSessionPicker = lazy(() => import('./CliSessionPicker'))
 
 export interface CliSessionSwitcherProps {
   agentId: string
   cli: string
   agentName?: string
+  /**
+   * #1353 — the provider scope to list sessions for. Defaults to this CLI's
+   * own scope (`cli:<cli>`); the session picker never lists another
+   * provider's sessions.
+   */
+  provider?: string
 }
 
 /**
@@ -35,10 +43,16 @@ export default function CliSessionSwitcher({
   agentId,
   cli,
   agentName,
+  provider = '',
 }: CliSessionSwitcherProps) {
   const navigate = useNavigate()
   const toast = useToast()
   const label = (agentName || '').trim() || 'CLI'
+  // #1353: the provider scope this switcher lists sessions for. An explicit
+  // scope wins; otherwise the current CLI's own scope — never the default
+  // inference profile.
+  const cliProvider =
+    provider.trim() || providerScopeKey({ kind: 'cli', id: (cli || '').trim() || 'grok' })
   const [open, setOpen] = useState(false)
   const [sessions, setSessions] = useState<CliProviderSession[]>([])
   const [canList, setCanList] = useState(false)
@@ -87,7 +101,11 @@ export default function CliSessionSwitcher({
         fetchCliAgents().catch(() => null),
       ])
       if (!isCurrentLoad(seq, requestedAgent, requestedCli)) return
-      setSessions(list.sessions)
+      // #1353: stamp this CLI's provider scope so the picker can never list a
+      // foreign-namespace session.
+      setSessions(
+        list.sessions.map((session) => ({ ...session, provider: cliProvider })),
+      )
       setCanList(list.can_list)
       setEmptyReason(list.empty_reason)
       const names = catalog?.clis?.length ? catalog.clis : [...FALLBACK_CLIS]
@@ -106,7 +124,7 @@ export default function CliSessionSwitcher({
     } finally {
       if (isCurrentLoad(seq, requestedAgent, requestedCli)) setLoading(false)
     }
-  }, [isCurrentLoad, toast])
+  }, [cliProvider, isCurrentLoad, toast])
 
   const applySession = useCallback(
     async (opts: { session?: CliProviderSession; startNew?: boolean }) => {
@@ -196,6 +214,8 @@ export default function CliSessionSwitcher({
       >
         <History className="h-4 w-4" aria-hidden="true" />
       </button>
+      {open ? (
+      <Suspense fallback={null}>
       <CliSessionPicker
         open={open}
         agentName={label}
@@ -217,6 +237,8 @@ export default function CliSessionSwitcher({
         }}
         onManageSession={() => openSettingsSheet({ section: 'cli-agents' })}
       />
+      </Suspense>
+      ) : null}
     </>
   )
 }

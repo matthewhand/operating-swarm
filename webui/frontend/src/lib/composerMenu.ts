@@ -13,15 +13,27 @@
  * error** (`Record<ComposerMenuItemId, …>`), which is what makes "a future item
  * cannot repeat this by omission" true rather than aspirational.
  *
- * Disabled items stay **visible** with a reason rather than disappearing: the
- * user has just opened this menu, and #511 set the precedent that the reason is
- * reachable (and is what the `Add files` item already does).
+ * #1230: an unavailable action is **absent**, not greyed. `Compact` in
+ * particular is API-only and never renders a disabled/"not available" state on
+ * a CLI, remote, or unresolved seat — the user reports in #1230 were all that
+ * state. `Add files` / `Plugins` keep the earlier #511 visible-but-disabled
+ * precedent because their reasons are actionable (configure an API, use a
+ * swarm seat); a CLI seat cannot acquire a compact at all.
+ *
+ * #1725: `defaultLlmReady` was **deleted from this interface**, not wired up.
+ * It had been declared here since #636 and read by nothing — `Compact` is gated
+ * on the positive `isApi` alone (#1230), and a configured default API cannot
+ * give a CLI seat a transcript to compact. Leaving it advertised a gate that
+ * did not exist. The *observable* it stood for is still reported where it is
+ * real: `/v1/llm-profiles/` `default_llm_ready` drives `DefaultLlmTip`
+ * (`lib/defaultLlmTip.ts`), which is the surface that actually tells an operator
+ * their default profile is unusable.
  */
 
 import { composerFileAttachSupported } from './chatAttachments'
 
 /** Every id the composer `+` menu can render. One union, one owner. */
-export const COMPOSER_MENU_ITEM_IDS = ['addFiles', 'compact', 'plugins'] as const
+export const COMPOSER_MENU_ITEM_IDS = ['addFiles', 'compact', 'plugins', 'rewrite'] as const
 
 export type ComposerMenuItemId = (typeof COMPOSER_MENU_ITEM_IDS)[number]
 
@@ -30,8 +42,6 @@ export interface ComposerMenuSeat {
   isApi?: boolean
   isCli?: boolean
   isRemote?: boolean
-  /** #636: a default API profile is configured (`/v1/llm-profiles/` `default_llm_ready`). */
-  defaultLlmReady?: boolean
   /** #636: the CLI provider declares a native `cli_compact` hook (catalog `cli_compact`). */
   cliCompactCapable?: boolean
   /** #830: display name of the remote provider (e.g. "Herdr", "TrueForge"). */
@@ -67,13 +77,15 @@ export const ATTACH_DISABLED_REASON =
   'File attachments aren’t supported for CLI or remote seats'
 
 export const COMPACT_DISABLED_REASON =
-  'Compact summarises server-side history — CLI and remote seats keep their transcript in the provider'
+  'Compact is API-only — CLI and remote seats keep their transcript in the provider'
 
-/** #636: what a greyed CLI Compact says — the gate is the missing API. */
+/** #1230: kept for payload/test consumers; no rendered item uses it any more
+ * because an unavailable Compact is never drawn. */
 export const COMPACT_NO_API_REASON =
-  'No API is configured — compacting a CLI seat needs a default API profile (Settings → LLM)'
+  'Compact is API-only — CLI seats have no server-side history to summarise'
 
-/** #830: the disabled remote reason names the PROVIDER, not the kind. */
+/** #830: kept for payload/test consumers; the remote Compact item is absent,
+ * not disabled, since #1230. */
 export function compactRemoteReason(providerName?: string): string {
   return `Compact is not implemented for ${providerName?.trim() || 'this provider'}`
 }
@@ -83,7 +95,17 @@ export function compactRemoteReason(providerName?: string): string {
 export const PLUGINS_DISABLED_REASON =
   'Plugins are available on API and blueprint seats — CLI and remote seats run their tools on the provider'
 
-export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCapabilities {
+/**
+ * #1220: the rewrite action fires auxiliary LLM inference on every use, so it
+ * is an opt-in affordance. Unlike the other items it does not render greyed
+ * with a reason — disabled means ABSENT: an always-visible item would invite
+ * accidental spends, and there is no seat state that can flip it back on.
+ * The gate is the operator preference (`swarm_composer_rewrite_enabled`).
+ */
+export const REWRITE_DISABLED_REASON =
+  'AI prompt rewrite is off — enable it in Settings → General'
+
+export function composerMenuCapabilities(seat: ComposerMenuSeat & { rewriteEnabled?: boolean }): ComposerMenuCapabilities {
   // One owner for the attach rule: the same helper the composer uses to decide
   // whether the paperclip is live, so the menu cannot disagree with the input.
   const addFiles = composerFileAttachSupported({
@@ -92,33 +114,30 @@ export function composerMenuCapabilities(seat: ComposerMenuSeat): ComposerMenuCa
   })
   // Compact is API-only. `isApi` is the deliberate gate rather than
   // `!isCli && !isRemote`, because a seat that is none of the three (an
-  // unresolved blueprint, say) must not silently gain the action.
+  // unresolved blueprint, say) must not silently gain the action. CLI / remote
+  // seats serve their transcript from the provider, so there is no compact for
+  // the swarm to offer them — they get no item at all, never a disabled one.
   const compact = Boolean(seat.isApi)
-  // #636: a CLI seat can compact too — the server summarises via the default
-  // API, or the provider compacts itself through its declared native hook.
-  // #830: a remote seat gains the same path when its provider declares a
-  // native compact hook (`remoteCompactCapable`); otherwise it stays out —
-  // the transcript is the provider's, and the server has no summariser for it.
-  const cliCompact =
-    Boolean(seat.isCli) && (Boolean(seat.defaultLlmReady) || Boolean(seat.cliCompactCapable))
-  const remoteCompact = Boolean(seat.isRemote) && Boolean(seat.remoteCompactCapable)
-  const compactReason = seat.isRemote
-    ? compactRemoteReason(seat.providerName)
-    : COMPACT_NO_API_REASON
+  // #1230: an unavailable compact is NOT an affordance. The item is
+  // enabled-or-absent (same contract as #1220's rewrite), so no seat ever
+  // renders a disabled/"not available" Compact. The reason is retained only
+  // for the (never-rendered) absent case and for capability payload consumers.
   // #516: the Plugins entry uses the same swarm-owned reading (#511) the rail
   // footer and the badge already gate on — one predicate, three consumers.
   const plugins = Boolean(seat.pluginsSwarmOwned)
+  // #1220: rewrite is operator-opt-in (single boolean, tier-independent —
+  // the aux-inference cost concern is not a viewport concern). Default OFF.
+  const rewrite = Boolean(seat.rewriteEnabled)
   // #551: a published declaration outranks every kind-derived gate. When the
   // backend has not published one, the local predicates above remain the
   // fallback so an older payload cannot silently widen a seat's powers.
   const declaredPlugins = declaredCapability(seat, 'plugins')
   const declaredAttach = declaredCapability(seat, 'attach')
+  const declaredRewrite = declaredCapability(seat, 'rewrite')
   return {
     addFiles: declaredAttach ?? { enabled: addFiles, reason: ATTACH_DISABLED_REASON },
-    compact: {
-      enabled: compact || cliCompact || remoteCompact,
-      reason: compact || cliCompact || remoteCompact ? '' : compactReason,
-    },
+    compact: { enabled: compact, reason: compact ? '' : COMPACT_DISABLED_REASON },
     plugins: declaredPlugins ?? { enabled: plugins, reason: PLUGINS_DISABLED_REASON },
+    rewrite: declaredRewrite ?? { enabled: rewrite, reason: REWRITE_DISABLED_REASON },
   }
 }

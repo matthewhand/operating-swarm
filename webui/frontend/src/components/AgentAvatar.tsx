@@ -1,4 +1,7 @@
 import {
+  Children,
+  cloneElement,
+  isValidElement,
   useEffect,
   useMemo,
   useState,
@@ -8,6 +11,9 @@ import {
   type ReactNode,
 } from 'react'
 import { useGeneratedAvatar } from '../lib/agentAvatars'
+// #1692: the seat identity size tier + WebGL decision are declared once.
+import { SEAT_AVATAR_SIZE } from '../lib/seatAvatar'
+import { avatarShapeClass, useAgentProfile } from '../lib/agentProfile'
 import { hashAgentId } from '../lib/blobAvatar'
 import { isGeneratedStillSrc } from '../lib/imageGenSettings'
 import { auraPaletteForColor } from '../lib/auraPalette'
@@ -67,7 +73,7 @@ export interface AgentAvatarProps {
   theme?: AvatarTheme
   /** Opt-in click-to-choose. Rail/pins stay false so left-click selects chat. */
   interactive?: boolean
-  /** #747: remote kind — when no custom face exists, render the platform-themed face (Letta, Slack, AnythingLLM, …) instead of the generic default. */
+  /** #747: remote kind — when no custom face exists, render the platform-themed face (Slack, AnythingLLM, …) instead of the generic default. */
   remoteKind?: string | null
 }
 
@@ -92,7 +98,10 @@ export function agentAvatarKind(src?: string | null): 'custom' | 'default' {
 export default function AgentAvatar({
   src,
   alt = '',
-  size = 'sm',
+  // #1692: the default size tier is the shared seat contract, not a local
+  // guess, so a call site that forgets `size` still renders the same face the
+  // rail row does.
+  size = SEAT_AVATAR_SIZE,
   className = '',
   agentId,
   active = false,
@@ -119,6 +128,9 @@ export default function AgentAvatar({
   )
   const theme = forcedTheme ?? resolveAvatarTheme(perAgentTheme, enabled, globalTheme)
   const generatedSrc = useGeneratedAvatar(agentId)
+  const storefront = useAgentProfile(agentId)
+  const avatarShape = storefront.avatar_shape
+  const avatarColor = storefront.avatar_color
   const choosable = Boolean(agentId) && interactive === true
   const chooseLabel = chooseThemeLabel(alt || agentId)
   const motionHash = hashAgentId(agentId || alt || 'agent')
@@ -127,6 +139,7 @@ export default function AgentAvatar({
     ['--ed' as string]: `${(6 + (motionHash % 50) / 10).toFixed(2)}s`,
     ['--wd' as string]: `${(((motionHash >>> 8) % 14) / 10).toFixed(2)}s`,
     ['--wt' as string]: `${(0.72 + ((motionHash >>> 4) % 10) / 10).toFixed(2)}s`,
+    ...(avatarColor ? { ['--os-avatar-color' as string]: avatarColor } : {}),
   }
 
   useEffect(() => {
@@ -160,13 +173,20 @@ export default function AgentAvatar({
         chooseLabel={chooseLabel}
         open={open}
         onOpen={() => setOpen(true)}
-        className={`avatar ${eyeState === 'active' ? 'os-avatar--active' : ''} ${className}`.trim()}
+        className={`avatar ${eyeState === 'active' ? 'os-avatar--active' : ''} ${avatarShapeClass(avatarShape)} ${className}`.trim()}
         style={{ ...motionStyle, ...style }}
         aria-hidden={choosable || alt ? undefined : true}
         data-avatar-active={eyeState === 'active' ? 'true' : undefined}
+        data-avatar-shape={avatarShape}
+        data-avatar-color={avatarColor || undefined}
         {...attrs}
       >
-        {children}
+        {/* D5: `shell` receives its children as a rest-array, so React treats
+            them as a list and warns without keys. Key them here once instead
+            of at every call site. */}
+        {Children.map(children, (child, index) =>
+          isValidElement(child) ? cloneElement(child, { key: child.key ?? index }) : child,
+        )}
       </AvatarRoot>
       {choosable && open && agentId ? (
         <AgentThemePreviewDialog
@@ -186,9 +206,12 @@ export default function AgentAvatar({
         'data-avatar-size': size,
         'data-avatar-still': showGeneratedStill ? 'generated' : undefined,
         'data-eye-state': eyeState,
+        // #1244: bundled/custom image faces breathe while idle and pulse while
+        // working — a static <img> must still read as a live seat.
+        'data-avatar-motion': eyeState,
       },
       <div
-        className={`os-agent-avatar os-agent-avatar--${size} rounded-full ${eyeState === 'active' ? 'os-agent-avatar--active' : ''}`}
+        className={`os-agent-avatar os-agent-avatar--${size} rounded-full ${eyeState === 'active' ? 'os-agent-avatar--active' : 'os-agent-avatar--idle'}`}
       >
         <img
           src={faceSrc}
@@ -241,13 +264,17 @@ export default function AgentAvatar({
           'data-avatar-theme': 'remote',
           'data-avatar-size': size,
           'data-eye-state': eyeState,
+          // #1244: remote glyphs breathe while idle and pulse while working;
+          // the class is the test-visitable motion contract (jsdom can't run
+          // keyframes).
+          'data-avatar-motion': eyeState,
           'data-remote-kind': remoteKind.toLowerCase(),
           'data-remote-face': face.label,
           // attrs.style replaces the outer merge, so re-include motion vars.
           style: { ...motionStyle, ...style, ['--remote-accent' as string]: face.accent },
         },
         <span
-          className={`os-remote-face os-remote-face--${size} ${eyeState === 'active' ? 'os-remote-face--active' : ''}`}
+          className={`os-remote-face os-remote-face--${size} ${eyeState === 'active' ? 'os-remote-face--active' : 'os-remote-face--idle'}`}
           style={{ color: face.accent }}
           aria-hidden="true"
         >

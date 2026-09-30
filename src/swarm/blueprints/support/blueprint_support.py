@@ -12,22 +12,27 @@ import os
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as fusion
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.blueprints.common.support_blueprint import (
     CLICK_BUBBLE_TO_EDIT,
     resolve_session_kind,
     support_turn_context,
     support_turn_reply,
 )
-from swarm.core.blueprint_base import BlueprintBase
+from swarm.core.blueprint_base import BlueprintBase, apply_agent_model_defaults
 from swarm.core.support_context import (
     create_paths_markdown,
     live_context,
     model_context_block,
     quickstart_section,
 )
+from swarm.core.support_interactive_create import (
+    interactive_create_or_socratic,
+    reply_for_routine_request,
+    reply_for_seating_request,
+)
 from swarm.core.support_nl_blueprint import (
     create_nl_blueprint,
-    nl_create_or_socratic,
     synthesize_from_roster_payload,
     wants_code_reveal,
 )
@@ -35,9 +40,10 @@ from swarm.core.support_nl_blueprint import (
 logger = logging.getLogger(__name__)
 
 SUPPORT_INSTRUCTIONS = """
-You are Support, Open Swarm's first-run journey onboarder (role=support).
+You are Support, Operating Swarm's first-run journey onboarder (role=support).
 Fixture: ONBOARD_JOURNEY_CLI_API_REMOTE
 Fixture: SUPPORT_NL_BLUEPRINT_NO_USER_PYTHON
+Fixture: SUPPORT_INTERACTIVE_CREATE_1373
 
 Goals:
 - Guide the open-swarm journey in natural language + kickstart chips
@@ -52,6 +58,26 @@ Goals:
   unless they ask to view / edit code.
 - The card CTAs are **Add as agent** (rail) and **Save as blueprint**
   (library). Do not tell them to Open in chat.
+- Routines: underspecified “create a routine” → one Socratic ```question.
+  Specified asks draft a **Add routine** card. A GitHub merge routine needs
+  an owner/repo before the card. A github.com URL counts as owner/repo.
+  An explicit merge wins over “daily” or “weekly” inside the instruction;
+  a passing “github” mention still loses to a daily or weekly schedule.
+  Hourly still wins over an explicit merge. An owner/repo after “for”
+  is the repository, not the agent. `git@github.com:owner/repo` and
+  `api.github.com/repos/owner/repo` are the repository too, not agent
+  `git`. A gist URL is not a repository.
+  Persist uses the existing routines API
+  (`POST /v1/agents/<id>/routines/`). Do not invent a second store.
+- Team/group seating: “seat Ada on office”, “put Ada on the office team”,
+  or “put Ada in the office team” drafts a **Seat on team** / **Create
+  group** card. Do not treat “create a group chat”, “put X in Y”
+  without a team, group, or roster, or a non-roster noun after
+  team/group/roster (“team folder”, “group chat”, “team standup”) as
+  seating. “please”, “today”, “now”, “tomorrow”, and “and” still seat.
+  A polite word is not the roster name, and “with Pat please” keeps Pat.
+  Persist uses the
+  existing team-roster API (`POST/PUT /v1/team-rosters/`).
 - Under the hood a team is a Python ApiKindBase class (ADR-005). Say that
   briefly. Code stays hidden; the UI offers View code.
 - Help them create a local team: personas, optional Chief of Staff (CoS).
@@ -63,13 +89,17 @@ Goals:
   to setups they already have. Env var names only — never plaintext secrets.
 - Explain the one-pane bridge: task here across CLI ↔ API ↔ remotes.
 - Stay honest about constraints: API threads are editable here; CLI and
-  remote sessions live outside Open Swarm (no click-to-edit).
+  remote sessions live outside Operating Swarm (no click-to-edit).
 - When inference is not configured, point at QUICKSTART §4 and the Settings
   overlay /profiles/ — never invent credentials, ports, or a live host.
 
 Tools:
 - create_blueprint_from_nl: draft a team/workflow from NL (no user Python;
   persist is Add as agent / Save as blueprint on the card).
+- create_routine_from_nl: draft a scheduled routine from NL (persist is
+  Add routine on the card).
+- seat_agents_on_team: draft team/group seating from NL (persist is Seat
+  on team / Create group on the card).
 - get_live_context: current agents + inference status.
 - get_quickstart: existing quickstart excerpts (inference / team / blueprint / run).
 - list_create_paths: in-product paths to create agents, blueprints, and teams.
@@ -84,8 +114,8 @@ Do not shell out to grok, omb, or rakazo. Stay on this Support seat.
 """
 
 PRODUCT_GUIDE_INSTRUCTIONS = """
-You are the Support product guide. Answer from Open Swarm's existing
-quickstart and in-product overlays (/settings/, /profiles/, /teams/launch/,
+You are the Support product guide. Answer from Operating Swarm's existing
+quickstart and in-product overlays (/chat?settings=llm-profiles, /profiles/, /teams/launch/,
 /blueprint-library/, /agent-creator/). Prefer quoting QUICKSTART.md over
 inventing steps. Onboard the journey: create a team, add a remote
 (Hermes / OpenMousBot / Herdr), wire a CLI and list models, then bridge
@@ -224,6 +254,25 @@ def create_blueprint_from_nl(request: str) -> str:
 
 
 @_function_tool
+def create_routine_from_nl(request: str) -> str:
+    """Draft a routine from natural language. Persist is Add routine on the card.
+
+    Uses the existing per-agent routines store. Does not invent a second scheduler.
+    """
+    return reply_for_routine_request(request)
+
+
+@_function_tool
+def seat_agents_on_team(request: str) -> str:
+    """Draft team/group seating from natural language.
+
+    Persist is Seat on team / Create group on the card. Writes team_rosters
+    via the existing /v1/team-rosters/ API — not a new Python class.
+    """
+    return reply_for_seating_request(request)
+
+
+@_function_tool
 def list_config_targets() -> str:
     """Survey every configurable domain: providers, settings, MCP servers,
     teams, blueprints. Read-only; secret values redacted to env-var names.
@@ -282,7 +331,7 @@ class SupportBlueprint(BlueprintBase):
         "title": "Support",
         "description": "Onboarding. First team.",
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["support", "onboarding", "quickstart"],
         "role": "support",
         "rail": True,
@@ -338,6 +387,8 @@ class SupportBlueprint(BlueprintBase):
             get_quickstart,
             list_create_paths,
             create_blueprint_from_nl,
+            create_routine_from_nl,
+            seat_agents_on_team,
             list_config_targets,
             update_config_tool,
         ]
@@ -353,7 +404,7 @@ class SupportBlueprint(BlueprintBase):
                     product_guide.as_tool(
                         tool_name="consult_product_guide",
                         tool_description=(
-                            "Ask the product-guide specialist about Open Swarm, "
+                            "Ask the product-guide specialist about Operating Swarm, "
                             "quickstarts, and in-product paths."
                         ),
                     )
@@ -388,7 +439,7 @@ class SupportBlueprint(BlueprintBase):
             return support_turn_reply(None, session_kind)
         if not user_text:
             return create_paths_markdown()
-        designed = nl_create_or_socratic(
+        designed = interactive_create_or_socratic(
             user_text,
             messages,
             include_code_fence=wants_code_reveal(user_text),
@@ -396,7 +447,10 @@ class SupportBlueprint(BlueprintBase):
         if designed:
             return designed
         lowered = user_text.lower()
-        parts = [user_text]
+        # Never open with the user's own words. This reply is the no-model
+        # fallback, and a bubble that starts by restating the prompt reads as
+        # an echo; the agent sweep scored exactly that as a 1.9s "answer".
+        parts = ["Here are the in-product paths I can help with:"]
         if "create a team" in lowered or "first team" in lowered:
             parts.extend(
                 [
@@ -413,7 +467,7 @@ class SupportBlueprint(BlueprintBase):
                     "",
                     "Remotes (Hermes, OpenMousBot, Herdr) attach an existing setup. "
                     "Settings → Remotes is + Add remote. Env var names only — no "
-                    "plaintext secrets. The live remote session stays outside Open Swarm.",
+                    "plaintext secrets. The live remote session stays outside Operating Swarm.",
                 ]
             )
         if "wire a cli" in lowered or "add a cli" in lowered:
@@ -422,7 +476,7 @@ class SupportBlueprint(BlueprintBase):
                     "",
                     "A CLI agent wraps a host CLI you already have. Swarm can list "
                     "models that CLI reports. The live CLI session stays outside "
-                    "Open Swarm — no click-to-edit.",
+                    "Operating Swarm — no click-to-edit.",
                 ]
             )
         if wants_code_reveal(user_text) or any(
@@ -452,6 +506,13 @@ class SupportBlueprint(BlueprintBase):
             from agents import Runner
 
             agent = self.create_starting_agent(kwargs.get("mcp_servers") or [])
+            # #737: every Agent built here is bare, so the SDK would fall back to
+            # its hardcoded default model. Against a LiteLLM / non-OpenAI profile
+            # that is a 400 (`Invalid model name passed in model=gpt-4.1`) — the
+            # turn dies before it starts. Pin the framework's resolved chat model
+            # first, exactly as ApiKindBase.run does, so Support answers on the
+            # profile the seat actually resolved.
+            apply_agent_model_defaults(agent)
             result = await Runner.run(agent, fusion.render_prompt(injected))
             response = getattr(result, "final_output", None) or str(result)
             text = str(response)
@@ -459,6 +520,21 @@ class SupportBlueprint(BlueprintBase):
                 text = support_turn_reply(messages, session_kind)
             yield fusion.message_chunk(text, final=True)
         except Exception as exc:
-            logger.warning("Support LLM path failed; falling back to welcome: %s", exc)
-            fallback = self._deterministic_reply(user_text, session_kind, messages)
-            yield fusion.message_chunk(fallback, final=True)
+            # The old fallback was `_deterministic_reply`, which opens with the
+            # user's own words and then dumps the create-paths chrome. The sweep
+            # read that as a 1.9s answer that was really a prompt echo. A failed
+            # turn must say it failed.
+            logger.warning("Support LLM path failed: %s", exc)
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "support",
+                why=(
+                    f"the onboarding model turn raised "
+                    f"{type(exc).__name__}: {str(exc)[:200]}"
+                ),
+                remedy=(
+                    "check the seat's LLM profile (Settings → LLM profiles) has a "
+                    "model and base URL the provider accepts, then send the "
+                    "message again"
+                ),
+                backends=["support"],
+            )

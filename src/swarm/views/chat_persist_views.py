@@ -1,10 +1,11 @@
 """SPA chat thread restore + Settings-only retention actions.
 
 ``GET /chat/thread/`` hydrates an agent thread after reload / agent switch.
-Load order is JSON first, then Django backfill — same helper as WS
+Load order is Django first, then one-way JSON migrate — same helper as WS
 ``fetch_conversation`` (``swarm.core.thread_load``).
 ``POST /chat/compact/`` summarises a span (REQ-37). Retention (archive,
-restore, empty trash) lives on ``/settings/`` only.
+restore, empty trash) is on the SPA Settings Retention pane and the
+Django ``/settings/`` operator dump.
 """
 
 from __future__ import annotations
@@ -14,7 +15,8 @@ import logging
 from datetime import datetime, timezone
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
+from django.utils.http import content_disposition_header
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
@@ -29,7 +31,7 @@ from swarm.core.chat_compact import (
 )
 from swarm.core.thread_load import load_thread
 from swarm.core.thread_load import public_messages as _public_messages
-from swarm.models import ChatAttachment, ChatMessage, ConversationSummary
+from swarm.models import ConversationSummary
 
 
 def _usage_payload(*, user, agent: str, conversation_id: str, turns=None, model_id: str | None = None):
@@ -98,7 +100,12 @@ def _thread_payload_messages(turns, events) -> list[dict]:
 
 
 def _sync_django_and_memory(
-    user, messages, conversation_ids: list[str], *, agent_id: str = ""
+    user,
+    messages,
+    conversation_ids: list[str],
+    *,
+    agent_id: str = "",
+    ui_events: list | None = None,
 ) -> None:
     from swarm.consumers import IN_MEMORY_CONVERSATIONS, _conversation_cache_key
     from swarm.core.agent_sessions import get_or_create_session, touch_session
@@ -112,17 +119,7 @@ def _sync_django_and_memory(
             chat = get_or_create_session(user, cid, agent_id=agent_id)
         except PermissionError:
             continue
-        ChatMessage.objects.filter(conversation=chat).delete()
-        ChatMessage.objects.bulk_create(
-            [
-                ChatMessage(
-                    conversation=chat,
-                    sender=item.get("role", "user"),
-                    content=item.get("content", ""),
-                )
-                for item in messages
-            ]
-        )
+        # Canonical rows are written by ChatRepository before this memory sync.
         mem_rows: list[dict] = []
         for item in messages:
             row = {
@@ -197,7 +194,25 @@ def chat_thread(request):
                 IN_MEMORY_CONVERSATIONS.pop(ck, None)
                 IN_MEMORY_UI_EVENTS.pop(ck, None)
 
-    # JSON first, Django backfill — same order as WS fetch_conversation.
+    # #1319: newest-first hydration paging. Only GET honours ?limit/?before;
+    # append/edit (POST/PATCH) always load the full thread so a bounded page
+    # can never drop older turns from the persisted transcript.
+    page_limit = None
+    page_before = None
+    if request.method == "GET":
+        raw_limit = (request.GET.get("limit") or "").strip()
+        if raw_limit:
+            try:
+                parsed_limit = int(raw_limit)
+            except (TypeError, ValueError):
+                parsed_limit = 0
+            if parsed_limit > 0:
+                page_limit = parsed_limit
+        raw_before = (request.GET.get("before") or "").strip()
+        if raw_before:
+            page_before = raw_before
+
+    # Django first, one-way JSON migrate — same order as WS fetch_conversation.
     loaded = load_thread(
         request.user,
         agent,
@@ -205,6 +220,8 @@ def chat_thread(request):
         session_id=session_id,
         default_cid=default_cid,
         fresh_task=fresh_task,
+        limit=page_limit,
+        before=page_before,
     )
     record = loaded.record
     turns, events = list(loaded.turns), list(loaded.events)
@@ -213,6 +230,20 @@ def chat_thread(request):
         (agent_raw and str(agent_raw).startswith(("remote:herdr", "remote-herdr")))
         or (requested_cid and requested_cid.startswith("remote-herdr"))
     )
+    # #1228: a TrueForge session created on the harness itself has no local
+    # rows — hydrate from GET /api/v1/sessions/{sid}/turns like the herdr
+    # pane-text backfill below. Local rows always win; the harness is only
+    # consulted on a genuine miss.
+    is_trueforge = bool(
+        (agent_raw and str(agent_raw).startswith(("remote:trueforge", "remote-trueforge")))
+        or (requested_cid and requested_cid.startswith("remote-trueforge"))
+    )
+    tf_session_target = ""
+    if is_trueforge:
+        if requested_cid and requested_cid.startswith("remote-trueforge-"):
+            tf_session_target = requested_cid[len("remote-trueforge-") :]
+        elif requested_cid:
+            tf_session_target = requested_cid
     if is_herdr:
         from swarm.core.remotes import (
             read_herdr_recent,
@@ -253,6 +284,56 @@ def chat_thread(request):
                 if not item.get("raw_response"):
                     item["raw_response"] = item["content"]
                 item["content"] = sanitize_herdr_response(item["content"])
+    if is_trueforge and tf_session_target and not turns:
+        from swarm.core.remote_impls.trueforge import read_trueforge_recent_turns
+
+        hydrated = read_trueforge_recent_turns(
+            "trueforge",
+            tf_session_target,
+            timeout=12.0,
+        )
+        if hydrated:
+            turns = [
+                {
+                    "role": row["role"],
+                    "content": row["content"],
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+                for row in hydrated
+            ]
+    # Hermes sessions are created on the gateway and resume by session_id, so a
+    # session picked from the navbar History has no local rows until the first
+    # send. Hydrate its real transcript (GET /api/sessions/{sid}/messages);
+    # local rows always win, the harness is only consulted on a genuine miss.
+    hermes_remote_name = ""
+    hermes_session_target = ""
+    if agent_raw and str(agent_raw).startswith(("remote:hermes", "remote-hermes")):
+        hermes_remote_name = (
+            str(agent_raw).replace("remote:", "", 1).replace("remote-", "", 1)
+        )
+    elif requested_cid and requested_cid.startswith("remote-hermes"):
+        hermes_remote_name = "hermes"
+    if hermes_remote_name:
+        prefix = f"remote-{hermes_remote_name}-"
+        if requested_cid and requested_cid.startswith(prefix):
+            hermes_session_target = requested_cid[len(prefix) :]
+    if hermes_remote_name and hermes_session_target and not turns:
+        from swarm.core.remote_impls.hermes import read_hermes_recent_turns
+
+        hydrated = read_hermes_recent_turns(
+            hermes_remote_name,
+            hermes_session_target,
+            timeout=12.0,
+        )
+        if hydrated:
+            turns = [
+                {
+                    "role": row["role"],
+                    "content": row["content"],
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+                for row in hydrated
+            ]
     if (
         minted is None
         and requested_cid
@@ -318,6 +399,9 @@ def chat_thread(request):
         "messages": _thread_payload_messages(turns, events),
         "turns": _public_messages(turns),
         "ui_events": _public_messages(events),
+        # #1319: older-page cursor for newest-first hydration.
+        "has_more": loaded.has_more,
+        "cursor": loaded.next_cursor,
         "summaries": summaries if not (fresh_task and not requested_cid) else [],
         "context_meta": {},
     }
@@ -340,24 +424,17 @@ def chat_thread(request):
         body = _json_body(request)
         if str(body.get("action") or "").strip().lower() == "clear":
             try:
-                chat_store.save(
-                    user_key,
-                    agent,
-                    [],
-                    conversation_id=conversation_id,
-                    session_id=conversation_id if conversation_id != default_cid else "",
-                    ui_events=[],
-                    cli_sessions={},
-                    cli_hop=None,
-                    active_cli="",
-                )
+                from swarm.core.chat_repository import clear_thread
+
+                clear_thread(request.user, conversation_id, agent_id=agent)
             except OSError:
-                logger.exception("Failed to clear chat JSON for %s/%s", user_key, agent)
+                logger.exception("Failed to clear canonical chat for %s/%s", user_key, agent)
             _sync_django_and_memory(
                 request.user,
                 [],
                 [conversation_id],
                 agent_id=agent,
+                ui_events=[],
             )
             try:
                 from swarm.consumers import IN_MEMORY_UI_EVENTS, _conversation_cache_key
@@ -406,22 +483,40 @@ def chat_thread(request):
                     new_row["content"],
                     ts=new_row.get("ts"),
                 )
+            from swarm.core.chat_repository import append_message, append_ui_event
+
             try:
-                chat_store.save(
-                    user_key,
-                    agent,
-                    current_turns,
-                    conversation_id=conversation_id,
-                    session_id=conversation_id if conversation_id != default_cid else "",
-                    ui_events=current_events,
-                )
+                if is_chrome_message(new_row):
+                    saved = append_ui_event(
+                        request.user,
+                        agent,
+                        conversation_id,
+                        current_events[-1],
+                    )
+                else:
+                    saved = append_message(
+                        request.user,
+                        agent,
+                        conversation_id,
+                        current_turns[-1],
+                    )
             except OSError:
-                logger.exception("Failed to append chat JSON for %s/%s", user_key, agent)
+                logger.exception("Failed to append canonical chat for %s/%s", user_key, agent)
+                return JsonResponse(
+                    {"error": "Could not persist the message. See server logs."},
+                    status=500,
+                )
+            if saved is None:
+                return JsonResponse(
+                    {"error": "This chat is in the trash."},
+                    status=409,
+                )
             _sync_django_and_memory(
                 request.user,
                 current_turns,
                 [conversation_id],
                 agent_id=agent,
+                ui_events=current_events,
             )
             payload["messages"] = _thread_payload_messages(current_turns, current_events)
             payload["turns"] = _public_messages(current_turns)
@@ -448,17 +543,26 @@ def chat_thread(request):
     updated["content"] = content
     updated["edited"] = True
     current_turns[index] = updated
+    from swarm.core.chat_repository import sync_transcript
+
     try:
-        chat_store.save(
-            user_key,
-            agent,
+        sync_transcript(
+            request.user,
+            conversation_id,
             current_turns,
-            conversation_id=conversation_id,
+            agent_id=agent,
+            ui_events=events,
             session_id=conversation_id if conversation_id != default_cid else "",
+        )
+        _sync_django_and_memory(
+            request.user,
+            current_turns,
+            [conversation_id],
+            agent_id=agent,
             ui_events=events,
         )
     except OSError:
-        logger.exception("Failed to persist edited chat JSON for %s/%s", user_key, agent)
+        logger.exception("Failed to persist edited chat for %s/%s", user_key, agent)
         return JsonResponse(
             {"error": "Could not persist the edit. See server logs."},
             status=500,
@@ -483,12 +587,18 @@ def chat_thread(request):
         if cli:
             involved_clis.add(cli)
 
-    # Clear cli_sessions for each involved CLI
+    # Clear cli_sessions for each involved CLI. Scope the clear to THIS
+    # conversation: since #1690 the id lives on the conversation's own record
+    # (``<agent>__<conversation_id>.json``), so a clear that omits the
+    # conversation id lands on the agent's default file and leaves the id the
+    # next turn is about to resume still in place (#1690). ``conversation_id``
+    # is already resolved above (requested → record → default).
     for cli_name in involved_clis:
         clear_cli_session(
             user_key=user_key_local,
             agent_id=agent,
             cli_name=cli_name,
+            conversation_id=conversation_id,
         )
 
     # Mirror: also clear any session-level flags that should reset on edit
@@ -497,12 +607,7 @@ def chat_thread(request):
     payload["session_reset"] = True
     payload["cli_session_reset"] = True
 
-    _sync_django_and_memory(
-        request.user,
-        current_turns,
-        [conversation_id],
-        agent_id=agent,
-    )
+    # Edit already went through ChatRepository above. Memory is updated there.
     payload["messages"] = _thread_payload_messages(current_turns, events)
     payload["turns"] = _public_messages(current_turns)
     payload["ui_events"] = _public_messages(events)
@@ -640,18 +745,13 @@ def chat_attachment_upload(request):
             status=413,
         )
 
-    row = ChatAttachment.objects.create(
-        owner=request.user,
-        conversation_id=conversation_id,
-        original_name=name,
-        content_type=content_type,
-        size=len(data),
-    )
+    row = None
     try:
-        chat_attachments.write_bytes(request.user, row.id, data)
+        row = chat_attachments.store_for_user(
+            request.user, conversation_id, name, content_type, data
+        )
     except OSError:
-        logger.exception("Failed to store chat attachment %s", row.id)
-        row.delete()
+        logger.exception("Failed to store chat attachment")
         return JsonResponse({"error": "could not store file"}, status=500)
 
     return JsonResponse(
@@ -663,6 +763,46 @@ def chat_attachment_upload(request):
         },
         status=201,
     )
+
+
+@require_http_methods(["GET"])
+def chat_attachment_content(request, attachment_id):
+    """Owner-only bytes for a stored attachment (#1322 audio bubbles).
+
+    Same session gate as upload. Inline playback, no secrets in the body.
+    Another user's id is 404 so existence is not leaked.
+    """
+    if not getattr(request.user, "is_authenticated", False):
+        return JsonResponse({"error": "authentication required"}, status=401)
+
+    from swarm.models import ChatAttachment
+
+    try:
+        row = ChatAttachment.objects.get(id=attachment_id, owner=request.user)
+    except (ChatAttachment.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"error": "not found"}, status=404)
+
+    try:
+        data = chat_attachments.read_bytes(request.user, row.id)
+    except (OSError, ValueError):
+        return JsonResponse({"error": "not found"}, status=404)
+
+    content_type = chat_attachments.normalized_content_type(
+        row.content_type, row.original_name
+    )
+    filename = chat_attachments.safe_display_name(row.original_name)
+    # Audio plays in the bubble. Every other type is a download, and a
+    # navigation to this URL cannot run script (owner-stored HTML/SVG).
+    inline_audio = chat_attachments.is_audio_content_type(content_type)
+    response = HttpResponse(data, content_type=content_type)
+    disposition = content_disposition_header(not inline_audio, filename) or (
+        "inline" if inline_audio else "attachment"
+    )
+    response["Content-Disposition"] = disposition
+    response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Cache-Control"] = "private, max-age=60"
+    return response
 
 
 @login_required
@@ -853,7 +993,7 @@ def chat_context_start(request):
 @login_required
 @require_http_methods(["POST"])
 def chat_retention_action(request):
-    """Archive / restore / empty-trash for the signed-in user's JSON threads."""
+    """Archive / restore / empty-trash on the canonical database threads."""
     action = (request.POST.get("action") or "").strip()
     raw_agent = request.POST.get("agent_id")
     if not action and request.body:
@@ -868,30 +1008,28 @@ def chat_retention_action(request):
     if action not in _ALLOWED_ACTIONS:
         return JsonResponse({"success": False, "error": "Unknown action."}, status=400)
 
-    user_key = _user_key(request.user)
     agent = chat_store.normalize_agent_id(raw_agent)
+    from swarm.core import chat_repository
 
     try:
         if action == "archive":
-            path = chat_store.archive(user_key, agent)
-            if path is None:
+            if not chat_repository.archive_agent(request.user, agent):
                 return JsonResponse(
                     {"success": False, "error": "No active chat to archive."},
                     status=404,
                 )
             return JsonResponse({"success": True, "archived": agent})
         if action == "archive_all":
-            archived = chat_store.archive_all(user_key)
+            archived = chat_repository.archive_all(request.user)
             return JsonResponse({"success": True, "archived": archived})
         if action == "restore":
-            path = chat_store.restore(user_key, agent)
-            if path is None:
+            if not chat_repository.restore_agent(request.user, agent):
                 return JsonResponse(
                     {"success": False, "error": "No trashed chat to restore."},
                     status=404,
                 )
             return JsonResponse({"success": True, "restored": agent})
-        removed = chat_store.empty_trash(user_key)
+        removed = chat_repository.empty_trash(request.user)
         return JsonResponse({"success": True, "removed": removed})
     except OSError:
         logger.exception("Chat retention action %s failed", action)

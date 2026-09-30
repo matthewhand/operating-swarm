@@ -104,6 +104,15 @@ export function useChatWebSocket({
       reconnectTimerRef.current = null
     }
 
+    // Read SYNCHRONOUSLY at setup, so this is exactly the dependency a ref
+    // cannot serve: there is no deferred callback here to read one in. #1731
+    // made the dependency load-bearing — `remoteFromUrl` alone can change while
+    // `conversationId` / `runtimeBlueprint` / `teamFromUrl` hold still, and
+    // without it the effect does not re-run, so `subscribeSpa` is never called
+    // for the new seat and the mux keeps the OLD blueprint in
+    // `registry.blueprints` — replayed on every reconnect. A `?remote=` URL
+    // string, so depending on it causes none of the churn the `threadKey` ref
+    // (below) exists to avoid.
     const blueprint = teamFromUrl
       ? undefined
       : remoteFromUrl
@@ -200,7 +209,7 @@ export function useChatWebSocket({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectAttempt, conversationId, runtimeBlueprint, teamFromUrl])
+  }, [connectAttempt, conversationId, runtimeBlueprint, teamFromUrl, remoteFromUrl])
 
   return { reconnect }
 }

@@ -16,7 +16,7 @@ def test_aliases_and_wrap():
     assert normalize_session_mode("acceptEdits") == "auto-edit"
     assert apply_session_mode("hi", "default") == "hi"
     plan = apply_session_mode("hi", "plan")
-    assert plan.startswith("[Open Swarm session mode: plan]")
+    assert plan.startswith("[Operating Swarm session mode: plan]")
     assert plan.endswith("hi")
     assert "Do not edit files" in plan
     auto = apply_session_mode("hi", "auto-edit")

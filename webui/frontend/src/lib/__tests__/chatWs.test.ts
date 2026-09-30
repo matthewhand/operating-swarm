@@ -5,6 +5,8 @@ import {
   buildQuestionAnswerFrame,
   buildToolDecisionFrame,
   buildCancelTurnFrame,
+  buildChatWsReactionFrame,
+  canPersistReactionFrame,
   cliAgentChatParams,
   mergeChatSendParams,
   parseChatWsMessage,
@@ -63,6 +65,69 @@ describe('turn bookends (ADR-017 PR-2)', () => {
     expect(parseChatWsMessage('{"type":"turn_started","agent_id":"jeeves"}').kind).toBe('unknown')
     expect(parseChatWsMessage('{"type":"turn_finished"}').kind).toBe('unknown')
   })
+})
+
+describe('reaction frames (#1411)', () => {
+  it('builds a reaction toggle frame', () => {
+    expect(buildChatWsReactionFrame(2, '👍')).toBe(
+      '{"reaction":{"index":2,"emoji":"👍"}}',
+    )
+  })
+
+  it('persists a reaction only on an open socket', () => {
+    expect(canPersistReactionFrame(1)).toBe(true)
+    expect(canPersistReactionFrame(0)).toBe(false)
+    expect(canPersistReactionFrame(undefined)).toBe(false)
+  })
+
+  it('parses a server reaction event', () => {
+    const event = parseChatWsMessage(
+      JSON.stringify({
+        type: 'reaction',
+        index: 0,
+        emoji: '👀',
+        actor: 'agent:jeeves',
+        reactions: [{ emoji: '👀', count: 1, agentReacted: true }],
+      }),
+    )
+    expect(event).toEqual({
+      kind: 'reaction',
+      index: 0,
+      emoji: '👀',
+      actor: 'agent:jeeves',
+      reactions: [
+        { emoji: '👀', count: 1, userReacted: false, agentReacted: true, viewerReacted: false },
+      ],
+    })
+  })
+})
+
+describe('reaction-only turn frames (#1411)', () => {
+it('parses a reaction-only turn with no text', () => {
+    const event = parseChatWsMessage(
+      JSON.stringify({
+        type: 'reaction_turn',
+        id: 'message-response-abc',
+        emoji: '👍',
+        reaction_only: true,
+        reactions: [{ emoji: '👍', count: 1, agentReacted: true }],
+      }),
+    )
+    expect(event).toMatchObject({
+      kind: 'reaction_turn',
+      id: 'message-response-abc',
+      emoji: '👍',
+    })
+    if (event.kind !== 'reaction_turn') throw new Error('expected reaction_turn')
+    expect(event.reactions[0]?.emoji).toBe('👍')
+  })
+
+  it('rejects a reaction-only frame without an id', () => {
+    expect(parseChatWsMessage(JSON.stringify({ type: 'reaction_turn', emoji: '👍' })).kind).toBe(
+      'unknown',
+    )
+  })
+
 })
 
 describe('buildChatWsFrame', () => {
@@ -241,6 +306,27 @@ describe('parseChatWsMessage', () => {
       kind: 'assistant_final',
       id: 'message-response-abc123',
       text: 'full answer',
+    })
+  })
+
+  it('parses the final assistant replacement wrapped in a JSON text object (#1285)', () => {
+    const raw = JSON.stringify({
+      text: '<div id="message-response-abc123" hx-swap-oob="true" class="assistant-message"> full answer </div>',
+    })
+    expect(parseChatWsMessage(raw)).toEqual({
+      kind: 'assistant_final',
+      id: 'message-response-abc123',
+      text: 'full answer',
+    })
+  })
+
+  it('parses an assistant-start append wrapped in a JSON text object (#1285)', () => {
+    const raw = JSON.stringify({
+      text: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-abc123" class="assistant-message"></div></div>',
+    })
+    expect(parseChatWsMessage(raw)).toEqual({
+      kind: 'assistant_start',
+      id: 'message-response-abc123',
     })
   })
 
@@ -423,3 +509,4 @@ describe('parseChatWsMessage', () => {
     })
   })
 })
+

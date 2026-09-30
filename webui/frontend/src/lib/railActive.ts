@@ -123,6 +123,24 @@ export function activeRailIdFromParams(params?: URLSearchParams | null): string 
 }
 
 /**
+ * The derived CLI row id a `?cli=` URL names, or ''.
+ *
+ * A per-CLI rail row has no distinct blueprint id on the wire — its href is
+ * `?blueprint=cli_agent&cli=<cli>` (the `<cli>_agent` id alone classifies as an
+ * API seat client-side). {@link activeRailId} resolves that URL to the generic
+ * `cli_agent` blueprint id, so this is the row the specific CLI highlights.
+ * Blank/whitespace `cli`, or a blueprint scope that is not a CLI (`cli_agent`
+ * or a legacy `<name>_agent` id), yields ''.
+ */
+export function activeCliRailAgentId(params?: URLSearchParams | null): string {
+  const cli = (params?.get('cli') ?? '').trim()
+  if (!cli) return ''
+  const blueprint = (params?.get('blueprint') ?? '').trim()
+  if (blueprint !== 'cli_agent' && !blueprint.endsWith('_agent')) return ''
+  return `${cli}_agent`
+}
+
+/**
  * #543: herdr rows CAN be active now — `herdrRowIdFromParams` names the row
  * when the URL targets a herdr agent. Kept as a helper for the rail so the
  * comparison has one owner; returns '' when no herdr row is targeted.

@@ -30,7 +30,7 @@ No secrets are documented here.
 
 **Constraints:** Don’t regress streaming / jump-to-bottom / centred info lines. No secrets. Fixes this Issue when Phase 0 ADR merges; link follow-up Issues.
 
-Owner: Cursor look-only. CoS: Open Swarm. Skeptic: recommendation quality.
+Owner: Cursor look-only. CoS: Operating Swarm. Skeptic: recommendation quality.
 
 ---
 
@@ -124,7 +124,7 @@ The long-standing “smooth” chat recipe:
 
 Auto-measure is easier than rolling `measureElement`. The cost is an owned scroller (more ChatPage churn, more a11y wiring).
 
-**Do not add `@virtuoso.dev/message-list`.** It is the dedicated chatbot widget and is **commercially licensed** (`VirtuosoMessageListLicense`). Open Swarm stays MIT-only for Chat.
+**Do not add `@virtuoso.dev/message-list`.** It is the dedicated chatbot widget and is **commercially licensed** (`VirtuosoMessageListLicense`). Operating Swarm stays MIT-only for Chat.
 
 ### 2.4 `react-window` / `react-virtualized` (reject for Chat)
 

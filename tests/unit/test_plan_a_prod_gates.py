@@ -226,18 +226,162 @@ class TestInflightConcurrency:
 # ---------------------------------------------------------------------------
 
 class TestMutatingApiPermissions:
-    def test_custom_blueprints_not_hardcoded_allow_any(self):
+    # A throwaway literal, not a credential. The point is only that
+    # StaticTokenAuthentication accepts it; nothing authenticates against a
+    # real key here and no value from the environment is read or printed.
+    _TOKEN = "plan-a-gate-not-a-real-key"
+
+    # (view, HTTP verb, url, request kwargs, view kwargs) for every verb the
+    # two custom blueprint views expose. Each is driven anonymously, so the
+    # permission check must refuse *before* the handler reads or writes the
+    # library. The view kwargs are still passed: DRF resolves the handler
+    # after `initial()`, but `as_view()` binds them up front, and a missing
+    # `blueprint_id` is a TypeError rather than a permission answer.
+    _ANONYMOUS_CALLS = (
+        ("list", "get", "/v1/blueprints/custom/", {}, {}),
+        ("list", "post", "/v1/blueprints/custom/", {"format": "json"}, {}),
+        ("detail", "get", "/v1/blueprints/custom/probe-id/", {}, {"blueprint_id": "probe-id"}),
+        (
+            "detail",
+            "put",
+            "/v1/blueprints/custom/probe-id/",
+            {"format": "json"},
+            {"blueprint_id": "probe-id"},
+        ),
+        (
+            "detail",
+            "patch",
+            "/v1/blueprints/custom/probe-id/",
+            {"format": "json"},
+            {"blueprint_id": "probe-id"},
+        ),
+        ("detail", "delete", "/v1/blueprints/custom/probe-id/", {}, {"blueprint_id": "probe-id"}),
+    )
+
+    def _views(self):
         from swarm.views.api_views import (
             CustomBlueprintDetailView,
             CustomBlueprintsView,
         )
-        for cls in (CustomBlueprintsView, CustomBlueprintDetailView):
-            assert hasattr(cls, "get_permissions"), cls.__name__
-            # Class attribute must not force AllowAny when auth is on
-            perms = getattr(cls, "permission_classes", None)
-            if perms is not None and not callable(perms):
-                names = [getattr(p, "__name__", str(p)) for p in perms]
-                assert "AllowAny" not in names or True  # get_permissions wins
+
+        return {"list": CustomBlueprintsView, "detail": CustomBlueprintDetailView}
+
+    def test_custom_blueprint_views_refuse_an_anonymous_caller(self):
+        """The real gate: no credentials, no access — on every verb.
+
+        The old version of this test could not fail. It asserted
+        ``hasattr(cls, "get_permissions")``, which is true for *every* DRF
+        ``APIView`` (DRF defines the method on the base class), and then
+        ``assert "AllowAny" not in names or True`` — ``or`` returns its first
+        operand, and the trailing ``True`` made the whole expression
+        unconditionally true. Its name promised a security property that
+        nothing checked.
+
+        The property is real, so it is now asserted the only way it can be
+        falsified: by driving the views. An anonymous request to each verb must
+        be refused while ``ENABLE_API_AUTH`` is on.
+        """
+        from django.test import override_settings
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        views = self._views()
+        with override_settings(ENABLE_API_AUTH=True, SWARM_API_KEY=self._TOKEN):
+            for which, verb, url, request_kwargs, view_kwargs in self._ANONYMOUS_CALLS:
+                request = getattr(factory, verb)(url, **request_kwargs)
+                response = views[which].as_view()(request, **view_kwargs)
+                assert response.status_code in (401, 403), (
+                    f"{views[which].__name__}.{verb.upper()} {url} returned "
+                    f"{response.status_code} to an anonymous caller while "
+                    "ENABLE_API_AUTH is on -- the view is unauthenticated"
+                )
+
+    def test_custom_blueprint_views_serve_a_valid_token(self):
+        """The control: the refusals above are the permission, not a broken view.
+
+        Without this, a 403 from a view that 403s everything (a typo'd
+        permission list, a view that always errors) would satisfy the gate
+        above and the suite would report a secured surface that is in fact
+        merely unavailable.
+        """
+        from django.test import override_settings
+        from rest_framework.test import APIRequestFactory
+
+        from swarm.auth import StaticTokenAuthentication
+
+        factory = APIRequestFactory()
+        views = self._views()
+        with override_settings(ENABLE_API_AUTH=True, SWARM_API_KEY=self._TOKEN):
+            for which, view_kwargs in (
+                ("list", {}),
+                ("detail", {"blueprint_id": "probe-id"}),
+            ):
+                url = "/v1/blueprints/custom/" if which == "list" else (
+                    "/v1/blueprints/custom/probe-id/"
+                )
+                request = factory.get(url, HTTP_AUTHORIZATION=f"Bearer {self._TOKEN}")
+                auth = StaticTokenAuthentication()
+                principal = auth.authenticate(request)
+                assert principal is not None, (
+                    "the test token was rejected by StaticTokenAuthentication, so "
+                    "the refusal test above is proving nothing about permissions"
+                )
+                request.user, request.auth = principal
+                response = views[which].as_view()(request, **view_kwargs)
+                # 404 is the honest answer for a blueprint that does not exist;
+                # what must not happen is 401/403.
+                assert response.status_code not in (401, 403), (
+                    f"{views[which].__name__} refused a valid static token "
+                    f"({response.status_code})"
+                )
+
+    def test_custom_blueprint_views_resolve_permissions_at_request_time(self):
+        """Where the access control actually comes from — stated, not assumed.
+
+        Both views define ``get_permissions`` on the class itself and return
+        ``[perm() for perm in api_permission_classes()]``. They do **not**
+        define ``permission_classes``; the attribute they expose is DRF's
+        inherited ``APIView.permission_classes``, which is frozen from
+        ``REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES']`` at settings-import
+        time. So a ``permission_classes`` assertion alone would be checking a
+        value ``override_settings`` cannot change, and the behavioural tests
+        above are the ones that carry the guarantee.
+
+        This test pins the mechanism so the next reader is not misled about
+        where to look, and it fails if ``get_permissions`` is deleted from the
+        class (which would silently fall back to the frozen default).
+        """
+        from django.test import override_settings
+        from rest_framework.permissions import AllowAny
+
+        from swarm.auth import HasValidTokenOrSession
+
+        for cls in (self._views()["list"], self._views()["detail"]):
+            assert "get_permissions" in cls.__dict__, (
+                f"{cls.__name__} no longer overrides get_permissions, so it now "
+                "depends on the settings-import-time DRF default instead of "
+                "reading ENABLE_API_AUTH per request"
+            )
+            assert "permission_classes" not in cls.__dict__, (
+                f"{cls.__name__} now hard-codes permission_classes; the dynamic "
+                "get_permissions path is the one that honours ENABLE_API_AUTH"
+            )
+            with override_settings(ENABLE_API_AUTH=True):
+                effective = [type(p) for p in cls().get_permissions()]
+            assert effective == [HasValidTokenOrSession], (
+                f"{cls.__name__}.get_permissions() yields "
+                f"{[t.__name__ for t in effective]} with auth on"
+            )
+            assert AllowAny not in effective, (
+                f"{cls.__name__} hands out AllowAny while ENABLE_API_AUTH is on"
+            )
+            with override_settings(ENABLE_API_AUTH=False):
+                dev = [type(p) for p in cls().get_permissions()]
+            assert dev == [AllowAny], (
+                f"{cls.__name__}.get_permissions() yields "
+                f"{[t.__name__ for t in dev]} with auth off; the dev escape hatch "
+                "is a documented behaviour of api_permission_classes()"
+            )
 
     def test_api_permission_classes_respect_enable_auth(self, settings):
         from rest_framework.permissions import AllowAny
@@ -270,7 +414,18 @@ class TestSwarmApiEntry:
         fake_uvicorn = MagicMock()
         fake_uvicorn.run = fake_run
         monkeypatch.setitem(__import__("sys").modules, "uvicorn", fake_uvicorn)
-        sa.main(["--host", "127.0.0.1", "--port", "8765"])
+        # main() sets SWARM_PROCESS_ROLE; record the prior value so teardown
+        # restores it instead of leaking "serve" into later tests.
+        monkeypatch.setenv("SWARM_PROCESS_ROLE", os.environ.get("SWARM_PROCESS_ROLE", ""))
+        from swarm.core.schedule_engine import stop_loop
+
+        try:
+            sa.main(["--host", "127.0.0.1", "--port", "8765"])
+            assert os.environ.get("SWARM_PROCESS_ROLE") == "serve"
+        finally:
+            # main() registers hooks when Django is already ready (pytest).
+            # Stop the ticker so the rest of the suite does not keep ticking.
+            stop_loop()
         assert calls.get("app") == "swarm.asgi:application"
         assert calls["kwargs"]["host"] == "127.0.0.1"
         assert calls["kwargs"]["port"] == 8765

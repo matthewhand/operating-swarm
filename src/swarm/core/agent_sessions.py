@@ -16,14 +16,16 @@ from django.utils.dateparse import parse_datetime
 
 from swarm.core.chat_store import (
     conversation_id_for,
+    is_webhook_conversation,
     list_sessions as list_disk_sessions,
     load as load_disk,
     normalize_agent_id,
+    primary_operator_user_key,
     save as save_disk,
     user_key_for,
 )
 from swarm.core.cli_sessions import sanitize_cli_session_id
-from swarm.models import ChatConversation, ChatMessage
+from swarm.models import ChatConversation
 
 logger = logging.getLogger("swarm.agent_sessions")
 
@@ -69,6 +71,21 @@ def _parse_iso_ms(value: str | None) -> int:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return int(parsed.timestamp() * 1000)
+
+
+def _refuse_foreign_webhook_claim(owner, conversation_id: str) -> None:
+    """Webhook threads belong to the installation operator.
+
+    ``GET /chat/thread/`` creates a Django row for any requested id. A
+    different account must not own ``conv-github-*`` before the operator
+    imports it — that claim makes the operator session list raise.
+    """
+    if not is_webhook_conversation(conversation_id):
+        return
+    op_key = primary_operator_user_key()
+    if owner is not None and op_key and user_key_for(owner) == op_key:
+        return
+    raise PermissionError("conversation belongs to another user")
 
 
 def _user_or_none(user):
@@ -289,6 +306,7 @@ def get_or_create_session(
     student=None,
 ) -> ChatConversation:
     owner = student if student is not None else _user_or_none(user)
+    _refuse_foreign_webhook_claim(owner, conversation_id)
     agent = normalize_agent_id(agent_id) if agent_id else infer_agent_id(conversation_id)
     row, created = ChatConversation.objects.get_or_create(
         conversation_id=conversation_id,
@@ -300,10 +318,13 @@ def get_or_create_session(
     )
     if created:
         return row
-    if owner is not None and row.student_id is not None and row.student_id != owner.pk:
-        raise PermissionError("conversation belongs to another user")
     changed: list[str] = []
-    if owner is not None and row.student_id is None:
+    if owner is not None and row.student_id not in (None, owner.pk):
+        if not is_webhook_conversation(conversation_id):
+            raise PermissionError("conversation belongs to another user")
+        row.student = owner
+        changed.append("student")
+    elif owner is not None and row.student_id is None:
         row.student = owner
         changed.append("student")
     if agent and not row.agent_id:
@@ -330,6 +351,16 @@ def ensure_default_session(user, agent_id: str) -> ChatConversation:
             record = None
     disk_cid = str((record or {}).get("conversation_id") or "").strip()
     cid = disk_cid or fallback_cid
+    # #1721: a purged id is retired forever, and the derived default id
+    # (``agt-<pk>-<agent>``) is not random — after the user empties the trash,
+    # the very next request derives the same id again. Minting a fresh one is
+    # the only honest answer; reusing the tombstone would hand the seat a
+    # permanently unwritable thread.
+    if owner is not None and ChatConversation.objects.filter(
+        conversation_id=cid, purged_at__isnull=False
+    ).exists():
+        cid = mint_user_session_id(user, agent)
+        record = None
     row = get_or_create_session(user, cid, agent_id=agent, title=DEFAULT_TITLE, student=owner)
     if row.title and row.snippet:
         return row
@@ -393,7 +424,18 @@ def import_disk_sessions(user, agent_id: str) -> list[ChatConversation]:
         cid = str(item.get("conversation_id") or item.get("session_id") or "").strip()
         if not cid:
             continue
-        row = get_or_create_session(user, cid, agent_id=agent, student=owner)
+        try:
+            row = get_or_create_session(user, cid, agent_id=agent, student=owner)
+        except PermissionError:
+            logger.debug("Skipping session %s; it belongs to another user", cid)
+            continue
+        # #1721: a purged id is a tombstone, not a gap. ``get_or_create``
+        # handed the row straight back, and ``touch_session`` then rebuilt its
+        # title and snippet from the content the user had permanently deleted,
+        # so the session picker offered them a ghost of the first message of a
+        # conversation they had emptied from the trash.
+        if row.purged_at is not None:
+            continue
         record = load_disk(
             user_key_for(owner),
             agent,
@@ -411,13 +453,18 @@ def import_disk_sessions(user, agent_id: str) -> list[ChatConversation]:
 
 
 def list_agent_sessions(user, agent_id: str, *, include_default: bool = True) -> list[ChatConversation]:
-    """This agent's Django sessions, newest activity first."""
+    """This agent's Django sessions, newest activity first.
+
+    Purged rows are excluded (#1721). They carry no content — that is the point
+    of the tombstone — so listing one would put an empty, unrestorable entry in
+    the picker for a conversation the user permanently deleted.
+    """
     agent = normalize_agent_id(agent_id)
     owner = _user_or_none(user)
     if include_default:
         ensure_default_session(user, agent)
         import_disk_sessions(user, agent)
-    qs = ChatConversation.objects.filter(agent_id=agent)
+    qs = ChatConversation.objects.filter(agent_id=agent, purged_at__isnull=True)
     if owner is not None:
         qs = qs.filter(student=owner)
     else:
@@ -475,22 +522,24 @@ def mirror_thread_to_db(
     turns: list[dict[str, Any]] | None,
     *,
     agent_id: str = "",
+    ui_events: list[dict[str, Any]] | None = None,
 ) -> int:
-    """Idempotent DB mirror of one thread's display turns (#901).
+    """Idempotent DB write of one thread's display turns (#901 / #1440).
 
-    Replaces the conversation's ``ChatMessage`` rows with the current turns
-    (chrome excluded). Called on turn completion (WS save path), on
-    switch-away flush, and on hop so the Django snapshot is always the
-    instant, subprocess-free context-handoff source.
+    Replaces the conversation's ``ChatMessage`` rows (with restore
+    metadata) so Django is the instant, subprocess-free context-handoff
+    source. Called on turn completion, switch-away flush, and hop.
     """
-    from swarm.core.transcript_roles import is_ui_only_role
+    from swarm.core.chat_repository import replace_thread
 
-    chat = get_or_create_session(user, conversation_id, agent_id=agent_id)
-    rows = [
-        ChatMessage(conversation=chat, sender=item.get("role", "user"), content=item.get("content", ""))
-        for item in turns or []
-        if isinstance(item, dict) and not is_ui_only_role(item.get("role"))
-    ]
-    ChatMessage.objects.filter(conversation=chat).delete()
-    ChatMessage.objects.bulk_create(rows)
-    return len(rows)
+    chat = replace_thread(
+        user,
+        conversation_id,
+        turns,
+        agent_id=agent_id,
+        ui_events=ui_events,
+        cache=False,
+    )
+    if chat is None:
+        return 0
+    return chat.chat_messages.count()

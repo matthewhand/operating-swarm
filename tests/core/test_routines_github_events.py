@@ -155,6 +155,40 @@ def test_cron_trigger_is_accepted_with_expression():
     assert created["trigger"]["expression"] == "0 3 * * *"
 
 
+def test_webhook_pairs_slashless_full_name_with_object_owner():
+    """Webhook ingest uses the same pairing as a stored trigger.
+
+    A slash-only ``full_name`` is unnamed, so ``name`` and ``owner.name``
+    still apply. A bare ``full_name`` with no owner stays unmatched.
+    """
+    created = store.create_routine(
+        "codey",
+        {
+            "name": "Triage",
+            "instruction": "Triage this issue.",
+            "trigger": _github_event_trigger("issues.opened", "acme/widgets"),
+        },
+    )
+    payload = _issue_opened_payload()
+    payload["repository"] = {"full_name": "/", "name": "widgets", "owner": {"login": "/", "name": "acme"}}
+    fired = store.deliver_github_event(payload, event_header="issues")
+    assert [row["routine"]["id"] for row in fired] == [created["id"]]
+
+    paired = store.parse_github_webhook_event(
+        {
+            "action": "opened",
+            "repository": {"full_name": "widgets/", "owner": {"login": "acme"}},
+        },
+        event_header="issues",
+    )
+    assert paired["owner_repo"] == "acme/widgets"
+    unnamed = store.parse_github_webhook_event(
+        {"action": "opened", "repository": {"full_name": "widgets"}},
+        event_header="issues",
+    )
+    assert unnamed["owner_repo"] == ""
+
+
 def test_issues_opened_fires_and_records_history():
     created = store.create_routine(
         "codey",

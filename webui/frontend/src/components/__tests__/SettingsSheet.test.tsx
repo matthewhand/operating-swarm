@@ -213,8 +213,8 @@ describe('SettingsSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
     expect(screen.getByRole('heading', { name: 'Retention' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save retention' })).not.toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /Server retention dashboard/i })
-    expect(link).toHaveAttribute('href', '/settings/#chat-retention-title')
+    expect(screen.queryByRole('link', { name: /Server retention dashboard/i })).not.toBeInTheDocument()
+    expect(screen.getByTestId('settings-retention-pane')).toBeInTheDocument()
   })
 
   it('LLM profiles shows the empty-models copy when /v1/llm-profiles/ returns none', async () => {
@@ -698,14 +698,13 @@ describe('SettingsSheet', () => {
     expect(screen.queryByText(/hide-qa-beta/)).not.toBeInTheDocument()
   })
 
-  it('shows honest retention pane linking to server dashboard without placebo save button (REQ-188B-1)', async () => {
+  it('shows the in-sheet retention pane without a Django eject (REQ-188B-1 / #1442)', async () => {
     renderSheet()
     fireEvent.click(screen.getByRole('button', { name: 'Retention' }))
     expect(screen.getByRole('heading', { name: 'Retention' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save retention' })).not.toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /Server retention dashboard/i })
-    expect(link).toBeInTheDocument()
-    expect(link).toHaveAttribute('href', '/settings/#chat-retention-title')
+    expect(screen.queryByRole('link', { name: /Server retention dashboard/i })).not.toBeInTheDocument()
+    expect(screen.getByTestId('settings-retention-pane')).toBeInTheDocument()
   })
 
   it('persists a hostname override, toasts on save, and dispatches HOSTNAME_CHANGED_EVENT (REQ-188B-2)', async () => {

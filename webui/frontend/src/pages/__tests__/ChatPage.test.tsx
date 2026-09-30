@@ -9,9 +9,13 @@ import { resetConversationThreads } from '../../lib/chatMeter'
 import { clearAllQueuedSends } from '../../lib/chatQueue'
 import { AVATAR_THEME_STORAGE_KEY, saveAvatarTheme } from '../../lib/avatarTheme'
 import { OPEN_AGENT_EDITOR_EVENT } from '../../lib/agentSettings'
+import { OPEN_GENERATIONS_EVENT } from '../../components/settings/generationsEntry'
 import { saveEnabledPluginToolIds } from '../../lib/chatPluginTools'
 import { CLI_RUN_STATE_EVENT, cliRunStateFromEvent } from '../../lib/cliRunState'
 import { peekApprovalWait, resetAgentAttention } from '../../lib/agentAttention'
+import { __resetAgentDraftsForTests } from '../../features/chat/usePerAgentDraft'
+import { VOICE_NOTE_HOLD_MS } from '../../lib/voiceNotes'
+import { saveBubbleTheme } from '../../lib/bubbleTheme'
 
 type WsHandler = ((ev?: Event) => void) | null
 
@@ -240,7 +244,7 @@ describe('ChatPage Unavailable / Sign-in CTA + connection status', () => {
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     // #167: a connecting/closed socket must never block typing.
     expect(composer).not.toBeDisabled()
-    expect(composer).toHaveAttribute('placeholder', 'Message …')
+    expect(composer).toHaveAttribute('placeholder', 'Message Support')
     // #1070: the send button is permanently mounted — idle renders it disabled, not absent.
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument()
@@ -492,7 +496,7 @@ describe('ChatPage disconnect toasts (REQ-112 #489)', () => {
     expect(disconnectToasts()).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Voice input' }))
-    expect(await screen.findByText(/Speech recognition is not available/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Microphone capture is not available/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Reconnect/i }))
     await waitFor(() => {
@@ -505,7 +509,7 @@ describe('ChatPage disconnect toasts (REQ-112 #489)', () => {
     expect(await screen.findByText('Chat websocket unreachable')).toBeInTheDocument()
     expect(disconnectToasts()).toHaveLength(1)
     expect(screen.queryByText('Chat disconnected')).not.toBeInTheDocument()
-    expect(screen.getByText(/Speech recognition is not available/i)).toBeInTheDocument()
+    expect(screen.getByText(/Microphone capture is not available/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Reconnect/i }))
     await waitFor(() => {
@@ -520,7 +524,7 @@ describe('ChatPage disconnect toasts (REQ-112 #489)', () => {
     })
     expect(screen.queryByText('Chat disconnected')).not.toBeInTheDocument()
     expect(screen.queryByText('Chat websocket unreachable')).not.toBeInTheDocument()
-    expect(screen.getByText(/Speech recognition is not available/i)).toBeInTheDocument()
+    expect(screen.getByText(/Microphone capture is not available/i)).toBeInTheDocument()
   })
 
   it('does not stack disconnect toasts when ChatPage remounts while the socket is down', async () => {
@@ -648,7 +652,7 @@ describe('ChatPage agent header (no blueprint dropdown)', () => {
     // header's first child, still preceding the heading.
     expect(identity.firstElementChild?.contains(avatar!)).toBe(true)
     expect(heading.compareDocumentPosition(avatar!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
-    expect(within(identity).getByRole('button', { name: 'Open Codey definition' })).toBeInTheDocument()
+    expect(within(identity).getByRole('button', { name: 'Rename Codey' })).toBeInTheDocument()
   })
 
   it('uses the same custom face in the header as AgentAvatar would on the rail', async () => {
@@ -1087,6 +1091,10 @@ describe('#1167 typing anywhere focuses the composer', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     resetConversationThreads()
+    // #1331/#1354: drafts live in a module-level store; a value typed in one
+    // case must not leak into the next (it made the #1167 assertions order-
+    // dependent).
+    __resetAgentDraftsForTests()
   })
 
   async function openChat(entry = '/chat?blueprint=codey') {
@@ -1892,7 +1900,7 @@ describe('ChatPage Grok composer and per-agent threads', () => {
 
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toHaveAttribute(
       'placeholder',
-      'Message …',
+      'Message Support',
     )
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
@@ -1930,24 +1938,18 @@ describe('ChatPage Grok composer and per-agent threads', () => {
     expect(screen.queryByRole('menuitem', { name: 'Add files' })).not.toBeInTheDocument()
   })
 
-  it('#550: Compact is offered but disabled on a CLI seat, with the reason reachable', async () => {
+  it('#1230: a CLI seat lists no Compact item at all — no disabled "not available" state', async () => {
     renderChat('/chat?blueprint=cli_agent')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
-    const compact = screen.getByRole('menuitem', { name: 'Compact' })
-    // Visible-but-disabled rather than silently absent: the user just opened
-    // this menu, so the reason has to be reachable (#511's precedent). #636:
-    // the reason names the missing API, not the provider transcript.
-    expect(compact).toHaveAttribute('aria-disabled', 'true')
-    expect(compact.getAttribute('title')).toMatch(/no api is configured/i)
-
-    fireEvent.click(compact)
-    expect(await screen.findByText(/no api is configured/i)).toBeInTheDocument()
-    // A refusal must not leave the menu hanging open.
+    // The menu is open (Add files is there) but Compact is absent, not greyed.
+    expect(screen.getByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
+    expect(screen.queryByTestId('composer-compact-button')).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/no api is configured/i)).not.toBeInTheDocument()
   })
 
   it('#550: Compact stays live on an API seat', async () => {
@@ -1958,7 +1960,7 @@ describe('ChatPage Grok composer and per-agent threads', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     const compact = screen.getByRole('menuitem', { name: 'Compact' })
-    expect(compact).toHaveAttribute('aria-disabled', 'false')
+    expect(compact).not.toHaveAttribute('aria-disabled', 'true')
   })
 
   it('shows an explanatory toast when Add files is clicked on an unsupported seat', async () => {
@@ -2600,10 +2602,12 @@ describe('ChatPage team member dropdown', () => {
     // Previously this rendered nothing for a team without a declared roster, so
     // the header showed a bare name where a single agent gets an avatar.
     const button = await screen.findByTestId('header-team-avatar')
-    // The face is the member you are talking to — the seat default (first
-    // roster member, #169) resolved through `defaultSessionForTeam`.
+    // #1362: the team's navbar face is its membership — the demo team's two
+    // members render as two avatars in a circle — while the chat-target id
+    // stays on the button.
     expect(button).toHaveAttribute('data-face-agent-id', 'codey')
-    expect(within(button).getByRole('img', { hidden: true })).toBeTruthy()
+    expect(within(button).getByTestId('os-group-avatar')).toBeInTheDocument()
+    expect(within(button).getAllByTestId('os-group-avatar-face')).toHaveLength(2)
     expect(screen.queryByTestId('header-avatar-generations')).not.toBeInTheDocument()
 
     // Switching the active member updates the face (#755 picker path).
@@ -3593,19 +3597,62 @@ describe('ChatPage voice input stub (PR #322 / REQ-77)', () => {
     vi.unstubAllGlobals()
   })
 
-  it('toasts when SpeechRecognition is missing — no live mic / LAN', async () => {
+  function stubVoiceRecorder() {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [{ stop: vi.fn() }],
+        }),
+      },
+    })
+    vi.stubGlobal(
+      'MediaRecorder',
+      class {
+        mimeType = 'audio/webm'
+        state = 'recording'
+        ondataavailable: ((event: { data: Blob }) => void) | null = null
+        onstop: (() => void) | null = null
+        onerror: (() => void) | null = null
+        start() {
+          this.ondataavailable?.({ data: new Blob(['abcd'], { type: 'audio/webm' }) })
+        }
+        stop() {
+          this.state = 'inactive'
+          this.onstop?.()
+        }
+      },
+    )
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:voice-note')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  }
+
+  async function recordUntilOffer() {
+    // #1322: hold-to-record starts the voice-note session; a short click is STT.
+    const mic = screen.getByRole('button', { name: 'Voice input' })
+    fireEvent.pointerDown(mic, { button: 0, pointerId: 1 })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, VOICE_NOTE_HOLD_MS + 50))
+    })
+    const stop = await screen.findByRole('button', { name: 'Stop recording' })
+    fireEvent.pointerUp(stop, { button: 0, pointerId: 1 })
+    expect(await screen.findByTestId('voice-note-offer')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send voice note' })).toBeInTheDocument()
+  }
+
+  it('#1322 toasts when the microphone is missing — no live mic / LAN', async () => {
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
     fireEvent.click(screen.getByRole('button', { name: 'Voice input' }))
-    expect(await screen.findByText(/Speech recognition is not available/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Microphone capture is not available/i)).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
     // #1070: idle send stays mounted, disabled.
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 
-  it('system STT inserts transcript into the composer and does not auto-send', async () => {
+  it('#1322 transcription toggle uses system STT and does not auto-send', async () => {
     class FakeRec {
       onresult: ((event: { results: Array<Array<{ transcript: string }>> }) => void) | null = null
       onend: (() => void) | null = null
@@ -3620,16 +3667,32 @@ describe('ChatPage voice input stub (PR #322 / REQ-77)', () => {
       }
     }
     vi.stubGlobal('SpeechRecognition', FakeRec)
+    stubVoiceRecorder()
     renderChat()
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Voice input' }))
+    await recordUntilOffer()
+    fireEvent.click(screen.getByTestId('voice-note-transcribe'))
     expect(await screen.findByDisplayValue('hello from mic')).toBeInTheDocument()
     expect(await screen.findByTestId('stt-path')).toHaveTextContent(/system/i)
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
     const ws = MockWebSocket.instances[0]!
-    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('\"kind\":\"subscribe\"'))).toHaveLength(0)
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))).toHaveLength(0)
+  })
+
+  it('#1322 choosing transcription without STT does not send the recording', async () => {
+    stubVoiceRecorder()
+    renderChat()
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    await recordUntilOffer()
+    fireEvent.click(screen.getByTestId('voice-note-transcribe'))
+    expect(await screen.findByText(/Speech recognition is not available/i)).toBeInTheDocument()
+    const ws = MockWebSocket.instances[0]!
+    expect(ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Send voice note' })).toBeInTheDocument()
   })
 })
 
@@ -4024,6 +4087,36 @@ describe('ChatPage REQ-49 message edit (API vs CLI/remote)', () => {
     })
   })
 
+  it('keeps a non-default bubble theme on the send frame', async () => {
+    saveBubbleTheme('irc')
+    vi.stubGlobal(
+      'fetch',
+      mockChatFetches({
+        blueprint: 'jeeves',
+        name: 'Jeeves',
+        kind: 'api',
+        messages: [
+          { role: 'user', content: 'prior question' },
+          { role: 'assistant', content: 'prior answer' },
+        ],
+      }),
+    )
+    renderChat('/chat?blueprint=jeeves')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(await screen.findByText('prior question')).toBeInTheDocument()
+    const composer = screen.getByRole('textbox', { name: 'Chat message' })
+    fireEvent.change(composer, { target: { value: 'follow up' } })
+    fireEvent.submit(composer.closest('form')!)
+    const ws = MockWebSocket.instances[0]!
+    expect(chatSendPayload(ws)).toEqual({
+      message: 'follow up',
+      blueprint: 'jeeves',
+      params: { enabled_tools: [], bubble_theme: 'irc' },
+    })
+  })
+
   it('clicking an API bubble does not enter edit; Edit in the action row does (REQ-867 / REQ-869)', async () => {
     vi.stubGlobal(
       'fetch',
@@ -4241,7 +4334,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     fireEvent.click(await screen.findByTestId('os-model-row-stewie'))
 
     const status = await screen.findByTestId('chat-status')
-    expect(status).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')
+    expect(status).toHaveTextContent('Rig target: Codey (agent/coder) → Stewie (agent/ops)')
     expect(status).toHaveClass('os-chat-status')
     expect(status.className).not.toMatch(/chat-start|chat-end/)
     expect(status.querySelector('.chat-bubble')).toBeNull()
@@ -4249,7 +4342,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     expect(store.messages).toHaveLength(1)
     expect(store.messages[0]).toEqual({
       role: 'status',
-      content: 'Team target: Codey (agent/coder) → Stewie (agent/ops)',
+      content: 'Rig target: Codey (agent/coder) → Stewie (agent/ops)',
     })
 
     first.unmount()
@@ -4259,7 +4352,7 @@ describe('ChatPage dropdown status lines (REQ-46)', () => {
     })
 
     const restored = await screen.findByTestId('chat-status')
-    expect(restored).toHaveTextContent('Team target: Codey (agent/coder) → Stewie (agent/ops)')
+    expect(restored).toHaveTextContent('Rig target: Codey (agent/coder) → Stewie (agent/ops)')
     expect(restored.className).not.toMatch(/chat-start|chat-end/)
     expect(screen.getAllByTestId('chat-status')).toHaveLength(1)
   })
@@ -4815,12 +4908,16 @@ describe('ChatPage generations panel (#224)', () => {
       )
     })
 
-    fireEvent.click(screen.getByTestId('header-avatar-generations'))
-    const panel = screen.getByTestId('generations-panel')
+    // #1354: the diagnostics entry moved to Settings — the sheet dispatches
+    // this event, which the mounted chat header turns into an open panel.
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(OPEN_GENERATIONS_EVENT))
+    })
+    const panel = await screen.findByTestId('generations-panel')
     expect(panel).toBeTruthy()
     expect(screen.getByTestId('generations-tool')).toHaveTextContent('read_file')
 
-    fireEvent.click(screen.getByTestId('generations-raw-toggle'))
+    // #1354: Raw is expanded by default — no toggle click required.
     expect(await screen.findByTestId('generations-raw-view')).toHaveTextContent(
       'the raw turn',
     )
@@ -5010,5 +5107,110 @@ describe('ChatPage API model palette (#281)', () => {
     })
     const headerAvatar = screen.getByTestId('header-avatar-generations')
     expect(headerAvatar.querySelector('[data-agent-id="trueforge"]')).toBeTruthy()
+  })
+})
+
+describe('ChatPage remote ask_user card (#221 / TrueForge)', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    window.localStorage.clear()
+    Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (info: RequestInfo | URL) => {
+        const url = String(info)
+        if (url.includes('/api/remotes/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [
+                {
+                  id: 'trueforge',
+                  name: 'TrueForge',
+                  kind: 'remote',
+                  base_url: 'http://127.0.0.1:9',
+                },
+              ],
+            }),
+          } as Response
+        }
+        return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+    resetConversationThreads()
+  })
+
+  async function openRemoteChat() {
+    renderChat('/chat?remote=trueforge')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const ws = MockWebSocket.instances[0]!
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-remoteq1" class="assistant-message"></div></div>',
+        }),
+      )
+    })
+    return ws
+  }
+
+  it('submits the chosen answer for a blocked remote ask-user card', async () => {
+    const ws = await openRemoteChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'chatcmpl-tool-tf1',
+            ask: 'Which deployment profile should I use?',
+            choices: ['staging', 'canary', 'prod'],
+            other: 'Other',
+            agent_id: 'remote_harness',
+          }),
+        }),
+      )
+    })
+    expect(screen.getByTestId('question-card')).toHaveAttribute(
+      'data-question-id',
+      'chatcmpl-tool-tf1',
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'canary' }))
+    expect(chatSendPayload(ws)).toEqual({
+      type: 'question_answer',
+      id: 'chatcmpl-tool-tf1',
+      answer: 'canary',
+    })
+    expect(screen.getByRole('radio', { name: 'canary' })).toBeDisabled()
+  })
+
+  it('failure mode: a question frame with no choices renders no card and sends nothing', async () => {
+    const ws = await openRemoteChat()
+    await act(async () => {
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'user_question',
+            id: 'q-empty',
+            ask: 'Free text only?',
+            choices: [],
+            other: 'Other',
+          }),
+        }),
+      )
+    })
+    expect(screen.queryByTestId('question-card')).not.toBeInTheDocument()
+    const sentQuestionAnswer = ws.send.mock.calls
+      .map((call) => String(call[0]))
+      .some((frame) => frame.includes('question_answer'))
+    expect(sentQuestionAnswer).toBe(false)
   })
 })

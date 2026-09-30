@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useRef,
   useState,
@@ -32,7 +34,7 @@ const QUICK_PROMPTS = [
     key: 'A',
     label: 'Explain Operating Swarm',
     prompt:
-      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, rigs, and blueprints fit together, and how I talk to them here.',
   },
   {
     key: 'B',
@@ -50,7 +52,7 @@ const QUICK_PROMPTS = [
     key: 'D',
     label: 'Connect remote (Hermes)',
     prompt:
-      'How do I connect a remote team like Hermes, OpenMausBot, or DeepSeek Harness?',
+      'How do I connect a remote rig like Hermes, OpenMausBot, or DeepSeek Harness?',
   },
 ] as const
 
@@ -103,7 +105,6 @@ import {
 import { fetchBlueprints } from '../lib/api'
 import { AgentAvatar } from '../components/AgentSidebar/AgentAvatar'
 import { AgentMessageBubble, AgentStatusBadge, BotCommPopup, AgentDesigner, EditableField, BackendSelect, AgentRoles, defaultBackendFor, backendRouteParams } from '../components/AgentChat'
-import TeamsSheet from '../components/overlays/TeamsSheet'
 import { OPEN_TEAMS_EVENT } from '../lib/chromeOverlay'
 import {
   buildSummaryPrompt,
@@ -120,6 +121,8 @@ import {
   type OversightRole,
 } from '../lib/agent-roles'
 import { sessionModeLabel } from '../lib/session-modes'
+
+const TeamsSheet = lazy(() => import('../components/overlays/TeamsSheet'))
 
 export default function AgentRouterPage() {
   const {
@@ -1222,10 +1225,10 @@ export default function AgentRouterPage() {
                   type="button"
                   onClick={() => setTeamsSheetOpen(true)}
                   className="btn btn-xs btn-outline gap-1"
-                  aria-label="Teams settings"
+                  aria-label="Rigs settings"
                 >
                   <Users className="w-3 h-3" />
-                  Teams & routing
+                  Rigs & routing
                 </button>
               </div>
             </div>
@@ -1303,10 +1306,14 @@ export default function AgentRouterPage() {
         />
       )}
 
-      <TeamsSheet
-        isOpen={teamsSheetOpen}
-        onClose={() => setTeamsSheetOpen(false)}
-      />
+      {teamsSheetOpen ? (
+        <Suspense fallback={null}>
+          <TeamsSheet
+            isOpen={teamsSheetOpen}
+            onClose={() => setTeamsSheetOpen(false)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   )
 }

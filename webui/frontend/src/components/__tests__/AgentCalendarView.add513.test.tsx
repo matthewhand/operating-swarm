@@ -29,12 +29,28 @@ function agent(id: string): { id: string; name?: string; kind?: string | null; d
 }
 
 
+/**
+ * Pinned clock. The component already takes a `now` prop, but this file read the
+ * real clock, so two of these assertions only held on some days of the month:
+ *
+ * - "renders a + ... on empty future days" needs at least one future day in the
+ *   rendered month, and
+ * - "offers no + on past days" needs at least one past day.
+ *
+ * On the last day of a 31-day month the first has nothing to find; on the 1st the
+ * second has nothing to find. Both fail on those dates, so the file was
+ * date-dependent in both directions rather than one. 15 January is deliberately
+ * mid-month in a 31-day month: 14 past days and 16 future ones, so both
+ * properties are exercised whatever day the suite runs.
+ */
+const NOW = new Date(2026, 0, 15)
+
 function renderCalendar(initialEntries = ['/chat']) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <QueryClientProvider client={client}>
-        <AgentCalendarView open agents={[agent('api_agent')]} defaultApiOnly={false} />
+        <AgentCalendarView now={NOW} open agents={[agent('api_agent')]} defaultApiOnly={false} />
       </QueryClientProvider>
     </MemoryRouter>,
   )
@@ -51,7 +67,7 @@ describe('AgentCalendarView #513 add-routine on empty days', () => {
     renderCalendar()
     const grid = screen.getByTestId('calendar-grid')
     const cells = within(grid).getAllByTestId(/calendar-day-/)
-    const todayKey = localDateKey(new Date())
+    const todayKey = localDateKey(NOW)
     const future = cells.find((cell) => (cell.getAttribute('data-date') || '') > todayKey)
     expect(future).toBeTruthy()
     const label = `Add routine on ${future!.getAttribute('data-date')}`
@@ -60,7 +76,7 @@ describe('AgentCalendarView #513 add-routine on empty days', () => {
   })
 
   it('keeps cards on non-empty days and renders no + there', () => {
-    const todayKey = localDateKey(new Date())
+    const todayKey = localDateKey(NOW)
     renderCalendar()
     // Seed one routine into today via the fetched list path is heavy; instead
     // assert the + is hidden whenever the cell is not empty by checking that
@@ -73,7 +89,7 @@ describe('AgentCalendarView #513 add-routine on empty days', () => {
     renderCalendar()
     const grid = screen.getByTestId('calendar-grid')
     const cells = within(grid).getAllByTestId(/calendar-day-/)
-    const todayKey = localDateKey(new Date())
+    const todayKey = localDateKey(NOW)
     const past = cells.find((cell) => (cell.getAttribute('data-date') || '') < todayKey)
     expect(past).toBeTruthy()
     expect(within(past!).queryByRole('button', { name: /Add routine on/ })).not.toBeInTheDocument()
@@ -83,7 +99,7 @@ describe('AgentCalendarView #513 add-routine on empty days', () => {
     renderCalendar()
     const grid = screen.getByTestId('calendar-grid')
     const cells = within(grid).getAllByTestId(/calendar-day-/)
-    const todayKey = localDateKey(new Date())
+    const todayKey = localDateKey(NOW)
     const target = cells.find((cell) => (cell.getAttribute('data-date') || '') >= todayKey)
     const dateKey = target!.getAttribute('data-date')!
     fireEvent.click(within(target!).getByRole('button', { name: `Add routine on ${dateKey}` }))
@@ -96,14 +112,14 @@ describe('AgentCalendarView #513 add-routine on empty days', () => {
     const created: Partial<Routine> = {
       id: 'r-new',
       name: 'New routine',
-      next_run: `${localDateKey(new Date())}T09:00:00Z`,
-      trigger: { kind: 'one_shot', run_at: `${localDateKey(new Date())}T09:00:00Z` },
+      next_run: `${localDateKey(NOW)}T09:00:00Z`,
+      trigger: { kind: 'one_shot', run_at: `${localDateKey(NOW)}T09:00:00Z` },
     }
     createRoutineMock.mockResolvedValue(created)
     renderCalendar()
     const grid = screen.getByTestId('calendar-grid')
     const cells = within(grid).getAllByTestId(/calendar-day-/)
-    const todayKey = localDateKey(new Date())
+    const todayKey = localDateKey(NOW)
     const target = cells.find((cell) => (cell.getAttribute('data-date') || '') >= todayKey)!
     const dateKey = target.getAttribute('data-date')!
     fireEvent.click(within(target).getByRole('button', { name: `Add routine on ${dateKey}` }))

@@ -5,6 +5,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.core.kind_bases import TeamKindBase
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,19 @@ class DynamicTeamBlueprint(TeamKindBase):
         if not base_url or not model_name:
             missing = "base_url" if not base_url else "model"
             logger.error("DynamicTeamBlueprint missing %s in llm profile '%s'", missing, profile_name)
-            content = (f"Configuration error: {missing} missing for LLM profile '{profile_name}'.\n"
-                       "Please configure the profile (e.g. an 'ollama' profile) in swarm_config.json.")
-            yield {"messages": [{"role": "assistant", "content": content}]}
+            # Previously this returned a "Configuration error: …" *sentence* as
+            # the assistant bubble, which is indistinguishable from an answer in
+            # a chat transcript. It is a failed turn, so it now says so through
+            # the shared refusal and marks the seat broken.
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "dynamic-team",
+                why=f"{missing} is missing for LLM profile '{profile_name}'",
+                remedy=(
+                    "configure the profile in Settings → LLM profiles (model + "
+                    "base URL), or point `llm_profile` at one that is"
+                ),
+                backends=[self.blueprint_id or "dynamic-team"],
+            )
             return
 
         client = AsyncOpenAI(base_url=base_url, api_key=api_key)
@@ -82,4 +93,12 @@ class DynamicTeamBlueprint(TeamKindBase):
                 yield {"messages": [{"role": "assistant", "content": text}]}
         except Exception as e:
             logger.exception("Dynamic team LLM call failed: %s", e)
-            yield {"messages": [{"role": "assistant", "content": f"[DynamicTeam Error] {e}"}]}
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "dynamic-team",
+                why=f"the model turn raised {type(e).__name__}: {str(e)[:200]}",
+                remedy=(
+                    f"check LLM profile '{profile_name}' (Settings → LLM "
+                    f"profiles) — its base URL and model must be reachable"
+                ),
+                backends=[self.blueprint_id or "dynamic-team"],
+            )

@@ -82,7 +82,7 @@ outline. This PR does not apply them.
 Target order after Matthew GO (implementer rewrite; **not this PR**):
 
 ```
-# Open Swarm
+# Operating Swarm
 
 1. Pitch (5–8 lines + optional one chrome still — not landing.png)
 2. Short history (1-liners, §3)
@@ -99,7 +99,7 @@ Target order after Matthew GO (implementer rewrite; **not this PR**):
 
 ### 2.1 Pitch (draft direction, not final copy)
 
-Open Swarm is a Grok-like agent workspace: a left rail of agents and a
+Operating Swarm is a Grok-like agent workspace: a left rail of agents and a
 chat with the one you picked. Agents come in three kinds — **API** (owned
 by this process), **CLI** (your installed `opencode` / `grok` / `agy` / …),
 and **remote** (OpenMousBot, Hermes, Rakazo, or another open-swarm). A
@@ -236,8 +236,8 @@ Sources pulled 2026-09-04:
 
 | Source | Latest / fact |
 |--------|----------------|
-| `pyproject.toml` | `version = "0.5.4"` · `description = "Open Swarm: Orchestrating AI Agent Swarms with Django"` · classifier `Development Status :: 3 - Alpha` · `Framework :: Django :: 4.2` |
-| PyPI `open-swarm` | Latest **0.5.4**, uploaded 2026-06-19T01:29:30Z, not yanked. **Summary still: “Open Swarm: Orchestrating AI Agent Swarms with Django”.** 105 published versions: semver `0.3.0`–`0.5.4` plus 84 timestamp `0.1.<epoch>` wheels (2025-03-27 … 2026-06-02). No `0.0.1`, no `0.1.0`. |
+| `pyproject.toml` | `version = "0.5.4"` · `description = "Operating Swarm: Orchestrating AI Agent Swarms with Django"` · classifier `Development Status :: 3 - Alpha` · `Framework :: Django :: 4.2` |
+| PyPI `open-swarm` | Latest **0.5.4**, uploaded 2026-06-19T01:29:30Z, not yanked. **Summary still: “Operating Swarm: Orchestrating AI Agent Swarms with Django”.** 105 published versions: semver `0.3.0`–`0.5.4` plus 84 timestamp `0.1.<epoch>` wheels (2025-03-27 … 2026-06-02). No `0.0.1`, no `0.1.0`. |
 | GitHub Releases | 21 releases, `v0.3.0` … `v0.5.4`. Latest **v0.5.4** published 2026-06-19T01:29:02Z, name **“v0.5.4 — django_chat resolves its LLM profile.”** None draft/prerelease. |
 | Git tags | Those 21 `v*` tags plus **`0.0.1`** (2026-02-20, sha `29b61b15`). No `v0.0.1`. |
 

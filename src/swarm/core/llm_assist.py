@@ -20,7 +20,7 @@ def fallback_quickstarts(name: str) -> list[dict[str, str]]:
             "key": "A",
             "label": f"Explain {agent}",
             "prompt": (
-                f"Explain who you are as {agent}, how Open Swarm uses you, "
+                f"Explain who you are as {agent}, how Operating Swarm uses you, "
                 "and how I should talk to you."
             ),
         },
@@ -138,7 +138,7 @@ def generate_blueprint_class(
     try:
         text = default_chat(
             [
-                {"role": "system", "content": "You write production Python for Open Swarm blueprints."},
+                {"role": "system", "content": "You write production Python for Operating Swarm blueprints."},
                 {"role": "user", "content": user},
             ],
             max_tokens=1800,

@@ -78,7 +78,7 @@ export function buildSupportBriefing(opts: {
       ].filter(Boolean)
     : [
         '- **No inference configured yet.**',
-        '- Open [Settings](/settings/) and set LiteLLM (`http://198.51.100.30:8000`, model `auxiliary`, provider `litellm`).',
+        '- Open [Settings](/chat?settings=llm-profiles) and set LiteLLM (`http://198.51.100.30:8000`, model `auxiliary`, provider `litellm`).',
         '- Or install **grok** / **agy** and pick them on the CLI agent.',
       ]
 
@@ -94,6 +94,6 @@ export function buildSupportBriefing(opts: {
     '### Next',
     'Start with **Create a team** or **Create a BA → Engineer → Tester workflow**. Under the hood that is an `ApiKindBase` Python class — code stays hidden unless you **View code**.',
     '',
-    'Shortcuts: [Teams](/teams/launch/) · [Blueprint creator](/blueprint-library/creator/) · [Settings](/settings/)',
+    'Shortcuts: [Teams](/teams/launch/) · [Blueprint creator](/blueprint-library/creator/) · [Settings](/chat?settings=true)',
   ].join('\n')
 }

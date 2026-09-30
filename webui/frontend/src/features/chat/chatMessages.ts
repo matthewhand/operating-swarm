@@ -20,6 +20,8 @@ import type { TeammateTaskEvent } from '../../lib/teammateTask'
 import type { SubagentFanOutData } from '../../lib/subagentFanOut'
 import type { ToolCallState } from '../../lib/safety'
 import type { DecisionQuestion } from '../../lib/decisionQuestion'
+import { parseMessageReactions, type MessageReaction } from '../../lib/messageReactions'
+import { parseCarriedSummary, type CarriedSummary } from '../../lib/carriedSummary'
 
 export interface ChatMessage {
   /** Stable key; for assistant messages this is the server-issued container id. */
@@ -45,6 +47,11 @@ export interface ChatMessage {
   subagentFanOut?: SubagentFanOutData
   /** REQ-104 — expandable archive of the previous swarm thread. */
   kind?: 'prior_history'
+  /**
+   * #1694 — what a session hop actually carried, so the boundary marker can be
+   * inspected instead of only announced. Absent when nothing was carried.
+   */
+  carriedSummary?: CarriedSummary
   /** #527 — openai-agents persona that produced the row, when the server says. */
   persona?: string
   /** Persist/reload timestamp (ISO). Status/info chrome shows this. */
@@ -55,6 +62,10 @@ export interface ChatMessage {
   fatalConfigError?: boolean
   /** #850: Raw unstripped terminal response captured from Herdr. */
   rawResponse?: string
+  /** #1411: aggregated emoji reactions on this turn. */
+  reactions?: MessageReaction[]
+  /** #1411: the assistant turn is only an emoji, with no text body. */
+  reactionOnly?: boolean
 }
 
 /** #534: persisted compression rows never render on restored transcripts. */
@@ -75,6 +86,9 @@ export function chatMessageFromThreadRow(
     fatal_config_error?: boolean
     persona?: string
     raw_response?: string
+    reactions?: unknown
+    reaction_only?: unknown
+    carried_summary?: unknown
   },
   index: number,
 ): ChatMessage {
@@ -82,6 +96,12 @@ export function chatMessageFromThreadRow(
   const teammateTask = parseTeammateTask(message.content) ?? undefined
   const subagentFanOut = parseSubagentFanOut(message.content) ?? undefined
   const prior = message.kind === 'prior_history'
+  const reactions = parseMessageReactions(message.reactions)
+  // #1694: the hop's payload is validated here, at the wire boundary, so
+  // nothing downstream has to trust it. An announcement without a body (the
+  // honest "No prior context to carry" branch) yields undefined and therefore
+  // renders no disclosure at all.
+  const carriedSummary = parseCarriedSummary(message.carried_summary) ?? undefined
   return {
     key: `hist-${index}-${message.role}`,
     role: prior ? 'system' : asTranscriptRole(message.role),
@@ -93,11 +113,24 @@ export function chatMessageFromThreadRow(
     teammateTask,
     subagentFanOut,
     kind: prior ? 'prior_history' : undefined,
+    carriedSummary,
     ts: message.ts,
     rateLimit: isRateLimitWait(message.rate_limit) ? message.rate_limit : undefined,
     fatalConfigError: message.fatal_config_error === true,
     persona: typeof message.persona === 'string' ? message.persona : undefined,
+    reactions,
+    reactionOnly: message.reaction_only === true && reactions.length > 0,
   }
+}
+
+/** Snippet for a finished turn. A reaction-only reply is its emoji. */
+export function assistantCompletionSnippet(messages: ChatMessage[]): string | undefined {
+  const last = [...messages].reverse().find(
+    (message) => message.role === 'assistant' && (Boolean(message.text) || message.reactionOnly),
+  )
+  if (!last) return undefined
+  if (last.reactionOnly) return last.reactions?.[0]?.emoji || undefined
+  return last.text || undefined
 }
 
 /** Post-login return path for the Django session gate (rooted, same-origin). */

@@ -23,7 +23,13 @@ import {
   summarizeUnknownWsFrame,
   type ChatWsEvent,
 } from '../../lib/chatWs'
-import { applyTurnFrame, recordTurnFrame, type TurnSnapshot } from '../../lib/agentTurns'
+import {
+  applyTurnFrame,
+  recordToolPhaseFrame,
+  recordTurnFrame,
+  type TurnSnapshot,
+} from '../../lib/agentTurns'
+import { applyFanOutLeg, type FanOutLeg } from '../../lib/runningCards'
 import type { DecisionQuestion } from '../../lib/decisionQuestion'
 import { parseDecisionQuestion, stripDecisionQuestion } from '../../lib/decisionQuestion'
 import { registerDynamicSubagent } from '../../lib/dynamicSubagents'
@@ -47,6 +53,7 @@ interface UseChatWsDispatcherOptions {
   pinnedToBottomRef: MutableRefObject<boolean>
   setContextUsage: Dispatch<SetStateAction<ContextUsage | null>>
   setAgentTurns: Dispatch<SetStateAction<TurnSnapshot>>
+  setFanOutLegs: Dispatch<SetStateAction<FanOutLeg[]>>
   setAuxTasks: Dispatch<SetStateAction<AuxTask[]>>
   setSuggestionChips: Dispatch<SetStateAction<string[]>>
   setThreads: Dispatch<SetStateAction<Record<string, ChatMessage[]>>>
@@ -75,6 +82,7 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
     pinnedToBottomRef,
     setContextUsage,
     setAgentTurns,
+    setFanOutLegs,
     setAuxTasks,
     setSuggestionChips,
     setThreads,
@@ -93,11 +101,46 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
         publishExpectedSpaVersion(event.spaVersion)
         return
       }
+      if (event.kind === 'fan_out_leg') {
+        setFanOutLegs((prev) =>
+          applyFanOutLeg(prev, {
+            id: event.id,
+            label: event.label,
+            status: event.status,
+            legKind: event.legKind,
+            openId: event.openId,
+            href: event.href,
+            batchId: event.batchId,
+          }),
+        )
+        return
+      }
       if (event.kind === 'turn_started' || event.kind === 'turn_finished') {
         // ADR-017 PR-2: fold the bookend into the SPA turn registry so the
         // row stop can name the exact turn_id when it cancels (#1113).
+        // #1684: `turn_finished` also retires any in-flight tool badge
+        // (never-stuck layer 2 — see lib/agentTurns.ts).
         recordTurnFrame(event)
         setAgentTurns((prev) => applyTurnFrame(prev, event))
+
+        // #1764: drop this seat's fan-out legs when the turn ends so a missed
+        // terminal `fan_out_leg` cannot leave a stuck Running card. Sibling
+        // legs (other openIds) stay until their own bookends arrive.
+        if (event.kind === 'turn_finished') {
+          const finishedId = String(event.agentId || '').trim()
+          if (finishedId) {
+            setFanOutLegs((prev) =>
+              prev.filter((leg) => {
+                const openId = String(leg.openId || leg.id || '').trim()
+                if (!openId) return true
+                if (openId === finishedId || leg.id === finishedId) return false
+                if (finishedId.includes('#') && openId === finishedId.split('#').pop()) return false
+                if (openId.includes('#') && finishedId === openId.split('#').pop()) return false
+                return true
+              }),
+            )
+          }
+        }
         // #1168: a server bookend proves the send arrived — disarm the
         // pending-send watchdog so healthy slow turns never get failed.
         options.disarmPendingSendWatchdog?.()
@@ -130,10 +173,62 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
           agentId: event.agentId,
           needsApproval: false,
         })
+        // #1684: …and fold the phase into the turn registry, which is what
+        // the "Running" badge reads. The frame carries no `turn_id` (see
+        // `lib/agentTurns.ToolPhaseFrame`), so the reducer resolves the turn
+        // by `agentId`; demo replay sends the same turn-less shape.
+        recordToolPhaseFrame(event)
+        setAgentTurns((prev) => applyTurnFrame(prev, event))
         return
       }
       if (event.kind === 'user_question') {
         attachQuestionToThread(event.question, true)
+        return
+      }
+      if (event.kind === 'reaction_turn') {
+        setThreads((prev) => {
+          const current = prev[threadKey] ?? []
+          const exists = current.some((row) => row.key === event.id)
+          const nextRow = {
+            text: '',
+            streaming: false,
+            reactionOnly: true,
+            reactions: event.reactions,
+          }
+          const next = exists
+            ? current.map((row) => (row.key === event.id ? { ...row, ...nextRow } : row))
+            : [
+                ...current,
+                {
+                  key: event.id,
+                  role: 'assistant' as const,
+                  ts: new Date().toISOString(),
+                  ...nextRow,
+                },
+              ]
+          return { ...prev, [threadKey]: next }
+        })
+        const { agentId, agentName } = notifyCtxRef.current
+        if (agentId) {
+          notifyGenerationComplete(agentId, { snippet: event.emoji, agentName })
+        }
+        return
+      }
+      if (event.kind === 'reaction') {
+        setThreads((prev) => {
+          const current = prev[threadKey] ?? []
+          let seen = 0
+          const next = current.map((row) => {
+            if (row.role !== 'user' && row.role !== 'assistant') return row
+            const turnIndex = seen
+            seen += 1
+            if (turnIndex === event.index) {
+              return { ...row, reactions: event.reactions }
+            }
+            return row
+          })
+          return { ...prev, [threadKey]: next }
+        })
         return
       }
       if (event.kind === 'suggestions') {
@@ -290,24 +385,42 @@ export function useChatWsDispatcher(options: UseChatWsDispatcherOptions) {
               m.key === event.id ? { ...m, text: m.text + event.text } : m,
             )
             break
-          case 'assistant_final':
-            next = current.map((m) => {
-              if (m.key !== event.id) return m
-              const fence = parseDecisionQuestion(event.text)
-              const rawResp =
-                typeof (event as { raw_response?: string }).raw_response === 'string'
-                  ? (event as { raw_response?: string }).raw_response
-                  : m.rawResponse
-              return {
-                ...m,
-                text: fence ? stripDecisionQuestion(event.text) : event.text,
-                rawResponse: rawResp,
-                streaming: false,
-                question: m.question ?? fence ?? undefined,
-                questionBlocking: m.questionBlocking ?? false,
-              }
-            })
+          case 'assistant_final': {
+            const fence = parseDecisionQuestion(event.text)
+            const text = fence ? stripDecisionQuestion(event.text) : event.text
+            const rawResp =
+              typeof (event as { raw_response?: string }).raw_response === 'string'
+                ? (event as { raw_response?: string }).raw_response
+                : undefined
+            if (!current.some((m) => m.key === event.id)) {
+              next = [
+                ...current,
+                {
+                  key: event.id,
+                  role: 'assistant',
+                  text,
+                  rawResponse: rawResp,
+                  streaming: false,
+                  ts: new Date().toISOString(),
+                  question: fence ?? undefined,
+                  questionBlocking: false,
+                },
+              ]
+            } else {
+              next = current.map((m) => {
+                if (m.key !== event.id) return m
+                return {
+                  ...m,
+                  text,
+                  rawResponse: rawResp ?? m.rawResponse,
+                  streaming: false,
+                  question: m.question ?? fence ?? undefined,
+                  questionBlocking: m.questionBlocking ?? false,
+                }
+              })
+            }
             break
+          }
           case 'status':
             // #534: compression notices belong to API seats only. Remote/CLI
             // seats manage their own context — never show the notice.

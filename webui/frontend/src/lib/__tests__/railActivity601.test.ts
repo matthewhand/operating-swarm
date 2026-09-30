@@ -34,6 +34,12 @@ describe('#601 parseRemote last_message_at', () => {
     const row = parseRemote({ ...base }) as RemoteEntry
     expect(row.lastMessageAt).toBeUndefined()
   })
+
+  it('keeps an operator description for the rail subtitle', () => {
+    const row = parseRemote({ ...base, description: '  LAN bridge  ' })
+    expect(row?.description).toBe('LAN bridge')
+    expect(parseRemote({ ...base })?.description).toBeUndefined()
+  })
 })
 
 describe('#601 parseTeamRosters last_message_at', () => {

@@ -1,8 +1,9 @@
 """Support/CoS roster tools — create + archive + restore + purge (REQ-154 / #562).
 
 Support and Chief of Staff (API-kind) can grow or trim the rail via tools + NL.
-Ordinary roles do **not** get these tools. Created seats always stamp
-``role=default`` so this path cannot mint another Support/CoS/gate/skeptic.
+Ordinary roles do **not** get these tools. The create tool stamps
+``role=default`` so a caller cannot mint another Support/CoS/gate/skeptic.
+A shipped preset keeps that preset's catalog role and applies its plugin pack.
 
 Archive is a soft-delete (``archived`` + ``archived_at``). The seat drops off
 the default AGENTS rail and mailbox discoverability. Restore works until a
@@ -20,7 +21,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Mapping
 
 from swarm.core.agent_kind import AgentKind, classify_agent_kind
 from swarm.core.agent_roles import (
@@ -71,6 +72,9 @@ ERROR_CLI_COMMAND = "cli_command_required"
 ERROR_REMOTE = "remote_error"
 ERROR_PERSIST = "persist_failed"
 ERROR_TEAM = "team_error"
+ERROR_COMPANY = "company_required"
+ERROR_COMPANY_NOT_FOUND = "company_not_found"
+ERROR_MODEL_DENIED = "model_denied"
 
 StoreKind = Literal["custom", "remote"]
 
@@ -213,6 +217,7 @@ class LifecycleStores:
     persist_library: bool = False
     persist_remotes: bool = False
     persist_rosters: bool = False
+    companies: dict[str, Any] = field(default_factory=dict)
 
 
 def _load_library() -> dict[str, Any]:
@@ -277,6 +282,34 @@ def _save_remotes(cfg: dict[str, Any], remotes: dict[str, Any], path: Path | Non
         return False
 
 
+def default_session_company_route(
+    principal: str | None,
+    blueprint_id: str,
+    available: Any = None,
+    params: Mapping[str, Any] | None = None,
+    companies: list[Mapping[str, Any]] | None = None,
+    record: bool = True,
+) -> tuple[str, dict[str, Any]]:
+    """Default a new session to the Company model route (#1317).
+
+    The blueprint id is returned unchanged. Only routing params are filled.
+    """
+    from swarm.core.org_policy import apply_company_route
+
+    kept = str(blueprint_id or "")
+    next_params, next_blueprint = apply_company_route(
+        params,
+        principal=principal,
+        blueprint_id=kept,
+        available=available,
+        companies=companies,
+        record=record,
+    )
+    if next_blueprint != kept:
+        next_blueprint = kept
+    return kept, next_params
+
+
 def default_stores() -> LifecycleStores:
     cfg, remotes, path = _load_remotes_bundle()
     rosters = None
@@ -336,10 +369,39 @@ class LifecycleContext:
         base_url: str = "",
         api_key_env: str = "",
         team_id: str = "",
+        company_id: str = "",
+        company: str = "",
+        model: str = "",
+        plugins: Any = None,
+        preset_id: str = "",
     ) -> dict[str, Any]:
         try:
             self.eligible()
-            refuse_secrets(name, kind, command, description, blueprint_code, remote_kind, base_url, api_key_env, team_id)
+            preset = _preset_or_none(preset_id)
+            if preset is not None:
+                if not str(name or "").strip():
+                    name = str(preset.get("name") or "")
+                if not str(kind or "").strip():
+                    kind = str(preset.get("kind") or "api")
+                if not str(description or "").strip():
+                    description = str(preset.get("description") or "")
+                if not str(model or "").strip():
+                    model = str(preset.get("model") or "")
+            refuse_secrets(
+                name,
+                kind,
+                command,
+                description,
+                blueprint_code,
+                remote_kind,
+                base_url,
+                api_key_env,
+                team_id,
+                company_id,
+                company,
+                model,
+                preset_id,
+            )
             ident, created = self._create(
                 name=name,
                 kind=kind,
@@ -350,15 +412,43 @@ class LifecycleContext:
                 base_url=base_url,
                 api_key_env=api_key_env,
                 team_id=team_id,
+                company_id=company_id or company,
+                model=model,
+                preset=preset,
             )
+            plugin_report = None
+            if plugins in (None, "", [], {}) and preset is not None:
+                plugins = [
+                    str(name)
+                    for name in (preset.get("plugins") or [])
+                    if str(name).strip()
+                ]
+            if plugins not in (None, "", [], {}):
+                from swarm.core.agent_plugin_pack import apply_plugin_pack_on_create
+
+                plugin_report = apply_plugin_pack_on_create(ident, plugins)
             self._audit(f"Created agent {ident} ({created.get('kind') or kind})")
+            from swarm.core.activity_log import emit_activity
+
+            emit_activity(
+                actor_type="user",
+                actor_id=self.user_key or self.caller_id,
+                action="agent.created",
+                entity_type="agent",
+                entity_id=ident,
+                agent_id=ident,
+                detail={"kind": created.get("kind") or kind, "name": created.get("name")},
+            )
             logger.info(
                 "lifecycle create caller=%s id=%s kind=%s",
                 self.caller_id,
                 ident,
                 created.get("kind") or kind,
             )
-            return {"ok": True, "agent": created, "audit": f"Created agent {ident}"}
+            result = {"ok": True, "agent": created, "audit": f"Created agent {ident}"}
+            if plugin_report is not None:
+                result["plugins"] = plugin_report
+            return result
         except LifecycleError as exc:
             logger.info("lifecycle create rejected %s (%s)", self.caller_id, exc.reason)
             return exc.as_dict()
@@ -369,6 +459,16 @@ class LifecycleContext:
             refuse_secrets(agent_id)
             ident, row = self._archive(agent_id)
             self._audit(f"Archived agent {ident}")
+            from swarm.core.activity_log import emit_activity
+
+            emit_activity(
+                actor_type="user",
+                actor_id=self.user_key or self.caller_id,
+                action="agent.archived",
+                entity_type="agent",
+                entity_id=ident,
+                agent_id=ident,
+            )
             logger.info("lifecycle archive caller=%s id=%s", self.caller_id, ident)
             return {
                 "ok": True,
@@ -412,6 +512,11 @@ class LifecycleContext:
             base_url: str = "",
             api_key_env: str = "",
             team_id: str = "",
+            company_id: str = "",
+            company: str = "",
+            model: str = "",
+            plugins: Any = None,
+            preset_id: str = "",
         ) -> dict[str, Any]:
             """Create a CLI, API, remote, or blueprint seat with safe defaults."""
             return self.create_agent(
@@ -424,6 +529,11 @@ class LifecycleContext:
                 base_url=base_url,
                 api_key_env=api_key_env,
                 team_id=team_id,
+                company_id=company_id,
+                company=company,
+                model=model,
+                plugins=plugins,
+                preset_id=preset_id,
             )
 
         def archive_agent(agent_id: str) -> dict[str, Any]:
@@ -440,8 +550,11 @@ class LifecycleContext:
 
         create_agent.name = CREATE_TOOL_NAME
         create_agent.description = (
-            "Create a rail seat. kind=cli|api|remote|blueprint. Safe defaults "
-            "(role=default, no secrets). CLI needs command. Remote: env var names only."
+            "Create a rail seat. kind=cli|api|remote|blueprint. Requires a Company "
+            "(company_id or company slug) so its model policy is attached. Safe defaults "
+            "(role=default, no secrets). CLI needs command. Remote: env var names only. "
+            "Optional plugins is a pack of marketplace plugin ids (no tokens); a miss "
+            "does not undo the new seat."
         )
         archive_agent.name = ARCHIVE_TOOL_NAME
         archive_agent.description = (
@@ -471,6 +584,11 @@ class LifecycleContext:
             base_url: str = "",
             api_key_env: str = "",
             team_id: str = "",
+            company_id: str = "",
+            company: str = "",
+            model: str = "",
+            plugins: Any = None,
+            preset_id: str = "",
         ) -> dict[str, Any]:
             """Create a CLI, API, remote, or blueprint seat with safe defaults."""
             return self.create_agent(
@@ -483,6 +601,11 @@ class LifecycleContext:
                 base_url=base_url,
                 api_key_env=api_key_env,
                 team_id=team_id,
+                company_id=company_id,
+                company=company,
+                model=model,
+                plugins=plugins,
+                preset_id=preset_id,
             )
 
         def archive_agent(agent_id: str) -> dict[str, Any]:
@@ -535,6 +658,9 @@ class LifecycleContext:
         base_url: str,
         api_key_env: str,
         team_id: str,
+        company_id: str = "",
+        model: str = "",
+        preset: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         kind_key = str(kind or "").strip().lower()
         if kind_key not in CREATE_KINDS:
@@ -542,7 +668,7 @@ class LifecycleContext:
                 ERROR_INVALID_KIND,
                 "kind must be cli, api, remote, or blueprint.",
             )
-        ident = slugify_agent_id(name)
+        ident = slugify_agent_id((preset or {}).get("id") or name)
         if not ident:
             raise LifecycleError(ERROR_INVALID_ID, "name is required.")
         if is_lifecycle_protected_id(ident):
@@ -550,6 +676,17 @@ class LifecycleContext:
                 ERROR_PROTECTED,
                 f"'{ident}' is a reserved Support/role/catalog id.",
             )
+        from swarm.core.company_attach import CompanyAttachError, attach_company_for_new_bot
+
+        try:
+            attach = attach_company_for_new_bot(
+                company_id,
+                model=model or None,
+                companies=self.stores.companies if self.stores.companies else None,
+            )
+        except CompanyAttachError as exc:
+            raise LifecycleError(exc.code, exc.message) from exc
+        stamp = attach.stamp()
         if kind_key == "remote":
             row = self._create_remote(
                 ident=ident,
@@ -557,6 +694,7 @@ class LifecycleContext:
                 base_url=base_url,
                 api_key_env=api_key_env,
                 description=description or name,
+                company_stamp=stamp,
             )
         else:
             row = self._create_custom(
@@ -566,10 +704,13 @@ class LifecycleContext:
                 command=command,
                 description=description,
                 blueprint_code=blueprint_code,
+                company_stamp=stamp,
+                preset=preset,
             )
         if team_id:
             self._add_to_team(team_id, row)
             row["team_id"] = slugify_agent_id(team_id) or team_id
+        row.update(stamp)
         return ident, _public_row(row)
 
     def _create_custom(
@@ -581,6 +722,8 @@ class LifecycleContext:
         command: str,
         description: str,
         blueprint_code: str,
+        company_stamp: dict[str, str] | None = None,
+        preset: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         custom = self._custom_list()
         if any(row_id(item) == ident for item in custom):
@@ -629,6 +772,22 @@ class LifecycleContext:
         item["user_created"] = True
         item["created_by"] = self.caller_id
         item.setdefault("created_at", self.current_time().isoformat())
+        if preset:
+            plugins = [str(name) for name in (preset.get("plugins") or []) if str(name).strip()]
+            item["preset_id"] = str(preset.get("id") or "")
+            item["provider"] = str(preset.get("provider") or "")
+            item["model"] = str(preset.get("model") or "")
+            item["plugins"] = plugins
+            item["required_mcp_servers"] = list(plugins)
+            if str(preset.get("role") or "").strip():
+                item["role"] = normalize_agent_role(preset.get("role"))
+            if preset.get("instructions"):
+                item["instructions"] = preset.get("instructions")
+            if not item.get("description"):
+                item["description"] = str(preset.get("description") or "")
+            item["rail"] = True
+        if company_stamp:
+            item.update(company_stamp)
         custom.append(item)
         self.stores.library["custom"] = custom
         if self.stores.persist_library and not _save_library(self.stores.library):
@@ -644,6 +803,7 @@ class LifecycleContext:
         base_url: str,
         api_key_env: str,
         description: str,
+        company_stamp: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         from swarm.core.config_ownership import looks_like_env_name
         from swarm.core.remotes import RemoteError, persist_remote
@@ -663,6 +823,8 @@ class LifecycleContext:
                     kwargs["base_url"] = base_url
                 if env_name:
                     kwargs["api_key_env"] = env_name
+                if company_stamp:
+                    kwargs["extra"] = company_stamp
                 spec, _path = persist_remote(kind_id, **kwargs)
                 entry = dict(self.stores.remotes.get(kind_id) or {})
                 entry["kind"] = spec.id
@@ -678,6 +840,8 @@ class LifecycleContext:
                 entry["created_by"] = self.caller_id
                 entry["created_at"] = self.current_time().isoformat()
                 entry["description"] = description
+                if company_stamp:
+                    entry.update(company_stamp)
                 self.stores.remotes[kind_id] = entry
                 if self.stores.remotes_cfg is not None:
                     self.stores.remotes_cfg.setdefault("remotes", {})
@@ -700,6 +864,8 @@ class LifecycleContext:
         }
         if env_name:
             entry["api_key"] = f"${{{env_name}}}"
+        if company_stamp:
+            entry.update(company_stamp)
         self.stores.remotes[kind_id] = entry
         return entry
 
@@ -824,7 +990,9 @@ class LifecycleContext:
         try:
             from swarm.core import chat_store
 
-            record = chat_store.load(self.user_key, self.caller_id, base_dir=self.chat_base_dir)
+            record = chat_store.load_or_django(
+                self.user_key, self.caller_id, base_dir=self.chat_base_dir
+            )
             if record is None:
                 record = chat_store.empty_record(user_key=self.user_key, agent_id=self.caller_id)
             turns = list(record.get("messages") or [])
@@ -849,7 +1017,7 @@ def _public_row(row: MappingLike, store: str | None = None) -> dict[str, Any]:
         "id": row_id(item) or item.get("id") or "",
         "name": item.get("name") or row_id(item),
         "kind": kind or ("remote" if store == "remote" else "api"),
-        "role": "default",
+        "role": normalize_agent_role(item.get("role")),
         "archived": item.get("archived") is True,
         "archived_at": item.get("archived_at") or "",
         "source": item.get("source") or LIFECYCLE_SOURCE,
@@ -865,6 +1033,21 @@ def _public_row(row: MappingLike, store: str | None = None) -> dict[str, Any]:
         payload["base_url"] = item.get("base_url")
     if item.get("team_id"):
         payload["team_id"] = item.get("team_id")
+    if item.get("company_id"):
+        payload["company_id"] = item.get("company_id")
+    if item.get("company_slug"):
+        payload["company_slug"] = item.get("company_slug")
+    if item.get("company_name"):
+        payload["company_name"] = item.get("company_name")
+    if item.get("provider"):
+        payload["provider"] = item.get("provider")
+    if item.get("model"):
+        payload["model"] = item.get("model")
+    plugins = item.get("plugins") or item.get("required_mcp_servers") or []
+    if plugins:
+        payload["plugins"] = list(plugins)
+    if item.get("preset_id"):
+        payload["preset_id"] = item.get("preset_id")
     # Never leak secret-shaped leftovers.
     payload = {key: value for key, value in payload.items() if not looks_like_secret(value)}
     return payload
@@ -1088,6 +1271,42 @@ def install_lifecycle_on_blueprint(blueprint: Any, ctx: LifecycleContext) -> lis
     return attach_lifecycle_tools(blueprint, ctx)
 
 
+
+def _preset_or_none(preset_id: str) -> dict[str, Any] | None:
+    ident = str(preset_id or "").strip()
+    if not ident:
+        return None
+    from swarm.core.blueprint_spec import get_preset_bot
+
+    preset = get_preset_bot(ident)
+    if preset is None:
+        raise LifecycleError("unknown_preset", f"Unknown preset '{ident}'.")
+    return preset
+
+
+def materialize_preset_bot(preset_id: str, *, stores: LifecycleStores | None = None) -> dict[str, Any]:
+    """Create one rail seat from a shipped preset (New bot -> from preset)."""
+    preset = _preset_or_none(preset_id)
+    ctx = LifecycleContext(
+        caller_id="library",
+        caller_kind=V1_KIND,
+        caller_role="support",
+        stores=stores or default_stores(),
+    )
+    plugins = [
+        str(name)
+        for name in ((preset or {}).get("plugins") or [])
+        if str(name).strip()
+    ]
+    return ctx.create_agent(
+        name=str((preset or {}).get("name") or ""),
+        kind=str((preset or {}).get("kind") or "api"),
+        description=str((preset or {}).get("description") or ""),
+        preset_id=str((preset or {}).get("id") or preset_id),
+        plugins=plugins,
+    )
+
+
 def context_from_runtime(
     *,
     caller_id: str,
@@ -1158,7 +1377,10 @@ __all__ = [
     "ERROR_ALREADY_EXISTS",
     "ERROR_CALLER_KIND",
     "ERROR_CLI_COMMAND",
+    "ERROR_COMPANY",
+    "ERROR_COMPANY_NOT_FOUND",
     "ERROR_INVALID_KIND",
+    "ERROR_MODEL_DENIED",
     "ERROR_NOT_ARCHIVED",
     "ERROR_PROTECTED",
     "ERROR_ROLE",
@@ -1182,5 +1404,6 @@ __all__ = [
     "purge_due_rows",
     "remote_entry_is_archived",
     "retention_days",
+    "materialize_preset_bot",
     "slugify_agent_id",
 ]

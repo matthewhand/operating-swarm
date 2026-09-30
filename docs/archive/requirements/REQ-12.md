@@ -4,7 +4,7 @@
 
 ## Intent
 
-Direction write: Open Swarm is turning from *an* agent harness into a
+Direction write: Operating Swarm is turning from *an* agent harness into a
 **harness for other harnesses** (Hermes, OMB, Rakazo). Composition is
 openai-agents **handoff / `as_tool`**, not extra concurrent Grok / Rakazo / OMB
 seats.

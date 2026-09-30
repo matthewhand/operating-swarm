@@ -168,7 +168,7 @@ class SuggestionBlueprint(BlueprintBase):
         "title": "Suggestion Blueprint (Structured Output)",
         "description": "An agent that provides structured suggestions using Agent(output_type=...).",
         "version": "1.2.0", # Version bump for refactor
-        "author": "Open Swarm Team (Refactored)",
+        "author": "Operating Swarm Team (Refactored)",
         "tags": ["structured output", "json", "suggestions", "output_type"],
         "required_mcp_servers": [],
         "env_vars": [], # OPENAI_API_KEY is implicitly needed by the model

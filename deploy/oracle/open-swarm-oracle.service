@@ -1,5 +1,5 @@
 [Unit]
-Description=Open Swarm ORACLE — authenticated OpenAI-compatible gateway
+Description=Operating Swarm ORACLE — authenticated OpenAI-compatible gateway
 After=network-online.target
 Wants=network-online.target
 

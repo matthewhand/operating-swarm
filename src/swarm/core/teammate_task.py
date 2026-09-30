@@ -37,13 +37,13 @@ _KIND_ALIASES: dict[str, str] = {
 
 TEAMMATE_TASK_TYPE = "teammate_task"
 
-# Button kind copy (Success #2). Nested swarm is "Open Swarm", not "Swarm" / OMB.
+# Button kind copy (Success #2). Nested swarm is "Operating Swarm", not "Swarm" / OMB.
 OPEN_IN_KIND_LABELS: dict[str, str] = {
     "hermes": "Hermes",
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
-    "swarm": "Open Swarm",
+    "swarm": "Operating Swarm",
 }
 
 REMOTE_MEMBER_KINDS = frozenset({"remote", "herdr"})

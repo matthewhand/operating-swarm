@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Parallel stress-test harness for the Open Swarm test suite.
+"""Parallel stress-test harness for the Operating Swarm test suite.
 
 Ported from archive/local-main-2025-04 (swarm_nuclear_scale.py). Spawns many
 concurrent, staggered pytest runs of the same target to flush out flaky tests,

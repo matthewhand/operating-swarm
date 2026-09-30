@@ -135,6 +135,31 @@ describe('fetchAgentThread', () => {
     expect(thread.summaries).toEqual([])
   })
 
+  it('keeps #1411 reactions on hydrated turns', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          agent_id: 'jeeves',
+          conversation_id: 'agt-1-jeeves',
+          messages: [
+            {
+              role: 'user',
+              content: 'hi',
+              reactions: [{ emoji: '👍', count: 1, userReacted: true }],
+            },
+          ],
+        }),
+      } as Response),
+    )
+    const thread = await fetchAgentThread('jeeves')
+    expect(thread.messages[0].reactions).toEqual([
+      { emoji: '👍', count: 1, userReacted: true, agentReacted: false, viewerReacted: false },
+    ])
+  })
+
   it('keeps prior_history as a system archive row', async () => {
     vi.stubGlobal(
       'fetch',

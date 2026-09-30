@@ -129,7 +129,7 @@ describe('#682/#683 stage-2 option sets per provider', () => {
     expect(bpRow).toBeDefined()
     expect(bpRow.kind).toBe('blueprint')
     expect(bpRow.label).toBe('Custom Blueprint')
-    expect(bpRow.description).toBe('1 blueprint, 1 team')
+    expect(bpRow.description).toBe('1 blueprint, 1 rig')
     expect(bpRow.defaultOptionId).toBe('codey')
 
     const options = composerOptionsForProvider({ blueprints, teams }, bpRow)

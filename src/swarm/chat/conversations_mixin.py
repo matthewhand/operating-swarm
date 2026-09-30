@@ -55,17 +55,88 @@ class ConversationsMixin:
             if conversation_id:
                 await self.save_conversation(conversation_id, self.messages)
 
+    async def apply_message_reaction(self, reaction):
+            """Toggle one emoji reaction on a transcript turn (#1411).
+
+            Mux turns run off the socket read loop, so this waits for every
+            in-flight turn lock before it mutates or saves the transcript.
+            """
+            while True:
+                ids = self._transcript_lock_ids()
+                acquired = []
+                try:
+                    for agent_id in ids:
+                        lock = self._agent_lock(agent_id)
+                        await lock.acquire()
+                        acquired.append(lock)
+                    if self._transcript_lock_ids() != ids:
+                        continue
+                    await self._apply_message_reaction_body(reaction)
+                    return
+                finally:
+                    for lock in reversed(acquired):
+                        lock.release()
+
+    async def _apply_message_reaction_body(self, reaction):
+            import json as _json
+
+            from swarm.core.message_reactions import (
+                ACTOR_USER,
+                normalize_emoji,
+                reaction_event,
+                toggle_reaction,
+            )
+
+            if not isinstance(reaction, dict):
+                R.logger.warning("Ignoring malformed chat reaction frame: %.200r", reaction)
+                return
+            index = reaction.get("index")
+            emoji = normalize_emoji(reaction.get("emoji"))
+            if type(index) is not int or emoji is None:
+                R.logger.warning("Ignoring malformed chat reaction frame: %.200r", reaction)
+                return
+            if index < 0 or index >= len(self.messages):
+                R.logger.warning(
+                    "Ignoring chat reaction index %s (transcript length %s)",
+                    index,
+                    len(self.messages),
+                )
+                return
+            current = dict(self.messages[index])
+            rows = toggle_reaction(current, emoji, ACTOR_USER)
+            if rows is None:
+                return
+            self.messages[index] = current
+            conversation_id = getattr(self, "conversation_id", None)
+            if conversation_id:
+                await self.save_conversation(conversation_id, self.messages)
+            event = reaction_event(
+                index=index,
+                emoji=emoji,
+                actor=ACTOR_USER,
+                reactions=rows,
+                agent_id=str(
+                    getattr(self, "active_agent", None)
+                    or getattr(self, "default_blueprint", None)
+                    or ""
+                ),
+            )
+            try:
+                await self.send(text_data=_json.dumps(event))
+            except Exception:
+                R.logger.debug("Failed to emit reaction event", exc_info=True)
+
 
     @database_sync_to_async
     def fetch_conversation(self, conversation_id):
-            """Fetch transcript: cache, then JSON, then Django backfill.
+            """Fetch transcript: cache, then Django, then one-way JSON migrate.
 
             Load order matches ``GET /chat/thread/`` (``swarm.core.thread_load``):
 
             0. On-mode mint (REQ-171C-4) — refuse reuse before any row load.
             1. In-memory cache keyed by ``(user_id, conversation_id)``.
-            2. JSON disk (source of truth) — keeps ``ts`` / ``edited``.
-            3. Django ``R.ChatMessage`` rows when the JSON file is missing.
+            2. Django rows (source of truth) — keeps ``ts`` / ``edited``.
+            3. JSON disk when Django is empty (one-way migrate onto Django).
 
             Always returns a COPY: two tabs sharing a conversation must not mutate
             each other's in-flight transcript list (interleaved appends previously
@@ -129,15 +200,23 @@ class ConversationsMixin:
 
     @database_sync_to_async
     def save_conversation(self, conversation_id, new_messages):
-            """Replace DB messages with the current in-memory transcript.
+            """Insert new tail rows and update edited turns in place (#1440).
 
-            Disconnect always persists the full transcript. Without clearing
-            prior rows, reconnect → disconnect would bulk_create duplicates.
+            A composer send adds exactly one ``ChatMessage``. Disconnect
+            persists the same transcript again without inserting duplicates.
 
             Lookup is by conversation_id PK only (avoids IntegrityError when the
             row exists for another student); ownership is then validated.
+
+            A trashed thread loads as empty. Disconnect must not write that
+            empty memory back over the canonical rows (#1440).
             """
-            from swarm.core.transcript_roles import is_ui_only_role, split_store
+            from swarm.core.chat_db import conversation_is_trashed
+
+            if conversation_is_trashed(self.user, conversation_id):
+                return
+
+            from swarm.core.transcript_roles import split_store
 
             cache_key = R._conversation_cache_key(self.user, conversation_id)
             from swarm.core.agent_sessions import get_or_create_session, touch_session
@@ -161,18 +240,17 @@ class ConversationsMixin:
                 )
                 return
 
-            chat_messages = [
-                R.ChatMessage(
-                    conversation=chat,
-                    sender=message["role"],
-                    content=message["content"],
-                )
-                for message in turns
-                if not is_ui_only_role(message.get("role"))
-            ]
-            # Idempotent replace: delete then insert current transcript.
-            R.ChatMessage.objects.filter(conversation=chat).delete()
-            R.ChatMessage.objects.bulk_create(chat_messages)
+            from swarm.core.chat_repository import sync_transcript
+
+            sync_transcript(
+                self.user,
+                conversation_id,
+                turns,
+                agent_id=str(agent_id or ""),
+                ui_events=events,
+            )
+            if chat is None:
+                return
             try:
                 touch_session(chat, turns, agent_id=str(agent_id or ""))
             except Exception:
@@ -181,15 +259,26 @@ class ConversationsMixin:
             from swarm.core.agent_sessions import schedule_session_retitle
             schedule_session_retitle(chat, messages=turns)
 
-            R.IN_MEMORY_CONVERSATIONS[cache_key] = list(turns)
+            from swarm.core.chat_db import load_db_thread
+
+            # #1722 repro C: this socket's ``self.messages`` is the snapshot it
+            # hydrated with. Anything another writer appended in the meantime is
+            # not in it, so publishing that list *alone* truncated the thread
+            # for every later reconnect. The database is canonical — re-read it
+            # and add the rows this snapshot predates.
+            #
+            # Additive, not a replacement: the socket's own turn dicts carry the
+            # metadata it was given (a client ``ts``, a title), and a
+            # ``load_db_thread`` projection re-derives those from the row.
+            # Concatenation keeps both, and can only ever make the cache
+            # longer, which is the safe direction for a cache.
+            canonical = load_db_thread(self.user, conversation_id)
+            cached_turns = list(turns)
+            if canonical:
+                for row in list(canonical[0])[len(cached_turns) :]:
+                    cached_turns.append(row)
+            R.IN_MEMORY_CONVERSATIONS[cache_key] = cached_turns
             R.IN_MEMORY_UI_EVENTS[cache_key] = list(events)
-            R._save_agent_json(
-                self.user,
-                getattr(self, "active_agent", None) or getattr(self, "default_blueprint", None),
-                turns,
-                conversation_id=conversation_id,
-                ui_events=events,
-            )
 
 
     @database_sync_to_async
@@ -200,6 +289,9 @@ class ConversationsMixin:
             cache_key = R._conversation_cache_key(self.user, conversation_id)
             try:
                 chat = R.ChatConversation.objects.get(conversation_id=conversation_id, student=self.user)
+                # Trash hides the transcript in memory. Do not drop the row.
+                if getattr(chat, "trashed_at", None) is not None:
+                    return
                 if not chat.messages.exists():  # Check if there are any messages before deleting
                     chat.delete()
                     if cache_key in R.IN_MEMORY_CONVERSATIONS:

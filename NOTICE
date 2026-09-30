@@ -1,4 +1,4 @@
-Open Swarm
+Operating Swarm
 Copyright (c) 2024-2026 Matthew Hand
 
 Licensed under the MIT License; see the LICENSE file in this repository.
@@ -9,7 +9,7 @@ license headers.
 Attribution
 -----------
 
-* Open Swarm is a derivative of OpenAI's experimental "Swarm" framework
+* Operating Swarm is a derivative of OpenAI's experimental "Swarm" framework
   (https://github.com/openai/swarm, MIT License) — it began as an extension
   of the original Swarm concept of lightweight multi-agent orchestration via
   agents and handoffs.

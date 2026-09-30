@@ -38,7 +38,9 @@ describe('support briefing', () => {
     expect(text).toContain('CLI agent')
     expect(text).not.toMatch(/^- \*\*Support\*\*/m)
     expect(text).toContain('No inference configured')
-    expect(text).toContain('/settings/')
+    expect(text).toContain('/chat?settings=llm-profiles')
+    expect(text).toContain('/chat?settings=true')
+    expect(text).not.toContain('](/settings/)')
     expect(supportQuickstarts(false).map((p) => p.label)).toContain('Configure inference')
     expect(supportQuickstarts(true).map((p) => p.label)).toContain('Create a team')
     expect(supportQuickstarts(true).map((p) => p.label)).toContain(

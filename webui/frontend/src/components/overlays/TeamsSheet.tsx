@@ -4,7 +4,8 @@ import { AlertCircle, Pencil, Plus, Users } from 'lucide-react'
 import { Alert, Button, Input, Modal, useToast } from '../DaisyUI'
 import { createTeam, fetchTeams } from '../../lib/api'
 import { notifyOverlayClosed } from '../../lib/chromeOverlay'
-import { openTeamEditor } from '../TeamEditor'
+import { RIG, RIGS } from '../../lib/rigLabels'
+import { openTeamEditor } from '../teamEditorKernel'
 
 export interface TeamsSheetProps {
   isOpen: boolean
@@ -41,7 +42,7 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
   const createMutation = useMutation({
     mutationFn: createTeam,
     onSuccess: (team) => {
-      success('Team created', `${team.id} is now an LLM-profile alias.`)
+      success(`${RIG} created`, `${team.id} is now an LLM-profile alias.`)
       setName('')
       setDescription('')
       setLlmProfile('default')
@@ -49,8 +50,8 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
       void queryClient.invalidateQueries({ queryKey: ['overlay-teams'] })
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Could not create team.'
-      toastError('Team create failed', message)
+      const message = err instanceof Error ? err.message : 'Could not create group chat.'
+      toastError(`${RIG} create failed`, message)
     },
   })
 
@@ -74,7 +75,7 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Teams"
+      title={RIGS}
       placement="end"
       size="sheet"
       className="flex min-h-0 flex-col"
@@ -83,33 +84,36 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
         <div className="min-h-[24rem] space-y-5">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-base-content/70">
-              Registered teams for multi-agent workflows and LLM-profile aliases.
+              Registered group chats for multi-agent workflows and LLM-profile aliases.
             </p>
             <Button
               type="button"
               variant="primary"
               size="sm"
-              aria-label="+ New Team"
+              aria-label={`+ New ${RIG}`}
               data-testid="teams-new-team"
               onClick={() => setView('create')}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New Team
+              {`New ${RIG}`}
             </Button>
           </div>
 
           {teamsQuery.isPending ? (
-            <p className="text-sm text-base-content/60">Loading teams…</p>
+            <p className="text-sm text-base-content/60">Loading group chats…</p>
           ) : teamsQuery.isError ? (
             <Alert type="warning" icon={<AlertCircle className="h-5 w-5" />}>
-              <span className="text-sm">Could not load teams. Chat stays open behind this sheet.</span>
+              <span className="text-sm">Could not load group chats. Chat stays open behind this sheet.</span>
             </Alert>
           ) : teams.length === 0 ? (
             <Alert type="info" icon={<Users className="h-5 w-5" />}>
-              <span className="text-sm">No teams registered yet — create one to get started.</span>
+              <span className="text-sm">No group chats registered yet — create one to get started.</span>
             </Alert>
           ) : (
-            <ul className="space-y-2" aria-label="Registered teams">
+            <ul
+              className="max-h-[55vh] space-y-2 overflow-y-auto pr-1"
+              aria-label="Registered group chats"
+            >
               {teams.map((team) => (
                 <li
                   key={team.id}
@@ -117,8 +121,8 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
                   data-testid={`teams-row-${team.id}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium">{team.id}</div>
-                    <div className="text-xs text-base-content/60">
+                    <div className="truncate font-medium">{team.id}</div>
+                    <div className="truncate text-xs text-base-content/60">
                       {team.description || 'No description'} · {team.llm_profile}
                     </div>
                   </div>
@@ -139,7 +143,7 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
 
           <div className="modal-action mt-4">
             <a href="/teams/" className="btn btn-ghost btn-sm">
-              Operator teams
+              Operator group chats
             </a>
             <Button type="button" variant="ghost" size="sm" onClick={handleClose}>
               Close
@@ -150,12 +154,12 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
         <Modal
           isOpen
           onClose={() => setView('browse')}
-          title="New Team"
+          title={`New ${RIG}`}
           size="sm"
         >
-          <form className="space-y-3" onSubmit={handleCreate} aria-label="Create team">
+          <form className="space-y-3" onSubmit={handleCreate} aria-label="Create group chat">
             <Input
-              label="Team name"
+              label="Group chat name"
               name="team-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -191,7 +195,7 @@ export default function TeamsSheet({ isOpen, onClose }: TeamsSheetProps) {
                 size="sm"
                 disabled={!name.trim() || createMutation.isPending}
               >
-                Create team
+                {`Create ${RIG}`}
               </Button>
             </div>
           </form>

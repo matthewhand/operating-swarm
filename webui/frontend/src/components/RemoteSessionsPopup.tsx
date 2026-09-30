@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Server, Settings2 } from 'lucide-react'
-import { probeRemoteHealth, type RemoteConnection } from '../lib/api'
+import type { RemoteConnection } from '../lib/api'
 import { remoteDisplayName } from '../lib/remotesCatalog'
+import {
+  REMOTE_HEALTH_CHANGED_EVENT,
+  isRemoteOffline,
+  startRemoteHealthPolling,
+  stopRemoteHealthPolling,
+} from '../lib/remoteHealth' // #1196 shared store, #1783 batched probes
 import {
   CHAT_CONNECTION_EVENT,
   getChatConnection,
@@ -13,6 +19,10 @@ export interface RemoteSessionsPopupProps {
   onClose: () => void
   remotes: RemoteConnection[]
   onOpenSettingsRemotes: () => void
+  /** #1275: which edge the flyout anchors to. 'end' mirrors it to the left of
+   *  the trigger so a right-docked sidepane keeps the popup inside the
+   *  viewport instead of spilling off-screen. */
+  align?: 'start' | 'end'
 }
 
 /** Strip sensitive authentication query params from remote URLs (REQ-118). */
@@ -41,9 +51,10 @@ export default function RemoteSessionsPopup({
   onClose,
   remotes,
   onOpenSettingsRemotes,
+  align = 'start',
 }: RemoteSessionsPopupProps) {
   const popupRef = useRef<HTMLDivElement | null>(null)
-  const [healthMap, setHealthMap] = useState<Record<string, 'pending' | 'ok' | 'failed'>>({})
+  const [healthTick, setHealthTick] = useState(0)
   const [wsStatus, setWsStatus] = useState<ChatConnectionStatus>(() => getChatConnection())
 
   const browsable = remotes.filter(isBrowsableRemote)
@@ -84,37 +95,28 @@ export default function RemoteSessionsPopup({
     }
   }, [isOpen])
 
+  // #1783: the popup reads the shared remote-health store instead of probing
+  // privately. It used to fire one `POST /v1/remotes/<id>/health/` per browsable
+  // remote on every open, and every `remotes` poll while open — the same N-writes
+  // the rail's poll was making, with none of the store's dedupe. Opening the
+  // flyout now costs at most one batched write for the whole list, re-probes
+  // nothing when the rail already tracks the same ids, and reads exactly the
+  // verdict the rail row's offline dot is reading.
   useEffect(() => {
     if (!isOpen || browsable.length === 0) return
-    let active = true
-
-    const initialMap: Record<string, 'pending' | 'ok' | 'failed'> = {}
-    for (const r of browsable) {
-      initialMap[r.id] = 'pending'
-    }
-    setHealthMap(initialMap)
-
-    for (const remote of browsable) {
-      probeRemoteHealth(remote.id)
-        .then((res) => {
-          if (!active) return
-          setHealthMap((prev) => ({
-            ...prev,
-            [remote.id]: res.ok ? 'ok' : 'failed',
-          }))
-        })
-        .catch(() => {
-          if (!active) return
-          setHealthMap((prev) => ({
-            ...prev,
-            [remote.id]: 'failed',
-          }))
-        })
-    }
-
+    startRemoteHealthPolling(
+      browsable.map((r) => r.id),
+      'popup',
+    )
+    const onHealth = () => setHealthTick((n) => n + 1)
+    window.addEventListener(REMOTE_HEALTH_CHANGED_EVENT, onHealth)
     return () => {
-      active = false
+      window.removeEventListener(REMOTE_HEALTH_CHANGED_EVENT, onHealth)
+      stopRemoteHealthPolling('popup')
     }
+    // `browsable` is derived from `remotes`; the store decides from the id SET
+    // whether a rebuild is worth traffic, so re-running on a fresh array with
+    // the same ids costs nothing.
   }, [isOpen, remotes])
 
   if (!isOpen) return null
@@ -126,8 +128,11 @@ export default function RemoteSessionsPopup({
       ref={popupRef}
       role="menu"
       aria-label="Remote sessions"
-      className="absolute bottom-full left-0 mb-2 w-64 rounded-box border border-base-300 bg-base-100 shadow-xl z-50 overflow-hidden"
+      className={`absolute bottom-full ${
+        align === 'end' ? 'right-0' : 'left-0'
+      } mb-2 w-64 rounded-box border border-base-300 bg-base-100 shadow-xl z-50 overflow-hidden`}
       data-testid="remote-sessions-popup"
+      data-align={align}
     >
       <div className="p-2">
         <div className="px-2 py-1 font-semibold text-base-content/80 text-[11px] uppercase tracking-wider flex items-center justify-between">
@@ -168,7 +173,12 @@ export default function RemoteSessionsPopup({
               const raw = remote.ui_url?.trim() || remote.base_url?.trim() || ''
               const url = cleanRemoteUrl(raw)
               const label = remoteDisplayName(remote)
-              const isFailed = healthMap[remote.id] === 'failed'
+              // `healthTick` is the subscription, not the value: the verdict
+              // lives in the shared store, and this re-reads it on every probe
+              // completion. Only a positively-down remote gets the dot — a
+              // probe that said nothing must not paint a stranger's service
+              // offline.
+              const isFailed = healthTick >= 0 && isRemoteOffline(remote.id)
               return (
                 <li key={remote.id} role="none">
                   <a

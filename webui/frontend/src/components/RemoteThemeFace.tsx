@@ -34,24 +34,6 @@ function Monogram({ label }: { label: string }) {
   )
 }
 
-const LettaFace: RemoteThemeFace = {
-  label: 'Letta',
-  accent: '#7c5cff',
-  render: () => (
-    <svg viewBox="0 0 24 24" className="os-remote-face__glyph" aria-hidden="true">
-      {/* Brain/memory motif: two hemispheres + synapse sparks. */}
-      <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 4.5c-1.6-1.4-4.2-1.2-5.5.5-1.6.3-2.7 1.7-2.6 3.3-1 1-.9 2.7.2 3.6-.4 1.5.4 3 1.9 3.5.4 1.7 2.1 2.7 3.8 2.2 1 .8 2.4.8 3.4 0" />
-        <path d="M12 4.5c1.6-1.4 4.2-1.2 5.5.5 1.6.3 2.7 1.7 2.6 3.3 1 1 .9 2.7-.2 3.6.4 1.5-.4 3-1.9 3.5-.4 1.7-2.1 2.7-3.8 2.2-1 .8-2.4.8-3.4 0" />
-        <path d="M12 4.5v13.1" strokeDasharray="1.5 2" />
-        <circle cx="9" cy="9.2" r="0.6" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="11.4" r="0.6" fill="currentColor" stroke="none" />
-        <circle cx="9.6" cy="14.2" r="0.6" fill="currentColor" stroke="none" />
-      </g>
-    </svg>
-  ),
-}
-
 const AnythingLLMFace: RemoteThemeFace = {
   label: 'AnythingLLM',
   accent: '#3b82f6',
@@ -114,7 +96,6 @@ const OpenWebUIFace: RemoteThemeFace = {
 
 /** #747: the per-kind registry. Ids match `REMOTE_KIND_LABELS` keys. */
 export const REMOTE_THEME_FACES: Record<string, RemoteThemeFace> = {
-  letta: LettaFace,
   anythingllm: AnythingLLMFace,
   flowise: FlowiseFace,
   n8n: N8nFace,

@@ -9,7 +9,7 @@ a non-local swarm is opt-in via `--remote`, not the implicit default.
 
 ## Success
 
-- Default target is localhost (local Open Swarm / Herdr loopback). No LAN or Fly URL unless asked.
+- Default target is localhost (local Operating Swarm / Herdr loopback). No LAN or Fly URL unless asked.
 - Optional `--remote` (or equivalent) points at a remote base URL when the operator wants it.
 - Missing / failed remote is a report, not a crash-loop or silent fallback to a cloud host.
 

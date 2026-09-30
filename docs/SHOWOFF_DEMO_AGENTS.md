@@ -123,3 +123,10 @@ After seed (or from the fixture JSON):
 Member `name` is part of the roster contract and survives
 `normalize_member` / `GET /v1/team-rosters/`. Missing name falls back to
 `id` (never invents a secret).
+
+---
+
+## OpenCode / Space Bunny dogfood (#1747)
+
+Opt-in roster (not a default seed): [demo-opencode-dogfood.json](./examples/openai-agents-handoff-graphs/demo-opencode-dogfood.json).
+Runbook + seat mapping + **cap 3**: [docs/runbooks/GAMINGPC_SPACE_BUNNY_OPENRIG.md](./runbooks/GAMINGPC_SPACE_BUNNY_OPENRIG.md).

@@ -200,6 +200,31 @@ export function selectLatestMessage(
  * instead of `Record<string, unknown>` so the call sites pass their real
  * objects (SidebarAgent / TeamRoster / RemoteEntry) without `as any`.
  */
+export type PreviewClass = 'error' | 'reply' | ''
+
+const ERROR_PREVIEW_NEEDLES = [
+  'no cli agents are configured',
+  'no cli is configured',
+  'no cli backend is configured',
+  'unconfigured harness',
+  'endpoint not configured',
+]
+
+/** #1441: error previews are failures, not ordinary replies. */
+export function classifyErrorPreview(text: string, status?: string | null): PreviewClass {
+  const st = (status || '').trim().toLowerCase()
+  const blob = text.trim()
+  if (st === 'failed' || st === 'error' || st === 'cancelled') return 'error'
+  if (!blob) return ''
+  const lower = blob.toLowerCase()
+  if (lower.startsWith('[api error:')) return 'error'
+  if (ERROR_PREVIEW_NEEDLES.some((needle) => lower.includes(needle))) return 'error'
+  if (lower.includes('not configured') && (lower.includes('cli') || lower.includes('harness'))) {
+    return 'error'
+  }
+  return 'reply'
+}
+
 export type RowActivityMeta = {
   last_message_at?: unknown
   lastMessageAt?: unknown
@@ -207,6 +232,9 @@ export type RowActivityMeta = {
   updatedAt?: unknown
   last_message?: unknown
   lastMessage?: unknown
+  last_message_class?: unknown
+  lastMessageClass?: unknown
+  preview_class?: unknown
   snippet?: unknown
   description?: unknown
 }
@@ -216,7 +244,7 @@ export function getRowLastMessage(
   sessions?: Array<{ updatedAt?: number; startedAt?: number; snippet?: string }>,
   agentMeta?: RowActivityMeta,
   fallbackTimestampMs?: number | null,
-): { snippet: string | null; timestamp: number | null } {
+): { snippet: string | null; timestamp: number | null; previewClass: PreviewClass } {
   const rawTime =
     agentMeta?.last_message_at ??
     agentMeta?.lastMessageAt ??
@@ -248,10 +276,18 @@ export function getRowLastMessage(
               const match = selected.key.match(/-(\d{12,})$/)
               if (match) ts = Number(match[1])
             }
-            return {
-              snippet: rawSnippet ?? truncateSnippet(selected.text),
-              timestamp: ts ?? parsedTime ?? fallbackTimestampMs ?? null,
+            const when = ts ?? parsedTime ?? fallbackTimestampMs ?? null
+            if (rawSnippet) {
+              return finishPreview(rawSnippet, when, agentMeta, 'server')
             }
+            const role = selected.role === 'user' ? 'user' : 'assistant'
+            return finishPreview(
+              truncateSnippet(selected.text),
+              when,
+              agentMeta,
+              role,
+              selected.text,
+            )
           }
         }
       }
@@ -265,16 +301,55 @@ export function getRowLastMessage(
     const sorted = [...sessions].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     const top = sorted[0]
     if (top) {
-      return {
-        snippet: rawSnippet ?? (top.snippet ? truncateSnippet(top.snippet) : null),
-        timestamp: parsedTime ?? top.updatedAt ?? top.startedAt ?? fallbackTimestampMs ?? null,
+      const when = parsedTime ?? top.updatedAt ?? top.startedAt ?? fallbackTimestampMs ?? null
+      if (rawSnippet) {
+        return finishPreview(rawSnippet, when, agentMeta, 'server')
       }
+      return finishPreview(
+        top.snippet ? truncateSnippet(top.snippet) : null,
+        when,
+        agentMeta,
+        'activity',
+        top.snippet,
+      )
     }
   }
 
   // 3. Fallback to explicit metadata or placeholder description
-  return {
-    snippet: rawSnippet ?? (agentMeta?.snippet as string) ?? (agentMeta?.description as string) ?? null,
-    timestamp: parsedTime ?? fallbackTimestampMs ?? null,
+  if (rawSnippet) {
+    return finishPreview(rawSnippet, parsedTime ?? fallbackTimestampMs ?? null, agentMeta, 'server')
   }
+  return finishPreview(
+    (agentMeta?.snippet as string) ?? (agentMeta?.description as string) ?? null,
+    parsedTime ?? fallbackTimestampMs ?? null,
+    agentMeta,
+    'placeholder',
+  )
+}
+
+type PreviewSource = 'server' | 'assistant' | 'user' | 'activity' | 'placeholder'
+
+function finishPreview(
+  snippet: string | null,
+  timestamp: number | null,
+  agentMeta: RowActivityMeta | undefined,
+  source: PreviewSource,
+  classifyText?: string | null,
+): { snippet: string | null; timestamp: number | null; previewClass: PreviewClass } {
+  const explicit = agentMeta?.last_message_class ?? agentMeta?.lastMessageClass ?? agentMeta?.preview_class
+  if (explicit === 'error') {
+    return { snippet, timestamp, previewClass: 'error' }
+  }
+  if (!snippet) return { snippet, timestamp, previewClass: '' }
+  // Server snippets are already classified. Placeholder copy and the user's
+  // own prompt are not failure previews. Local assistant/activity text still
+  // uses the fatal-config needles, on the full text rather than the truncation.
+  if (source === 'assistant' || source === 'activity') {
+    return {
+      snippet,
+      timestamp,
+      previewClass: classifyErrorPreview(classifyText || snippet),
+    }
+  }
+  return { snippet, timestamp, previewClass: 'reply' }
 }

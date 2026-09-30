@@ -76,6 +76,6 @@ describe('BUG #697: Agent rename updates rail and top navbar in real time', () =
 
     // Navbar title updates immediately on the same frame without reselecting
     expect(headerIdentity).toHaveTextContent('Super Concierge')
-    expect(screen.getByRole('button', { name: 'Open Super Concierge definition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename Super Concierge' })).toBeInTheDocument()
   })
 })

@@ -55,7 +55,7 @@ class ExampleCliMinimalBlueprint(CliKindBase):
             "source before copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "cli", "minimal"],
         "required_mcp_servers": [],
         "env_vars": [],

@@ -16,6 +16,12 @@ primary_region = 'syd'
   PORT = '8000'
   SWARM_DEMO_MODE = '1'
   SWARM_ALLOW_ANONYMOUS = '1'
+  # Required (issue #1342): anonymous access is refused at startup when
+  # DJANGO_DEBUG is false, unless this explicit second opt-in is present.
+  # The demo site is deliberately unauthenticated -- keep this set, and keep
+  # the surface it exposes in mind (see issue #1346 on CI, #1336 on throttling).
+  SWARM_ALLOW_PUBLIC_ANONYMOUS = '1'
+  SWARM_BEHIND_TLS_PROXY = 'true'
   SWARM_ALLOW_NO_AUTH = 'true'
   DJANGO_DEBUG = 'false'
 

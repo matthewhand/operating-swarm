@@ -1,6 +1,6 @@
 """Classify chat agents as API, CLI, remote, or blueprint (REQ-49 / REQ-203).
 
-API-agent threads are owned by Open Swarm and may be edited in place.
+API-agent threads are owned by Operating Swarm and may be edited in place.
 CLI and remote sessions are owned outside swarm — no edit.
 
 Herdr / Hermes / OpenMousBot / Rakazo are Remote **implementations**, not a
@@ -52,18 +52,47 @@ def resolve_chat_blueprint_id(model_or_agent_id: str | None) -> str:
     from swarm.core.cli_catalog import cli_from_rail_id
     if cli_from_rail_id(raw):
         return "cli_agent"
-    # #1157: designer-created personality/swarm agents have no blueprint
-    # class of their own — they run through agent_router, which binds their
-    # real openai-agents Agent objects via _attach_designed. CLI designs are
-    # already remapped above; remote ids above; everything else falls here.
+    # #1157 / #1439: designer-created seats have no blueprint class of their
+    # own. Personality, swarm, and remote designs run through agent_router,
+    # which binds them via _attach_designed (remote designs then hit
+    # _run_remote_agent). CLI designs are already remapped above; catalog
+    # remote impl ids are already remapped to remote_harness.
     try:
         from swarm.core.router_designs import designed_agent_kind
-        if designed_agent_kind(raw) in ("personality", "swarm"):
+        if designed_agent_kind(raw) in ("personality", "swarm", "remote"):
             return "agent_router"
     except Exception:  # pragma: no cover - designs file unreadable → legacy fallthrough
         pass
     return raw
 
+
+
+def _peeled_seat_id(raw: str | None) -> str:
+    """Seat id with a leading ``blueprint:`` persistence tag removed."""
+    from swarm.core.seat_kind import peel_blueprint_prefix
+
+    return peel_blueprint_prefix(raw).strip().lower()
+
+
+def _is_cli_prefixed_seat(raw: str | None) -> bool:
+    """True when ``raw`` is a ``cli:`` seat, even under a ``blueprint:`` tag."""
+    return _peeled_seat_id(raw).startswith("cli:")
+
+
+def _is_remote_seat_id(raw: str | None) -> bool:
+    """True when ``raw`` names a remote seat, even under a ``blueprint:`` tag."""
+    text = _peeled_seat_id(raw)
+    if not text:
+        return False
+    if text == "remote_harness":
+        return True
+    if (
+        text.startswith("remote:")
+        or text.startswith("placeholder:remote:")
+        or text.startswith("herdr:")
+    ):
+        return True
+    return is_remote_impl_id(text)
 
 
 def classify_agent_kind(
@@ -83,12 +112,21 @@ def classify_agent_kind(
     * ``remote:<name>`` / ``placeholder:remote:…`` / ``herdr:…`` → remote
     * everything else (including API blueprints such as ``cli_agent``) → api
     """
+    text = (raw or "").strip().lower()
+    # #1436: a blueprint tag must not hide a remote seat. Explicit api/cli
+    # still win; only the persistence tag ``blueprint`` yields to remote identity.
+    if explicit == "blueprint" and _is_remote_seat_id(text):
+        return "remote"
+    # Same persistence tag must not hide a ``cli:`` seat (#1436).
+    if explicit == "blueprint" and _is_cli_prefixed_seat(text):
+        return "cli"
     if explicit in _VALID_KINDS:
         return explicit  # type: ignore[return-value]
-    if is_remote_impl_id(explicit):
+    if is_remote_impl_id(explicit) or _is_remote_seat_id(explicit):
         return "remote"
-    text = (raw or "").strip().lower()
-    if text.startswith("cli:"):
+    if _is_remote_seat_id(text):
+        return "remote"
+    if text.startswith("cli:") or _is_cli_prefixed_seat(text):
         return "cli"
     if text.startswith("blueprint:"):
         return "blueprint"
@@ -110,6 +148,18 @@ def classify_agent_kind(
         return "remote"
     if text == "cli_agent":
         return "cli"
+    # #1283 follow-up: designer-created seats declare their kind, but their ids
+    # are neither ``cli_agent`` nor ``cli:``-prefixed, so they fell through to
+    # ``api`` — which let the REQ-87 compression gate run on a CLI seat and
+    # emit 'Auto-compress skipped' notices. Consult the designs registry first.
+    try:
+        from swarm.core.router_designs import designed_agent_kind
+
+        designed = designed_agent_kind(text)
+        if designed in _VALID_KINDS:
+            return designed  # type: ignore[return-value]
+    except Exception:  # pragma: no cover - designs unreadable → legacy fallback
+        pass
     return "api"
 
 

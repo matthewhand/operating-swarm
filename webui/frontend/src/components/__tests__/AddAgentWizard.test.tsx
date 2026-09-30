@@ -56,6 +56,24 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
       configured: [],
       data: [],
     })
+    vi.spyOn(api, 'fetchCompanies').mockResolvedValue({
+      object: 'list',
+      data: [
+        {
+          object: 'company',
+          id: 'acme-id',
+          name: 'Acme',
+          slug: 'acme',
+          model_policy: {
+            mode: 'allow_all',
+            allowed_models: [],
+            denied_models: [],
+            default_model: '',
+          },
+          default_model: '',
+        },
+      ],
+    })
   })
 
   afterEach(() => {
@@ -164,6 +182,7 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
           command: 'custom-tool',
           rail: true,
           source: 'add-agent',
+          company_id: 'acme-id',
           code: expect.stringContaining('# Folder: /home/dev/tool'),
         }),
       )
@@ -198,6 +217,34 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
     expect(await screen.findByTestId('cli-remote-connection')).toBeInTheDocument()
     expect(screen.getByTestId('input-cli-remote-host')).toBeInTheDocument()
     expect(await screen.findByTestId('select-cli-remote-box')).toBeInTheDocument()
+  })
+
+  it('seeds the command from a detected CLI and shows its resolved path', async () => {
+    vi.spyOn(api, 'fetchCliAgents').mockResolvedValue({
+      clis: ['opencode'],
+      discovered: ['opencode'],
+      installed: ['opencode'],
+      configured: [],
+      paths: { opencode: '/home/u/.opencode/bin/opencode' },
+      native_consensus: {},
+      catalog: {},
+      rail: [],
+    })
+
+    renderWizard()
+    fireEvent.click(screen.getByTestId('kind-option-cli'))
+    fireEvent.click(screen.getByTestId('empty-add-btn'))
+
+    const select = await screen.findByTestId('select-cli-command')
+    expect(
+      within(select).getByRole('option', { name: /opencode/ }),
+    ).toHaveTextContent('/home/u/.opencode/bin/opencode')
+
+    fireEvent.change(select, { target: { value: 'opencode' } })
+    expect(screen.getByTestId('input-cli-command')).toHaveValue('opencode')
+    expect(await screen.findByTestId('cli-detected-path')).toHaveTextContent(
+      '/home/u/.opencode/bin/opencode',
+    )
   })
 
   it('persists remote endpoint when adding a capable CLI', async () => {
@@ -274,6 +321,7 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
           kind: 'blueprint',
           rail: true,
           source: 'add-agent',
+          company_id: 'acme-id',
         }),
       )
       expect(onCreated).toHaveBeenCalledWith({
@@ -283,6 +331,17 @@ describe('AddAgentWizard (REQ-109, REQ-165, REQ-167)', () => {
       })
       expect(onClose).toHaveBeenCalled()
     })
+  })
+
+  it('blocks create when no Company exists', async () => {
+    vi.spyOn(api, 'fetchCompanies').mockResolvedValue({ object: 'list', data: [] })
+    const createSpy = vi.spyOn(api, 'createCustomBlueprint')
+    renderWizard()
+    fireEvent.click(screen.getByTestId('kind-option-api'))
+    fireEvent.click(screen.getByTestId('empty-add-btn'))
+    expect(await screen.findByTestId('company-required-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('submit-create-agent')).toBeDisabled()
+    expect(createSpy).not.toHaveBeenCalled()
   })
 
   it('shows inline error on invalid folder path format', () => {

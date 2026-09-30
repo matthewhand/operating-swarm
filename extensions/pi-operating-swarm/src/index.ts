@@ -59,7 +59,7 @@ export function swarmStatusTool(ctx: SwarmContext): PiToolLike {
   return {
     name: 'swarm_status',
     description:
-      'Report the Open Swarm seat context this Pi process serves (agent id, conversation id).',
+      'Report the Operating Swarm seat context this Pi process serves (agent id, conversation id).',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     async execute() {
       return JSON.stringify({ agentId: ctx.agentId, conversationId: ctx.conversationId })
@@ -71,7 +71,7 @@ export function swarmDelegateTool(ctx: SwarmContext): PiToolLike {
   return {
     name: 'swarm_delegate',
     description:
-      'Delegate a task to another Open Swarm seat (placeholder seam — returns the request envelope; routing lands with #1097 concurrency).',
+      'Delegate a task to another Operating Swarm seat (placeholder seam — returns the request envelope; routing lands with #1097 concurrency).',
     parameters: {
       type: 'object',
       properties: {

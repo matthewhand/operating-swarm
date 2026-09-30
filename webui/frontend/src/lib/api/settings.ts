@@ -11,6 +11,7 @@ import {
   throwApiError,
 } from './client'
 import type {
+  ActivityList,
   Blueprint,
   BlueprintPersonas,
   ChatRetentionStats,
@@ -239,6 +240,21 @@ export function testCliBinary(cli: string): Promise<CliProbeResult> {
 export function fetchCliDrivers(): Promise<{ drivers: CliDriverDescriptor[] }> {
   return apiGet<{ drivers: CliDriverDescriptor[] }>('/v1/cli-agents/drivers/')
 }
+export function fetchActivityLog(params?: {
+  limit?: number
+  action?: string
+  entity_type?: string
+  agent_id?: string
+}): Promise<ActivityList> {
+  const q = new URLSearchParams()
+  if (params?.limit != null) q.set('limit', String(params.limit))
+  if (params?.action) q.set('action', params.action)
+  if (params?.entity_type) q.set('entity_type', params.entity_type)
+  if (params?.agent_id) q.set('agent_id', params.agent_id)
+  const suffix = q.toString() ? `?${q.toString()}` : ''
+  return apiGet<ActivityList>(`/v1/activity/${suffix}`)
+}
+
 export function fetchChatRetentionStats(): Promise<ChatRetentionStats> {
   return apiGet<ChatRetentionStats>('/v1/chat/retention/stats/')
 }

@@ -1,5 +1,7 @@
 import logging
 import time
+from collections.abc import Mapping
+from typing import Any
 
 from asgiref.sync import async_to_sync
 from django.shortcuts import render
@@ -9,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from swarm.auth import api_permission_classes
+from swarm.core import vanilla_seats
 from swarm.core.agent_kind import API_AGENT_BLUEPRINT_ID, API_AGENT_RAIL_ID
 from swarm.core.agent_roles import blueprint_role_fields, is_webui_blueprint
 from swarm.core.blueprint_source import (
@@ -51,6 +54,30 @@ def _metadata_avatar_path(meta: dict) -> str | None:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return None
+
+
+def _row_discovery(
+    available_blueprints: object,
+    row: Mapping[str, Any],
+) -> tuple[Mapping[str, Any] | None, type | None]:
+    """``(metadata, class_type)`` for one catalog row, if discovery produced it.
+
+    Custom-library seats are not in the discovery map, so both come back
+    ``None`` and the gate falls back to the row's own fields — the right answer
+    for a row the operator created.
+    """
+    ident = str(row.get("id") or "")
+    if not ident or not isinstance(available_blueprints, dict):
+        return None, None
+    info = available_blueprints.get(ident)
+    if not isinstance(info, Mapping):
+        return None, None
+    meta = info.get("metadata")
+    class_type = info.get("class_type")
+    return (
+        meta if isinstance(meta, Mapping) else None,
+        class_type if isinstance(class_type, type) else None,
+    )
 
 
 def _github_marketplace_error_response(exc: gh_service.GitHubAPIError) -> Response:
@@ -144,6 +171,19 @@ _custom_blueprint_request = inline_serializer(
             required=False,
             help_text="Optional CLI remote endpoint {host, port, username, password_env, box}.",
         ),
+        "company_id": serializers.CharField(
+            required=False,
+            help_text="#1317: Company id or slug. Required when creating a new bot.",
+        ),
+        "company": serializers.CharField(
+            required=False,
+            help_text="Alias of company_id (id or slug).",
+        ),
+        "model": serializers.CharField(
+            required=False,
+            allow_blank=True,
+            help_text="Optional model id; must pass the Company policy.",
+        ),
     },
 )
 
@@ -230,7 +270,7 @@ class BlueprintsListView(APIView):
             # row, same as remotes/teams. The chat store is the cross-device
             # source that actually knows; a seat with no persisted thread
             # stays without the key (no fabricated "now").
-            from swarm.core.chat_store import rail_activity_summaries, user_key_for
+            from swarm.core.chat_store import rail_activity_summaries, stamp_rail_activity, user_key_for
 
             _user = getattr(request, "user", None)
             if _user is not None and getattr(_user, "is_authenticated", False):
@@ -299,13 +339,18 @@ class BlueprintsListView(APIView):
                         "navbar_items": navbar_items,
                         **blueprint_role_fields(meta),
                     }
+                    if meta.get("provider"):
+                        row["provider"] = meta.get("provider")
+                    if meta.get("model"):
+                        row["model"] = meta.get("model")
+                    meta_plugins = list(meta.get("plugins") or [])
+                    if meta_plugins:
+                        row["plugins"] = meta_plugins
+                    if not row.get("required_mcp_servers") and meta_plugins:
+                        row["required_mcp_servers"] = list(meta_plugins)
                     # #843: thread ids are the bare blueprint id for both
                     # catalog rows and custom library seats.
-                    _summary = _activity.get(blueprint_id)
-                    if _summary:
-                        row["last_message_at"] = _summary["at"]
-                        if _summary.get("text"):
-                            row["last_message"] = _summary["text"]
+                    stamp_rail_activity(row, _activity.get(blueprint_id))
                     data.append(row)
             else:
                 logger.error(f"Unexpected type from get_available_blueprints: {type(available_blueprints)}")
@@ -319,11 +364,7 @@ class BlueprintsListView(APIView):
             ]
             # #843: custom seats ride the same store stamp as catalog rows.
             for row in custom_seats:
-                _summary = _activity.get(row["id"])
-                if _summary:
-                    row["last_message_at"] = _summary["at"]
-                    if _summary.get("text"):
-                        row["last_message"] = _summary["text"]
+                stamp_rail_activity(row, _activity.get(row["id"]))
             if search:
                 custom_seats = [
                     row
@@ -342,9 +383,40 @@ class BlueprintsListView(APIView):
                 ]
             data = custom_seats + data
 
+            # #1699 / #1700: stamp every row with what this host can actually
+            # run before answering. `seat_listed` is the admission decision (a
+            # greenfield install must not offer Remote-kind recipes as seats) and
+            # `chat_ready` / `unavailable_reason` / `manage_links` are the
+            # fix-path half of #1700 — a dead seat is marked unavailable with a
+            # route to repair it, never left as a silent chat target. Read-only:
+            # the gate writes nothing, so no install's seats can change.
+            host = vanilla_seats.host_capabilities()
+            discovery_ids = (
+                [str(key) for key in available_blueprints]
+                if isinstance(available_blueprints, dict)
+                else []
+            )
+            offers = vanilla_seats.catalog_offers(
+                [
+                    (str(row.get("id") or ""), *_row_discovery(available_blueprints, row))
+                    for row in data
+                ],
+                discovery_ids=discovery_ids,
+                user_ids=[str(row.get("id") or "") for row in custom_seats],
+                caps=host,
+            )
+            for row in data:
+                offer = offers.get(str(row.get("id") or ""))
+                if offer is not None:
+                    row.update(offer.as_dict())
+
             response_payload = {
                 "object": "list",
                 "data": data,
+                # Published so a client never re-derives the host facts, and so
+                # the two signals cannot disagree. Names only — no paths, no
+                # credentials (the contract `seat_doctor` reports under).
+                "host": host.as_dict(),
             }
             return Response(response_payload, status=status.HTTP_200_OK)
         except Exception:
@@ -436,6 +508,25 @@ class CustomBlueprintsView(APIView):
                 )
             except CustomSeatError as exc:
                 return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            from swarm.core.company_attach import (
+                CompanyAttachError,
+                attach_company_for_new_bot,
+                company_ref_from_body,
+                is_new_bot_create,
+            )
+
+            if is_new_bot_create(item) or is_new_bot_create(body):
+                try:
+                    attach = attach_company_for_new_bot(
+                        company_ref_from_body(body),
+                        model=body.get("model"),
+                    )
+                except CompanyAttachError as exc:
+                    return Response(
+                        {"error": exc.message, "code": exc.code},
+                        status=exc.http_status,
+                    )
+                item.update(attach.stamp())
             custom.append(item)
             lib["custom"] = custom
             if not save_user_blueprint_library(lib):
@@ -507,6 +598,27 @@ class CustomBlueprintDetailView(APIView):
             if not item:
                 return Response({"error": "not found"}, status=status.HTTP_404_NOT_FOUND)
             body = request.data or {}
+            # #1317: a later model edit must still pass the attached Company policy.
+            if (
+                "model" in body
+                and str(body.get("model") or "").strip()
+                and (item.get("company_id") or item.get("company"))
+            ):
+                from swarm.core.company_attach import (
+                    CompanyAttachError,
+                    attach_company_for_new_bot,
+                )
+
+                try:
+                    attach_company_for_new_bot(
+                        str(item.get("company_id") or item.get("company") or ""),
+                        model=body.get("model"),
+                    )
+                except CompanyAttachError as exc:
+                    return Response(
+                        {"error": exc.message, "code": exc.code},
+                        status=exc.http_status,
+                    )
             for key in [
                 "name",
                 "description",
@@ -957,11 +1069,11 @@ class CliAgentModelsView(APIView):
         return [perm() for perm in api_permission_classes()]
 
     def get(self, request, cli: str | None = None, *_args, **_kwargs):
-        from swarm.core.cli_models import list_models, list_models_all
+        from swarm.core.cli_models import list_models_all, list_models_for_picker
 
         name = (cli or request.query_params.get("cli") or "").strip()
         if name:
-            return Response(list_models(name).as_dict())
+            return Response(list_models_for_picker(name).as_dict())
         return Response([row.as_dict() for row in list_models_all()])
 
 
@@ -1022,17 +1134,16 @@ class ChatRetentionStatsView(APIView):
         return [perm() for perm in api_permission_classes()]
 
     def get(self, request, *_args, **_kwargs):
-        from swarm.core import chat_store
+        from swarm.core import chat_repository
 
-        user_key = chat_store.user_key_for(request.user)
         try:
-            chat_store.prune_expired(user_key)
-            stats = chat_store.stats(user_key)
+            chat_repository.prune_expired(request.user)
+            stats = chat_repository.stats_for(request.user)
         except Exception:
             logger.exception("Failed to collect chat persistence stats")
             stats = {
                 "store_dir": "",
-                "format": "json",
+                "format": "db",
                 "active_count": 0,
                 "trash_count": 0,
                 "bytes_used": 0,

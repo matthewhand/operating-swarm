@@ -17,6 +17,7 @@ from swarm.core.omb_session_watch import (
     followup_from_sse,
     parse_sse_block,
 )
+from functools import partial
 
 
 @pytest.fixture(autouse=True)
@@ -232,9 +233,17 @@ def test_sse_subscribe_delivers_followups(tmp_path, monkeypatch):
 
         def log_message(self, *args) -> None:
             pass
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     thread.start()
     host, port = "127.0.0.1", server.server_address[1]
     monitor = OmbSessionMonitor()
@@ -271,6 +280,7 @@ def test_sse_subscribe_delivers_followups(tmp_path, monkeypatch):
         release.set()
         monitor.close()
         server.shutdown()
+        server.server_close()
         omb_session_watch.reset_monitor_for_tests()
 
 
@@ -415,10 +425,11 @@ def http_router_factory():
         _Router.routes = {}
         _Router.posted = []
         server = HTTPServer(("127.0.0.1", 0), _Router)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True).start()
         servers.append(server)
         return "127.0.0.1", server.server_address[1], _Router
 
     yield factory
     for server in servers:
         server.shutdown()
+        server.server_close()

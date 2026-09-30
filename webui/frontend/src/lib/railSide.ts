@@ -39,3 +39,13 @@ export function sideAwareWidthDelta(side: RailSide, expand: boolean): number {
   const sign = side === 'right' ? -1 : 1
   return expand ? sign * 12 : -sign * 12
 }
+
+/**
+ * #1275: one dock-aware anchoring rule for bottom-of-pane flyouts (server
+ * popup, pane menus). Left-docked rails keep the historical `'start'` (left)
+ * edge; a right-docked rail mirrors to `'end'` so the flyout opens leftward
+ * and stays inside the viewport instead of spilling off-screen.
+ */
+export function sideAwarePopupAlign(side: RailSide): 'start' | 'end' {
+  return side === 'right' ? 'end' : 'start'
+}

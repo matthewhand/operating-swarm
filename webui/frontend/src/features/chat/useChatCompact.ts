@@ -1,19 +1,19 @@
 /**
  * #856 slice 15 — compact/summary turn commands, verbatim from ChatPage.
  *
- * handleCompact (#636 CLI-compact-via-summary + fresh session; API thread
- * summary + usage publish), handleCompressToHere (#637 span compaction),
- * applyStartFromHere (#639 context-cull confirm flow), and the two menu
- * dispatchers that close the composer menus first. All state (summaries,
- * usage, warning, strategy) stays page-owned.
+ * handleCompact (API thread summary + usage publish), handleCompressToHere
+ * (#637 span compaction), applyStartFromHere (#639 context-cull confirm flow),
+ * and the two menu dispatchers that close the composer menus first. All state
+ * (summaries, usage, warning, strategy) stays page-owned.
+ *
+ * #1230: Compact is API-only. The CLI-seat branch (#636) is gone with the
+ * CLI/remote compact affordance — those seats no longer offer a compact at all.
  */
 import { useCallback } from 'react'
 import type { ChatMessage } from './chatMessages'
 import { agentIdFromBlueprint, compactAgentThread, startContextFromHere } from '../../lib/agentChat'
 import { START_CONTEXT_FROM_HERE_LABEL, overFullWarningCopy, type ContextMeta } from '../../lib/contextCull'
 import { rawOffsetForMessage } from '../../lib/chatCompact'
-import { compactCliThread } from '../../lib/cliCompact'
-import { dispatchCliSessionHopped } from '../../lib/cliSessionHop'
 import { publishContextUsage } from '../../lib/contextUsage'
 import type { ConversationSummary } from '../../lib/chatCompact'
 import type { ContextUsage } from '../../lib/contextUsage'
@@ -24,11 +24,6 @@ export interface UseChatCompactOptions {
   selectedBlueprint: string | null
   teamFromUrl: string | null
   threadKey: string
-  isCliAgent: boolean
-  currentCli: string
-  selectedCli: { cli: string } | null | undefined
-  llmDefaultReady: boolean
-  cliCompactCapableMap: Record<string, unknown> | undefined
   cullTriggerPct: number
   contextStrategy: string
   contextMaxRef: { current: number | null }
@@ -38,7 +33,6 @@ export interface UseChatCompactOptions {
   setStartFromHereWarning: (value: { message: ChatMessage; startOffset: number; copy: string } | null) => void
   setPlusOpen: (open: boolean) => void
   setContextMenu: (value: null) => void
-  setConversationId: (id: string) => void
   addToast: (toast: { type: 'info' | 'error' | 'success'; title: string; message: string }) => void
 }
 
@@ -49,11 +43,6 @@ export function useChatCompact(opts: UseChatCompactOptions) {
     selectedBlueprint,
     teamFromUrl,
     threadKey,
-    isCliAgent,
-    currentCli,
-    selectedCli,
-    llmDefaultReady,
-    cliCompactCapableMap,
     cullTriggerPct,
     contextStrategy,
     contextMaxRef,
@@ -63,10 +52,8 @@ export function useChatCompact(opts: UseChatCompactOptions) {
     setStartFromHereWarning,
     setPlusOpen,
     setContextMenu,
-    setConversationId,
     addToast,
   } = opts
-  const cliCompactMap = cliCompactCapableMap
 
   const handleCompact = useCallback(async () => {
     setPlusOpen(false)
@@ -76,48 +63,6 @@ export function useChatCompact(opts: UseChatCompactOptions) {
         title: 'Compact',
         message: 'Nothing to compact yet.',
       })
-      return
-    }
-    // #636: a CLI seat compacts through the same server-side summary and then
-    // starts a fresh CLI session carrying it. The old provider transcript
-    // stays on disk; the new process starts clean with the summary in context.
-    if (isCliAgent) {
-      const cliName = currentCli || selectedCli?.cli || ''
-      if (!cliName) {
-        addToast({
-          type: 'error',
-          title: 'Compact failed',
-          message: 'No CLI is resolved for this seat.',
-        })
-        return
-      }
-      try {
-        const result = await compactCliThread({
-          conversationId,
-          agentId: selectedBlueprint || '',
-          cli: cliName,
-          messages: messages
-            .filter((message) => message.role === 'user' || message.role === 'assistant')
-            .map((message) => ({ role: message.role, content: message.text })),
-          defaultLlmReady: llmDefaultReady,
-          cliCompactCapable: Boolean(cliCompactMap?.[cliName]),
-        })
-        dispatchCliSessionHopped({
-          agentId: selectedBlueprint || '',
-          conversationId: result.newConversationId,
-          status: result.status,
-          fromCli: cliName,
-          toCli: cliName,
-        })
-        setConversationId(result.newConversationId)
-      } catch (err) {
-        const detail = err instanceof Error ? err.message.trim() : ''
-        addToast({
-          type: 'error',
-          title: 'Compact failed',
-          message: detail || 'Could not compact this chat. Sign in and try again.',
-        })
-      }
       return
     }
     try {
@@ -144,7 +89,7 @@ export function useChatCompact(opts: UseChatCompactOptions) {
         message: detail || 'Could not compact this chat. Sign in and try again.',
       })
     }
-  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey, isCliAgent, currentCli, selectedCli, llmDefaultReady, cliCompactMap])
+  }, [addToast, conversationId, messages, selectedBlueprint, teamFromUrl, threadKey])
 
   const handleCompressToHere = useCallback(
     async (message: ChatMessage) => {

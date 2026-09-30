@@ -67,7 +67,7 @@ def test_welcome_markdown_is_briefing_alias():
 def test_create_paths_are_the_user_chips():
     text = create_paths_markdown()
     assert "[New team](/teams/launch/)" in text
-    assert "[Set inference](/settings/)" in text
+    assert "[Set inference](/chat?settings=llm-profiles)" in text
     assert "[Write blueprint](/agent-creator/)" in text
     assert "Blueprints" not in text
 

@@ -1,0 +1,27 @@
+/**
+ * #1347 — the sticky composer dock must fully occlude the transcript.
+ *
+ * The transcript reserves 0.75rem (mobile) / 1rem (>= 640px) horizontal
+ * padding (index.css), but the dock's legacy Tailwind negative margins
+ * (-mx-2 / sm:-mx-3) only pulled it back 0.5rem / 0.75rem. That left a
+ * ~0.25rem strip down each side where scrolled transcript rows bled past the
+ * composer. The dock is now full-bleed to the transcript edges with an opaque
+ * theme background, so transcript content never renders outside the message
+ * input's bounding box.
+ *
+ * Scope note: this file (not index.css) owns #1347 so parallel UI agents don't
+ * collide on the global stylesheet. Theme tokens only — no hardcoded colour.
+ */
+
+.os-chat-transcript .os-chat-bottom-dock.os-chat-composer-shroud {
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
+  background-color: var(--color-base-100);
+}
+
+@media (min-width: 640px) {
+  .os-chat-transcript .os-chat-bottom-dock.os-chat-composer-shroud {
+    margin-left: -1rem;
+    margin-right: -1rem;
+  }
+}

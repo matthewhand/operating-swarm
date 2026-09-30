@@ -3,12 +3,13 @@
  *
  * The editor had grown to ~18 stacked sections (role picker, #532 wiring,
  * LLM overrides, voice, toggles…) requiring a long scroll. The sections are
- * now grouped into four tab panels with a vertical tab rail (the editor is
+ * now grouped into tab panels with a vertical tab rail (the editor is
  * tall, not wide):
  *
  *   Identity          — name, avatar, persona avatars
  *   Role & wiring     — the #532 role picker, wire-up, mailbox ACL
  *   Model & inference — blueprint, inference order, per-kind LLM override
+ *   Memory            — #1391 conventions + template export preview
  *   Advanced          — skills, voice, workspace, toggles, context detail
  *
  * Inactive panels stay mounted-but-hidden so in-progress edits and the
@@ -97,24 +98,42 @@ beforeEach(() => {
 })
 
 describe('#1127 vertical tab rail', () => {
-  it('renders a vertical tablist with the four section tabs', () => {
+  it('renders a vertical tablist with the section tabs', () => {
     renderEditor()
     const rail = screen.getByTestId('agent-editor-tabs')
     expect(rail).toHaveAttribute('role', 'tablist')
     expect(rail).toHaveAttribute('aria-orientation', 'vertical')
     const tabs = within(rail).getAllByRole('tab')
+    // #1678 added Media between Identity and Role & wiring. The list is still
+    // pinned exactly, in order — a new section has to be added here, not
+    // smuggled past this assertion.
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       'Identity',
+      'Media',
       'Role & wiring',
       'Model & inference',
+      'Memory',
       'Advanced',
     ])
   })
 
-  it('opens on Identity: name is visible with no clicks, avatar panel active', () => {
+  it('#1391 Memory tab mounts the agent memory panel', () => {
+    renderEditor()
+    fireEvent.click(within(screen.getByTestId('agent-editor-tabs')).getByRole('tab', { name: 'Memory' }))
+    const panel = screen.getByTestId('agent-memory-panel')
+    expect(panel.closest('[role="tabpanel"]')).not.toHaveAttribute('hidden')
+  })
+
+  it('opens on Identity: name is visible with no clicks, avatar panel active', async () => {
     renderEditor()
     // Name is the editor's primary field — shared header, always visible.
-    expect(screen.getByLabelText('Name')).toBeVisible()
+    // #1677 turned it into a click-to-edit control: idle it is a labelled
+    // button carrying the current value, not a permanently-open input. The
+    // claim under test ("visible with no clicks") is unchanged.
+    const nameTrigger = screen.getByTestId('agent-field-name-trigger')
+    expect(nameTrigger).toBeVisible()
+    await waitFor(() => expect(nameTrigger).toHaveTextContent('Charles'))
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
     const avatarPanel = screen
       .getByTestId('agent-editor-avatar')
       .closest('[role="tabpanel"]')

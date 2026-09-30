@@ -20,7 +20,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_ENV_FILE_HINT = "in the environment (.env or ~/.config/swarm/.env)"
+_ENV_FILE_HINT = "in the environment (.env or the user-config .env)"
 
 
 def _and_list(names: list[str]) -> str:

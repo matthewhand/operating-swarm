@@ -1,5 +1,5 @@
 /**
- * #748 — clicking a session-capable remote row (Letta/Slack/AnythingLLM/Open
+ * #748 — clicking a session-capable remote row (Slack/AnythingLLM/Open
  * WebUI) must behave like every other rail row: navigate to chat immediately,
  * defaulting to the most recent session. The old async list → attached popup
  * flow stalled the row behind a network round trip and an extra click.
@@ -13,11 +13,11 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AgentSidebar from '../AgentSidebar'
 
-const LETTA_REMOTE = {
-  id: 'letta',
-  kind: 'letta',
-  title: 'Letta',
-  base_url: 'http://127.0.0.1:8283',
+const ANYTHINGLLM_REMOTE = {
+  id: 'anythingllm',
+  kind: 'anythingllm',
+  title: 'AnythingLLM',
+  base_url: 'http://127.0.0.1:3001',
   configured: true,
   capabilities: { sessions: true },
   agents: [],
@@ -44,9 +44,9 @@ function renderSidebar() {
   )
 }
 
-function lettaRow(): HTMLElement {
+function anythingllmRow(): HTMLElement {
   // eslint-disable-next-line testing-library/no-node-access -- the row is only addressable by its data attributes
-  const row = screen.getByText('Letta').closest('[data-kind="remote"]')
+  const row = screen.getByText('AnythingLLM').closest('[data-kind="remote"]')
   expect(row).not.toBeNull()
   return row as HTMLElement
 }
@@ -63,7 +63,7 @@ describe('#748 remote rows navigate immediately', () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ object: 'list', data: [LETTA_REMOTE] }),
+            json: async () => ({ object: 'list', data: [ANYTHINGLLM_REMOTE] }),
           } as Response
         }
         return { ok: true, status: 200, json: async () => ({ data: [] }) } as Response
@@ -78,19 +78,19 @@ describe('#748 remote rows navigate immediately', () => {
 
   it('navigates straight to the remote chat on click — no picker stall', async () => {
     renderSidebar()
-    await screen.findByText('Letta')
-    fireEvent.click(lettaRow())
+    await screen.findByText('AnythingLLM')
+    fireEvent.click(anythingllmRow())
     await waitFor(() => {
-      expect(lastLocation).toContain('remote=letta')
+      expect(lastLocation).toContain('remote=anythingllm')
     })
   })
 
   it('does not open the sessions popup for the plain row click', async () => {
     renderSidebar()
-    await screen.findByText('Letta')
-    fireEvent.click(lettaRow())
+    await screen.findByText('AnythingLLM')
+    fireEvent.click(anythingllmRow())
     await waitFor(() => {
-      expect(lastLocation).toContain('remote=letta')
+      expect(lastLocation).toContain('remote=anythingllm')
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByTestId('remote-sessions-popup')).not.toBeInTheDocument()

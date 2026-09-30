@@ -220,6 +220,8 @@ coverage.json
 node_modules
 node_modules/
 webui/frontend/dist/
+# Local vite output copies (dist.bak, dist.bak2, dist.bakN-*). Not source.
+webui/frontend/dist.bak*
 webui/frontend/build/
 *.tsbuildinfo
 .pnpm-store/
@@ -254,3 +256,11 @@ docs/screenshots/overlays/
 
 # agent-guideline symlink: tracked symlinks break fresh clones (see tests/test_no_tracked_symlinks.py)
 CLAUDE.md
+
+# Local operator scratch that must never be committed. Both hold live
+# credentials / review artefacts, and neither was ignored, so a bare
+# `git add -A` would have swept them in. Verified never committed in history.
+hermes.local/
+.review-acceptance/
+*.bak-*
+*.json.bak-*

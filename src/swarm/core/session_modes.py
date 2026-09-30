@@ -1,6 +1,6 @@
 """Operator session modes for Agent Router (Shift+Tab).
 
-Always-approve is not a cycle stop: Open Swarm already injects the host CLI
+Always-approve is not a cycle stop: Operating Swarm already injects the host CLI
 auto-approve flags (``--always-approve``, ``--yolo``, …) in ``cli_catalog``.
 """
 
@@ -9,16 +9,16 @@ from __future__ import annotations
 SESSION_MODES = ("default", "plan", "auto-edit")
 
 PLAN_PREFIX = (
-    "[Open Swarm session mode: plan]\n"
+    "[Operating Swarm session mode: plan]\n"
     "Explore and write an implementation plan. Do not edit files or run "
     "mutating commands. Ask if the approach is ambiguous.\n\n"
 )
 
 AUTO_EDIT_PREFIX = (
-    "[Open Swarm session mode: auto-edit]\n"
+    "[Operating Swarm session mode: auto-edit]\n"
     "You may edit project files without asking. Still ask before destructive "
     "shell, secrets, or paths outside the project. Host CLIs already run "
-    "always-approve via Open Swarm catalog flags.\n\n"
+    "always-approve via Operating Swarm catalog flags.\n\n"
 )
 
 _ALIASES = {

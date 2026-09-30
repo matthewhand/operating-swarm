@@ -1,7 +1,7 @@
 """CoS section / topology tools (Issue #219).
 
 TrueForge ``create_subagent`` mints temporary agents that die with the
-session. Open Swarm CoS is a first-class operator: REQ-154 already persists
+session. Operating Swarm CoS is a first-class operator: REQ-154 already persists
 seats via ``create_agent``. This module is the missing rail-topology half —
 
 * ``create_section`` / ``rename_section`` / ``archive_section``
@@ -625,13 +625,29 @@ class TopologyContext:
 
     def _audit(self, line: str) -> None:
         text = str(redact_sensitive_data(line) or line)
+        # #1314: durable operator activity, in addition to the owner's chat status.
+        try:
+            from swarm.core.activity_log import emit_activity
+
+            emit_activity(
+                actor_type="user" if self.user_key else "system",
+                actor_id=self.user_key or self.caller_id or "system",
+                action="topology.changed",
+                entity_type="topology",
+                entity_id=self.caller_id or "topology",
+                detail={"message": text},
+            )
+        except Exception:
+            logger.debug("topology activity emit failed", exc_info=True)
         if not self.user_key:
             logger.info("topology audit (no user_key) %s: %s", self.caller_id, text)
             return
         try:
             from swarm.core import chat_store
 
-            record = chat_store.load(self.user_key, self.caller_id, base_dir=self.chat_base_dir)
+            record = chat_store.load_or_django(
+                self.user_key, self.caller_id, base_dir=self.chat_base_dir
+            )
             if record is None:
                 record = chat_store.empty_record(user_key=self.user_key, agent_id=self.caller_id)
             turns = list(record.get("messages") or [])

@@ -66,7 +66,7 @@ class CliRoundtableBlueprint(CliKindBase):
             "synthesizes the result. Group chat over heterogeneous CLIs."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "group-chat", "debate", "multi-agent", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],

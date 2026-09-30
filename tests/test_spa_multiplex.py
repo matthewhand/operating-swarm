@@ -14,6 +14,7 @@ the protocol owes you, or use ``receive_nothing()`` for quiet assertions.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from unittest import mock
@@ -285,3 +286,84 @@ class TestSpaMultiplexTurns:
                 for f in frames
             ), f"{cid} missing its own reply payload"
         await communicator.disconnect()
+
+
+class TestSpaMultiplexElicitation:
+    """A turn that pauses on an ask-user elicit must stay answerable.
+
+    Regression: ``DjangoChatConsumer.receive`` awaits the whole turn, and an
+    ask-user turn blocks on its elicit future until the client answers. When
+    the mux awaited that turn inline, the ``question_answer`` frame was
+    serialised behind it and only read after the elicit timed out, so the
+    answer never landed and the remote/seat was never resumed (#221 /
+    TrueForge ask-user).
+    """
+
+    class _BlockingTurnSession:
+        """Fake session: a turn waits for an answer frame to release it."""
+
+        def __init__(self):
+            self.answer = None
+            self.spawned: list[str] = []
+            self.finished = asyncio.Event()
+            self._answered = asyncio.Event()
+
+        def spawn(self, text: str) -> None:
+            self.spawned.append(text)
+            task = asyncio.ensure_future(self.dispatch(text))
+            task.add_done_callback(lambda _task: self.finished.set())
+
+        async def dispatch(self, text: str) -> None:
+            payload = json.loads(text)
+            if payload.get("message"):
+                await asyncio.wait_for(self._answered.wait(), timeout=2)
+            elif payload.get("type") == "question_answer":
+                self.answer = payload.get("answer")
+                self._answered.set()
+
+        async def dispose(self) -> None:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_answer_is_processed_while_turn_awaits_the_elicit(self):
+        consumer = SpaMultiplexConsumer()
+        consumer.scope = {"user": None}
+        session = self._BlockingTurnSession()
+        consumer.sessions = {"conv-ask": session}
+
+        # The turn frame must return promptly (spawned), not block here on the
+        # elicit future. Before the fix this call awaited the turn and timed
+        # out, so the answer frame behind it was never read.
+        await asyncio.wait_for(
+            consumer.receive(
+                json.dumps(
+                    {
+                        "kind": "chat.send",
+                        "conversationId": "conv-ask",
+                        "message": "hi",
+                        "blueprint": "chatbot",
+                    }
+                )
+            ),
+            timeout=1,
+        )
+        assert session.spawned, "chat turn frame was not spawned"
+
+        # The answer frame arrives while the turn is still awaiting it.
+        await consumer.receive(
+            json.dumps(
+                {
+                    "kind": "chat.send",
+                    "conversationId": "conv-ask",
+                    "type": "question_answer",
+                    "id": "q-1",
+                    "answer": "canary",
+                }
+            )
+        )
+        assert session.answer == "canary"
+        # The spawned turn observed the answer and completed.
+        await asyncio.wait_for(session.finished.wait(), timeout=2)
+
+
+

@@ -208,6 +208,73 @@ describe('ChatPage composer file attachments (#835)', () => {
     expect(screen.queryByTestId('attachment-card')).toBeNull()
   })
 
+  it('#1322 sending an audio attachment uses voice-note markdown', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/v1/chat/attachments/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+            name: 'voice-note.webm',
+            size: 4,
+            content_type: 'audio/webm',
+          }),
+        } as Response
+      }
+      if (url.includes('/v1/blueprints/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: 'api_agent', name: 'API Agent', kind: 'api' },
+            { id: 'cli_agent', name: 'CLI Agent', kind: 'cli' },
+          ],
+        } as Response
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response
+    })
+
+    renderChat('/chat?blueprint=api_agent')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+
+    const composer = document.querySelector('.os-composer')!
+    const file = new File(['RIFF'], 'voice-note.webm', { type: 'audio/webm' })
+    await act(async () => {
+      fireEvent.drop(composer, {
+        dataTransfer: {
+          types: ['Files'],
+          files: [file],
+        },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('attachment-card')).toHaveAttribute('data-category', 'audio')
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    })
+
+    const ws = MockWebSocket.instances[0]
+    const chatFrames = ws.send.mock.calls.filter((c) => !String(c[0]).includes('"kind":"subscribe"'))
+    expect(chatFrames).toHaveLength(1)
+    const payload = JSON.parse(String(chatFrames[0][0])) as Record<string, unknown>
+    expect(payload.message).toBe(
+      '![Voice note](/v1/chat/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/content?media=audio)',
+    )
+    expect(payload.attachments).toEqual(['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'])
+    expect(document.querySelector('audio.os-msg-audio')).toBeInTheDocument()
+  })
+
   it('aborts in-flight upload when dismissed before completion', async () => {
     let capturedSignal: AbortSignal | null | undefined
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -248,5 +315,47 @@ describe('ChatPage composer file attachments (#835)', () => {
 
     expect(capturedSignal?.aborted).toBe(true)
     expect(screen.queryByTestId('attachment-card')).toBeNull()
+  })
+
+  it('#1322 revokes the voice-note blob URL and aborts upload on dismiss', async () => {
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:voice-note')
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    let capturedSignal: AbortSignal | null | undefined
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/v1/chat/attachments/')) {
+        capturedSignal = init?.signal
+        return new Promise(() => {})
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      } as Response
+    })
+
+    renderChat('/chat?blueprint=api_agent')
+    const composer = document.querySelector('.os-composer')!
+    const file = new File(['RIFF'], 'voice-note.webm', { type: 'audio/webm' })
+    await act(async () => {
+      fireEvent.drop(composer, {
+        dataTransfer: {
+          types: ['Files'],
+          files: [file],
+        },
+      })
+    })
+
+    expect(screen.getByTestId('attachment-card')).toHaveAttribute('data-category', 'audio')
+    expect(capturedSignal?.aborted).toBe(false)
+    const removeBtn = screen.getByRole('button', { name: /Remove voice-note\.webm/i })
+    await act(async () => {
+      fireEvent.click(removeBtn)
+    })
+    expect(capturedSignal?.aborted).toBe(true)
+    expect(revoke).toHaveBeenCalledWith('blob:voice-note')
+    expect(screen.queryByTestId('attachment-card')).toBeNull()
+    create.mockRestore()
+    revoke.mockRestore()
   })
 })

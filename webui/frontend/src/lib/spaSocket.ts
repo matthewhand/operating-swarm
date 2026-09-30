@@ -226,9 +226,13 @@ function ensureSocket(): WebSocket {
       return
     }
     if (envelope.kind === 'spa.frame') {
-      const chatEvent = parseChatWsMessage(
-        typeof envelope.data === 'string' ? envelope.data : JSON.stringify(envelope.data),
-      )
+      const rawPayload =
+        typeof envelope.data === 'string'
+          ? envelope.data
+          : typeof (envelope.data as Record<string, unknown>)?.text === 'string'
+            ? ((envelope.data as Record<string, unknown>).text as string)
+            : JSON.stringify(envelope.data)
+      const chatEvent = parseChatWsMessage(rawPayload)
       for (const tap of registry.taps) tap(chatEvent, envelope.conversationId)
       for (const listener of registry.listeners.get(envelope.conversationId) ?? []) {
         listener(chatEvent, envelope.conversationId)

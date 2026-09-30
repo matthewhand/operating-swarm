@@ -1,7 +1,7 @@
 ### Inference profiles — blueprint intent → backend (live)
 
 A blueprint declares *what kind of thinking it wants* (intelligence / speed /
-cost, each a 0–1 priority) instead of naming a model. Open Swarm maps that to the
+cost, each a 0–1 priority) instead of naming a model. Operating Swarm maps that to the
 best-matching installed CLI by each backend's capability traits (see
 `swarm.core.inference_profile`).
 

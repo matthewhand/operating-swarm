@@ -11,6 +11,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from swarm.core.cli_run_registry import register_cli_run, reset_cli_run_registry
+from swarm.core.process_group import get_pgid
 
 PY = sys.executable
 
@@ -97,7 +98,7 @@ def test_terminate_looping_cli_leaves_agent(api_client):
         agent_id="cli_agent",
         conversation_id="conv-loop",
         pid=child.pid,
-        pgid=os.getpgid(child.pid),
+        pgid=get_pgid(child.pid),
     )
     try:
         running = api_client.get("/v1/cli-agents/runs/?agent=cli_agent")

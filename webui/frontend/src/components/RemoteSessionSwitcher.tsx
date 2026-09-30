@@ -1,10 +1,12 @@
-import { useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 import { History } from 'lucide-react'
-import SessionPicker from './SessionPicker'
 import {
   fetchRemoteThreadSessions,
 } from '../lib/remoteSessions'
 import type { MemberSession } from '../lib/sessionPicker'
+import { providerScopeKey } from '../lib/seatRouting'
+
+const SessionPicker = lazy(() => import('./SessionPicker'))
 
 export interface RemoteSessionSwitcherProps {
   remoteId: string
@@ -23,6 +25,8 @@ export default function RemoteSessionSwitcher({
   const [open, setOpen] = useState(false)
   const [sessions, setSessions] = useState<MemberSession[] | null>(null)
   const label = (remoteTitle || remoteId || 'Remote').trim()
+  // #1353: the sessions belong to this remote's provider scope only.
+  const provider = providerScopeKey({ kind: 'remote', id: remoteId })
 
   const loadPicker = useCallback(async () => {
     if (!remoteId) return
@@ -34,11 +38,13 @@ export default function RemoteSessionSwitcher({
         kind: remoteKind || remoteId,
         title: label,
       })
-      setSessions(rows)
+      // #1353: stamp the provider scope so a stale/foreign row can never
+      // survive the picker's scope filter.
+      setSessions(rows.map((row) => ({ ...row, provider })))
     } catch {
       setSessions([])
     }
-  }, [label, remoteId, remoteKind])
+  }, [label, remoteId, remoteKind, provider])
 
   if (!remoteId) return null
 
@@ -58,17 +64,22 @@ export default function RemoteSessionSwitcher({
       >
         <History className="h-4 w-4" aria-hidden="true" />
       </button>
-      <SessionPicker
-        open={open}
-        title={label}
-        sessions={sessions ?? []}
-        onClose={() => setOpen(false)}
-        onSelect={(session) => {
-          const resumeId = String(session.memberId || session.id || '').trim()
-          if (resumeId) onSelectSession(resumeId)
-          setOpen(false)
-        }}
-      />
+      {open ? (
+        <Suspense fallback={null}>
+          <SessionPicker
+            open={open}
+            title={label}
+            sessions={sessions ?? []}
+            provider={provider}
+            onClose={() => setOpen(false)}
+            onSelect={(session) => {
+              const resumeId = String(session.memberId || session.id || '').trim()
+              if (resumeId) onSelectSession(resumeId)
+              setOpen(false)
+            }}
+          />
+        </Suspense>
+      ) : null}
     </>
   )
 }

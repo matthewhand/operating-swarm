@@ -18,14 +18,35 @@ _RESUME_SESSION_RE = re.compile(
 )
 
 
+# A turn that lost its CLI session and started a new one. Registered here so a
+# restored transcript keeps treating the line as session chrome (context for
+# the reply that follows) instead of an ordinary assistant turn.
+_RECOVERED_SESSION_RE = re.compile(
+    r"^The previous \S+ session was gone; started a new \S+ session"
+    r"(?: on \S+)?\.?$",
+    re.IGNORECASE,
+)
+
+
 def is_cli_session_notice(text: str | None) -> bool:
-    """True for the honest CLI session lines (new or resumed)."""
+    """True for the honest CLI session lines (new, resumed, or recovered)."""
     blob = (text or "").strip()
-    return bool(_NEW_SESSION_RE.match(blob) or _RESUME_SESSION_RE.match(blob))
+    return bool(
+        _NEW_SESSION_RE.match(blob)
+        or _RESUME_SESSION_RE.match(blob)
+        or _RECOVERED_SESSION_RE.match(blob)
+    )
 
 
 def is_new_cli_session_notice(text: str | None) -> bool:
-    return bool(_NEW_SESSION_RE.match((text or "").strip()))
+    """True for a line that announces a *fresh* session (never resumed).
+
+    Covers the recovered case too: a lost session is a new one, and the
+    "Started a new …" wording is what the user sees. Kept in step with
+    :func:`is_cli_session_notice` so the two never disagree on a live line.
+    """
+    blob = (text or "").strip()
+    return bool(_NEW_SESSION_RE.match(blob) or _RECOVERED_SESSION_RE.match(blob))
 
 
 def _status_text(row: dict[str, Any]) -> str:

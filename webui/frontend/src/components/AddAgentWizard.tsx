@@ -1,4 +1,4 @@
-import { useState, useId, useMemo, useRef } from 'react'
+import { useState, useId, useMemo, useRef, useEffect } from 'react'
 import { Terminal, Bot, Globe, Layers, Plus, ExternalLink, Edit3, X } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Modal, Button, Alert } from './DaisyUI'
@@ -8,9 +8,13 @@ import {
   createRemote,
   fetchBlueprints,
   fetchCliAgents,
+  fetchCompanies,
   fetchCustomBlueprints,
   fetchRemotes,
 } from '../lib/api'
+import type { Company } from '../lib/api/types'
+import { emptyArray } from '../lib/stableEmpty'
+import { requireCompanyIdForCreate } from '../lib/companyAttach'
 import { OPENMOUSBOT_LABEL } from '../lib/remotesCatalog'
 import { loadAgentEdit, saveAgentEdit } from '../lib/agentEdits'
 import { FOLDER_FORMAT_ERROR, isValidFolderPath } from '../lib/agentFolder'
@@ -42,6 +46,7 @@ import {
   remoteCapability,
   type CliRemoteEndpoint,
 } from '../lib/cliRemote'
+import { discoveredCliNames } from '../lib/cliAgents'
 
 export type AgentKind = 'cli' | 'api' | 'remote' | 'blueprint'
 
@@ -126,6 +131,7 @@ export default function AddAgentWizard({
   const [remoteApiKey, setRemoteApiKey] = useState('')
   const [pickedRemoteId, setPickedRemoteId] = useState('')
   const [groupFilter, setGroupFilter] = useState<string | null>(null)
+  const [companyId, setCompanyId] = useState('')
 
   // Queries for existing agents
   const blueprintsQuery = useQuery({
@@ -149,6 +155,20 @@ export default function AddAgentWizard({
     retry: 1,
   })
 
+  const companiesQuery = useQuery({
+    queryKey: ['companies'],
+    queryFn: fetchCompanies,
+    enabled: isOpen,
+    retry: 1,
+  })
+  // `?? []` would allocate a fresh array every render while the query is empty,
+  // and the effect below lists it in its dep list — so it would re-run every
+  // render. See `lib/stableEmpty`.
+  const companies = useMemo(
+    () => companiesQuery.data?.data ?? emptyArray<Company>(),
+    [companiesQuery.data],
+  )
+
   const remotesQuery = useQuery({
     queryKey: ['remotes-list'],
     queryFn: fetchRemotes,
@@ -162,6 +182,20 @@ export default function AddAgentWizard({
   const cliRemoteBoxes = cliQuery.data?.remote_boxes ?? []
   const cliRemoteCapable = isRemoteCapableCli(cliCommand, cliRemoteCatalog)
   const cliRemoteHow = remoteCapability(cliCommand, cliRemoteCatalog)
+  // Detected CLI binaries (name -> absolute path) seed the command field so a
+  // known install (e.g. opencode) can be picked with its path shown; the
+  // free-text input stays as the override channel.
+  const detectedClis = useMemo(
+    () => discoveredCliNames(cliQuery.data),
+    [cliQuery.data],
+  )
+  const detectedCliPaths = cliQuery.data?.paths ?? {}
+  const detectedPathForCommand = detectedCliPaths[cliCommand.trim()] || ''
+
+  useEffect(() => {
+    if (companyId) return
+    if (companies.length === 1) setCompanyId(companies[0].id)
+  }, [companies, companyId])
 
   const resetFormFields = () => {
     setError(null)
@@ -468,6 +502,20 @@ export default function AddAgentWizard({
     setSubmitting(true)
 
     try {
+      const creatingNewBot =
+        mode === 'create' &&
+        !(
+          selectedKind === 'remote' &&
+          !remoteBaseUrl.trim() &&
+          Boolean(pickedRemoteId) &&
+          remoteKind !== 'herdr'
+        )
+      const companyRows =
+        companies.length > 0 ? companies : (await fetchCompanies()).data || []
+      const attachedCompanyId = creatingNewBot
+        ? requireCompanyIdForCreate(companyRows, companyId)
+        : ''
+
       if (selectedKind === 'cli') {
         const name = cliName.trim()
         const command = cliCommand.trim()
@@ -506,6 +554,7 @@ ${folderComment}`
             command,
             rail: true,
             source: 'add-agent',
+            company_id: attachedCompanyId,
             ...(remote ? { remote } : {}),
           })
 
@@ -573,6 +622,7 @@ ${folderComment}`
             kind: isBp ? 'blueprint' : 'api',
             rail: true,
             source: 'add-agent',
+            company_id: attachedCompanyId,
           })
 
           saveAgentEdit(created.id, { name })
@@ -608,6 +658,8 @@ ${folderComment}`
           const implId = remoteKind === 'generic' ? 'hermes' : remoteKind
           const created = await createRemote({
             kind: implId,
+            source: 'add-agent',
+            company_id: attachedCompanyId,
             ...(implId === 'herdr' && !baseUrl ? { herdr_mode: 'local' } : { base_url: baseUrl }),
             ...(remoteApiKey.trim() ? { api_key: remoteApiKey.trim() } : {}),
           })
@@ -644,6 +696,8 @@ ${folderComment}`
           const created = await createRemote({
             kind: 'herdr',
             herdr_mode: 'local',
+            source: 'add-agent',
+            company_id: attachedCompanyId,
             ...(remoteApiKey.trim() ? { api_key: remoteApiKey.trim() } : {}),
           })
           saveAgentRemoteBinding(created.id, {
@@ -1072,6 +1126,33 @@ ${folderComment}`
         {/* Tab content: 2. Create / Edit Section */}
         <div className="border-t border-base-300 pt-3.5">
           <form onSubmit={handleSubmit} className="space-y-3.5" data-testid="add-agent-form">
+            <div className="space-y-1" data-testid="company-attach-field">
+              <label className="block text-xs font-medium text-base-content/80" htmlFor="add-agent-company">
+                Company <span className="text-error">*</span>
+              </label>
+              <select
+                id="add-agent-company"
+                className="select select-sm select-bordered w-full"
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                aria-label="Company"
+                data-testid="select-company"
+              >
+                <option value="">
+                  {companies.length === 0 ? 'Create a Company first…' : 'Select a Company…'}
+                </option>
+                {companies.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name || row.slug}
+                  </option>
+                ))}
+              </select>
+              {mode === 'create' && companiesQuery.isFetched && companies.length === 0 ? (
+                <p className="text-[11px] text-error" data-testid="company-required-hint">
+                  Company is required when creating a new bot.
+                </p>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold uppercase tracking-wider text-base-content/70">
                 {mode === 'edit'
@@ -1124,6 +1205,24 @@ ${folderComment}`
                   <label className="block text-xs font-medium text-base-content/80">
                     Command or Executable <span className="text-error">*</span>
                   </label>
+                  {detectedClis.length > 0 ? (
+                    <select
+                      className="select select-sm select-bordered w-full font-mono text-xs"
+                      value={detectedClis.includes(cliCommand.trim()) ? cliCommand.trim() : ''}
+                      onChange={(e) => {
+                        if (e.target.value) setCliCommand(e.target.value)
+                      }}
+                      aria-label="Detected CLI"
+                      data-testid="select-cli-command"
+                    >
+                      <option value="">Select a detected CLI…</option>
+                      {detectedClis.map((name) => (
+                        <option key={name} value={name}>
+                          {detectedCliPaths[name] ? `${name} — ${detectedCliPaths[name]}` : name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                   <input
                     type="text"
                     className="input input-sm input-bordered w-full font-mono text-xs"
@@ -1134,6 +1233,14 @@ ${folderComment}`
                     aria-label="CLI command"
                     data-testid="input-cli-command"
                   />
+                  {detectedPathForCommand ? (
+                    <p
+                      className="text-[11px] font-mono text-base-content/60"
+                      data-testid="cli-detected-path"
+                    >
+                      Detected at {detectedPathForCommand}
+                    </p>
+                  ) : null}
                 </div>
                 <AgentWorkspaceBinding
                   kind="cli"
@@ -1464,7 +1571,13 @@ ${folderComment}`
                 variant="primary"
                 size="sm"
                 loading={submitting}
-                disabled={Boolean(folderError || repoError)}
+                disabled={Boolean(
+                  folderError ||
+                    repoError ||
+                    (mode === 'create' &&
+                      companiesQuery.isFetched &&
+                      companies.length === 0),
+                )}
                 data-testid="submit-create-agent"
               >
                 {mode === 'edit'

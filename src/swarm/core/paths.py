@@ -1,11 +1,28 @@
+import logging
 import os
+import shutil
 import sys  # Import sys module for platform checking
+import tempfile
 from pathlib import Path
 
 import platformdirs
 
+logger = logging.getLogger(__name__)
+
 APP_NAME = "swarm"
 APP_AUTHOR = "OpenSwarm"  # Using OpenSwarm as author for platformdirs
+
+# Directory override for the one config root. File-level names below are
+# overlays: they point at one file or a data directory, not a second root.
+CONFIG_DIR_ENV = "SWARM_CONFIG_DIR"
+CONFIG_FILE_OVERLAYS: tuple[str, ...] = (
+    "SWARM_CONFIG_PATH",
+    "SWARM_ROUTER_DESIGNS",
+    "SWARM_AGENT_SETTINGS_PATH",
+    "SWARM_CHAT_DIR",
+    "SWARM_USER_DATA_DIR",
+    "SWARM_RESPONSES_DIR",
+)
 
 
 def get_user_data_dir_for_swarm() -> Path:
@@ -48,12 +65,256 @@ def get_user_cache_dir_for_swarm() -> Path:
     return Path(platformdirs.user_cache_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
 
 
+class ConfigRootConflict(RuntimeError):
+    """Legacy and canonical config roots both contain a file that differs.
+
+    Startup must refuse. Picking either tree would hide the other half.
+    """
+
+    def __init__(
+        self,
+        legacy: Path,
+        canonical: Path,
+        relative: Path,
+        other: Path | None = None,
+    ):
+        self.legacy = legacy
+        self.canonical = canonical
+        self.relative = relative
+        self.other = other
+        right = other if other is not None else canonical / relative
+        super().__init__(
+            f"Config root conflict: {legacy / relative} differs from "
+            f"{right}. Refusing to pick one silently. "
+            "Keep the tree you want, remove or merge the other, or set "
+            f"{CONFIG_DIR_ENV} to the directory that should win."
+        )
+
+
+def _xdg_style_config_root() -> Path:
+    """XDG config root: ``$XDG_CONFIG_HOME/<app>`` or the home config dir."""
+    xdg = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    return base / APP_NAME
+
+
+def _windows_style_config_root() -> Path:
+    """Windows config root: ``%APPDATA%\\OpenSwarm\\swarm``."""
+    appdata = (os.environ.get("APPDATA") or "").strip()
+    base = Path(appdata).expanduser() if appdata else Path.home() / "AppData" / "Roaming"
+    return base / APP_AUTHOR / APP_NAME
+
+
+def config_root() -> Path:
+    """One resolver for every Swarm config file.
+
+    ``SWARM_CONFIG_DIR`` wins when set. Otherwise Windows uses
+    ``%APPDATA%/OpenSwarm/swarm`` and every other platform uses the XDG
+    config directory (``$XDG_CONFIG_HOME/swarm`` or ``~/.config/swarm``).
+
+    Per-file env vars in ``CONFIG_FILE_OVERLAYS`` name one file or a data
+    directory. They are overlays on top of this root, not a second root.
+    Chat JSON stays on the data directory (#1435).
+    """
+    override = (os.environ.get(CONFIG_DIR_ENV) or "").strip()
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "win32":
+        return _windows_style_config_root()
+    return _xdg_style_config_root()
+
+
 def get_user_config_dir_for_swarm() -> Path:
+    """Canonical user config directory. Alias of :func:`config_root`."""
+    return config_root()
+
+
+def _dir_key(path: Path) -> str:
+    try:
+        return os.path.normcase(str(path.expanduser().resolve()))
+    except OSError:
+        return os.path.normcase(str(path.expanduser()))
+
+
+def _same_dir(left: Path, right: Path) -> bool:
+    if _dir_key(left) == _dir_key(right):
+        return True
+    try:
+        if left.exists() and right.exists():
+            return os.path.samefile(left, right)
+    except OSError:
+        return False
+    return False
+
+
+def _platformdirs_config_dir() -> Path | None:
+    """Live library path, when it differs from the formulas above.
+
+    Always ask platformdirs. On Windows the formula and the library usually
+    match and the duplicate is dropped; when they do not, the library path
+    is still a legacy root that must be copied.
     """
-    Returns the user-specific config directory for swarm.
-    Example: ~/.config/OpenSwarm/swarm/ on Linux.
+    try:
+        return Path(platformdirs.user_config_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    except Exception:
+        logger.debug("platformdirs config dir unavailable", exc_info=True)
+        return None
+
+
+def legacy_config_roots() -> list[Path]:
+    """Directories that used to hold config before :func:`config_root`.
+
+    Includes the author-scoped XDG folder (``OpenSwarm/swarm``), macOS
+    Application Support, the Windows roaming folder, and the XDG folder
+    when the canonical root is somewhere else (``SWARM_CONFIG_DIR`` or
+    Windows). The canonical root itself is never listed.
     """
-    return Path(platformdirs.user_config_dir(appname=APP_NAME, appauthor=APP_AUTHOR))
+    canonical = config_root()
+    xdg = _xdg_style_config_root()
+    candidates = [
+        xdg.parent / APP_AUTHOR / APP_NAME,
+        Path.home() / "Library" / "Application Support" / APP_AUTHOR / APP_NAME,
+        Path.home() / "Library" / "Application Support" / APP_NAME,
+        _windows_style_config_root(),
+        xdg,
+    ]
+    live = _platformdirs_config_dir()
+    if live is not None:
+        candidates.append(live)
+    seen: set[str] = set()
+    out: list[Path] = []
+    for cand in candidates:
+        if _same_dir(cand, canonical):
+            continue
+        key = _dir_key(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cand)
+    return out
+
+
+def _iter_legacy_files(root: Path):
+    if not root.is_dir():
+        return
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        current = Path(dirpath)
+        dirnames[:] = [name for name in dirnames if not (current / name).is_symlink()]
+        for name in filenames:
+            path = current / name
+            if path.is_symlink():
+                # A symlinked config file (often ``.env``) must move with the
+                # tree. Copy the referent's bytes later; do not walk a
+                # directory symlink (those names were already dropped).
+                if path.is_file():
+                    yield path
+                continue
+            if not path.is_file():
+                continue
+            yield path
+
+
+def startup_should_migrate_config() -> bool:
+    """Whether process startup may copy a legacy config tree.
+
+    Pytest imports Django and the CLI while collecting tests, before the
+    XDG isolation fixture runs. A migrate at that moment would copy or
+    refuse against the operator's real config directory (#1335). Direct
+    calls to :func:`migrate_legacy_config_root` are unchanged so unit tests
+    can still exercise the copy. Set ``SWARM_ALLOW_CONFIG_MIGRATE_IN_TESTS=1``
+    to opt back in, or ``SWARM_SKIP_CONFIG_MIGRATE=1`` to force it off.
+    """
+    skip = (os.environ.get("SWARM_SKIP_CONFIG_MIGRATE") or "").strip().lower()
+    if skip in {"1", "true", "yes", "on"}:
+        return False
+    under_pytest = "pytest" in sys.modules or bool(os.environ.get("PYTEST_VERSION"))
+    if not under_pytest:
+        return True
+    allow = (os.environ.get("SWARM_ALLOW_CONFIG_MIGRATE_IN_TESTS") or "").strip().lower()
+    return allow in {"1", "true", "yes", "on"}
+
+
+def _same_file_bytes(left: Path, right: Path) -> bool:
+    """True when both paths are regular files (symlink targets count) with equal bytes.
+
+    ``OSError`` propagates. A permission or I/O failure is not a content mismatch,
+    and treating it as one would refuse startup with the wrong instruction.
+    """
+    if not (left.is_file() and right.is_file()):
+        return False
+    return left.read_bytes() == right.read_bytes()
+
+
+def _copy_legacy_file(src: Path, dest: Path) -> None:
+    """Copy ``src`` onto ``dest`` as a regular file.
+
+    A legacy symlink is followed so the new root does not keep the old link.
+    Bytes land on a temp name in the destination directory, then replace
+    ``dest``. A failed copy removes that temp name so the next boot does not
+    see a short file and report a false conflict.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{dest.name}.",
+        suffix=".migrate",
+        dir=dest.parent,
+    )
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        shutil.copy2(src, tmp, follow_symlinks=True)
+        os.replace(tmp, dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def migrate_legacy_config_root() -> list[Path]:
+    """Copy legacy config trees onto :func:`config_root`.
+
+    Identical files are left alone, including when the canonical path is a
+    symlink to the same bytes. A file symlink in a legacy tree is copied as
+    a regular file so the new root does not depend on the old link.
+    A same-named file with different bytes raises :class:`ConfigRootConflict`
+    before any copy, including when two legacy trees disagree with each
+    other. Missing legacy directories are a no-op. Process startup must call
+    :func:`startup_should_migrate_config` first; unit tests call this directly.
+    """
+    canonical = config_root()
+    planned: list[tuple[Path, Path, Path]] = []
+    claimed: dict[str, Path] = {}
+    for legacy in legacy_config_roots():
+        if not legacy.is_dir() or _same_dir(legacy, canonical):
+            continue
+        for src in _iter_legacy_files(legacy):
+            relative = src.relative_to(legacy)
+            dest = canonical / relative
+            key = _dir_key(dest)
+            if dest.exists() or dest.is_symlink():
+                if not _same_file_bytes(dest, src):
+                    raise ConfigRootConflict(legacy, canonical, relative)
+                continue
+            prior = claimed.get(key)
+            if prior is not None:
+                if not _same_file_bytes(prior, src):
+                    raise ConfigRootConflict(legacy, canonical, relative, other=prior)
+                continue
+            claimed[key] = src
+            planned.append((legacy, src, dest))
+    copied: list[Path] = []
+    for _legacy, src, dest in planned:
+        _copy_legacy_file(src, dest)
+        copied.append(dest)
+    if copied:
+        sources = ", ".join(str(path) for path in dict.fromkeys(item[0] for item in planned))
+        logger.warning(
+            "Migrated %s file(s) from legacy config root(s) %s to %s. "
+            "The legacy tree was left in place.",
+            len(copied),
+            sources,
+            canonical,
+        )
+    return copied
 
 
 def get_swarm_config_file(config_filename: str = "swarm_config.json") -> Path:

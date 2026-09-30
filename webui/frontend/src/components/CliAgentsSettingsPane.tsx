@@ -15,6 +15,7 @@ import {
   configuredCliNames,
   focusedCliName,
   splitCliString,
+  suggestedCliEntries,
   type CompactCliRow,
   type CompactCliStatus,
 } from '../lib/cliAgents'
@@ -297,8 +298,10 @@ function CliRowSettings({
 
 export default function CliAgentsSettingsPane({
   focusProviderId = null,
+  prefillCliName = null,
 }: {
   focusProviderId?: string | null
+  prefillCliName?: string | null
 } = {}) {
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
@@ -324,6 +327,24 @@ export default function CliAgentsSettingsPane({
   useEffect(() => {
     if (focusName) setOpenCli(focusName)
   }, [focusName])
+
+  // #1703: the host-CLI tip's "Add provider" hands the detected name, so the
+  // add form opens already filled from the same PATH-seeded catalog entry the
+  // tip read. Ref-guarded so a re-render never stomps what the operator typed,
+  // and gated on the catalog so the command is never guessed before it lands.
+  const prefillAppliedRef = useRef<string | null>(null)
+  useEffect(() => {
+    const target = (prefillCliName || '').trim()
+    if (!target || !catalogQuery.data) return
+    if (prefillAppliedRef.current === target) return
+    const entry = suggestedCliEntries(catalogQuery.data).find(
+      (item) => item.name.toLowerCase() === target.toLowerCase(),
+    )
+    prefillAppliedRef.current = target
+    setAdding(true)
+    setName(entry?.name || target)
+    setCmdText((entry?.cmd?.length ? entry.cmd : [target]).join(' '))
+  }, [prefillCliName, catalogQuery.data])
 
   useEffect(() => {
     if (!openCli) return

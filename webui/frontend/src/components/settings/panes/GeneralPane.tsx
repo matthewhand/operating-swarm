@@ -1,6 +1,10 @@
 /** #856 slice B — GeneralPane (moved verbatim from SettingsSheet.tsx). */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Button, Textarea, useOptionalToast } from '../../DaisyUI'
 import {
+  fetchUserPrefs,
+  parseAboutMe,
+  aboutMeLooksSecret,
   saveUserPrefs,
 } from '../../../lib/userPrefs'
 import {
@@ -32,6 +36,109 @@ import {
   saveNotificationsAutoExpire,
 } from '../../../lib/settingsPrefs'
 import { DemoSectionProfileControl } from './DemoSectionProfileControl'
+import {
+  RewriteEnabledControl,
+} from './ComposerAffordancesControl'
+
+/** #1323 — About me textarea with save and clear. Lives on General. */
+function AboutMeInstructions() {
+  const toast = useOptionalToast()
+  const [aboutMe, setAboutMe] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchUserPrefs().then((prefs) => {
+      if (cancelled) return
+      setAboutMe(parseAboutMe(prefs?.about_me))
+      setLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const persist = async (next: string, cleared: boolean) => {
+    setSaving(true)
+    const saved = await saveUserPrefs({ about_me: next })
+    setSaving(false)
+    if (saved) {
+      setAboutMe(parseAboutMe(saved.about_me))
+      if (cleared) {
+        toast?.success('About me cleared', 'Agents will not see an operator profile on the next turn.')
+      } else {
+        toast?.success('About me saved', 'Agents will see this on the next turn.')
+      }
+      return
+    }
+    toast?.error(
+      cleared ? 'About me not cleared' : 'About me not saved',
+      'Could not store the operator profile for this account.',
+    )
+  }
+
+  const handleSave = async (event: FormEvent) => {
+    event.preventDefault()
+    const next = parseAboutMe(aboutMe)
+    if (aboutMeLooksSecret(aboutMe)) {
+      toast?.error(
+        'About me not saved',
+        'That note looks like a secret. Remove keys and tokens, then save again.',
+      )
+      return
+    }
+    await persist(next, false)
+  }
+
+  const handleClear = async () => {
+    setAboutMe('')
+    await persist('', true)
+  }
+
+  return (
+    <form className="space-y-3" onSubmit={handleSave} data-testid="about-me-instructions">
+      <h5 className="text-base font-semibold border-b border-base-200 pb-1">About me</h5>
+      <p className="text-sm text-base-content/70">
+        A short note every agent sees in its instructions. Saved on this account.
+        Clearing removes the note.
+      </p>
+      <Textarea
+        id="os-about-me-instructions"
+        label="About me"
+        name="about-me"
+        value={aboutMe}
+        onChange={(event) => setAboutMe(event.target.value)}
+        placeholder="Who you are, how you like answers, current focus…"
+        rows={6}
+        data-testid="about-me-instructions-input"
+      />
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          disabled={!loaded || saving}
+          data-testid="about-me-instructions-save"
+        >
+          Save
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!loaded || saving}
+          onClick={() => {
+            void handleClear()
+          }}
+          data-testid="about-me-instructions-clear"
+        >
+          Clear
+        </Button>
+      </div>
+    </form>
+  )
+}
 
 export function GeneralPane({
   autoCompressPct,
@@ -109,6 +216,8 @@ export function GeneralPane({
           Preferences for display and browser behavior.
         </p>
       </div>
+
+      <AboutMeInstructions />
 
       <section aria-labelledby="os-visuals-heading" className="space-y-4">
         <h5
@@ -211,6 +320,17 @@ export function GeneralPane({
             all popups behave as sticky and stay until manually dismissed.
           </p>
         </div>
+      </section>
+
+      <section aria-labelledby="os-composer-heading" className="space-y-3">
+        <h5
+          id="os-composer-heading"
+          className="text-base font-semibold border-b border-base-200 pb-1"
+        >
+          Composer
+        </h5>
+        {/* #1220: the AI prompt-rewrite opt-in. Responsive device visibility lives in Settings → Aesthetics. */}
+        <RewriteEnabledControl />
       </section>
 
       <section aria-labelledby="os-showcase-heading" className="space-y-3">

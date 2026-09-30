@@ -114,6 +114,30 @@ class StubsMixin:
             await self._emit_suggestions_if_enabled(None)
 
 
+    async def respond_with_roster_run(self, params, message_text, contents_div_id, run):
+            """#1291: render a real multi-member roster run.
+
+            ``run`` is a :class:`swarm.core.team_roster_executor.RosterRun`
+            whose ``combined`` text already labels each member's reply. Emits
+            through the exact same wire path as ``respond_with_team_stub`` so
+            the SPA does not need a second renderer.
+            """
+            combined = str(getattr(run, "combined", "") or "").strip()
+            if not combined:
+                await self.respond_with_team_stub(params, message_text, contents_div_id)
+                return
+            await self.send(text_data=R._oob_append_html(contents_div_id, combined))
+            R._record_turn(self, "assistant", combined)
+            await self._emit_teammate_task_cards(params, message_text)
+            final_html = R.render_to_string(
+                "websocket_partials/final_system_message.html",
+                {"contents_div_id": contents_div_id, "message": combined},
+            )
+            await self.send(text_data=final_html)
+            await self._persist_completed_turn()
+            await self._emit_suggestions_if_enabled(None)
+
+
     async def respond_with_demo(self, contents_div_id, message_text, params=None):
             """REQ-882: canned streaming demo — no LLM, no local CLI subprocess."""
             from swarm.demo import demo_chips_payload, demo_stream_delay_s, iter_demo_frames
@@ -291,6 +315,12 @@ class StubsMixin:
                     raw_model = params.get("model") or params.get("llm_profile")
                     if isinstance(raw_model, str) and raw_model.strip() and raw_model.strip() != "default":
                         profile = raw_model.strip()
+                    # #1317: a stamped company route is the request default when
+                    # the turn did not already name a model. Seat / blueprint stay put.
+                    if profile is None:
+                        stamped = params.get("company_route_model")
+                        if isinstance(stamped, str) and stamped.strip() and stamped.strip() != "default":
+                            profile = stamped.strip()
                 # An explicit dropdown pick (params.model / params.cli) wins over
                 # the inference list (#849 regression: a scale-out seat list cycled
                 # claude → codex → gemini even when the user pinned agy/qwen in
@@ -319,7 +349,23 @@ class StubsMixin:
                     ):
                         blueprint_instance.set_params({"cli": cli_name})
                 if blueprint_instance is not None and profile:
-                    blueprint_instance.llm_profile_name = profile
+                    # `llm_profile_name` is always an API-namespace value: a
+                    # request carrying a foreign id (e.g. a CLI model id) must
+                    # not pin the seat — keep its resolved default.
+                    from swarm.core.model_namespace import model_valid_for_provider
+
+                    if model_valid_for_provider(
+                        "api",
+                        "",
+                        profile,
+                        config=getattr(blueprint_instance, "_config", None),
+                    ):
+                        blueprint_instance.llm_profile_name = profile
+                    else:
+                        R.logger.info(
+                            "Ignoring model %r not valid for an API seat; keeping default",
+                            profile,
+                        )
             except Exception:
                 R.logger.error(
                     f"Error loading blueprint '{blueprint_id}'", exc_info=True
@@ -327,9 +373,20 @@ class StubsMixin:
                 blueprint_instance = None
 
             if blueprint_instance is None:
+                # #1700 (2): the error must not be a dead-end string. This text
+                # lands as an assistant message, so the SPA renders it through
+                # `renderSafeMarkdown` and `lib/settingsLinks.ts` intercepts the
+                # `settings:` deep link to open that pane in-app — one click to
+                # the surface that repairs it, no reload. `settings:<section>` is
+                # explicitly allow-listed by `htmlSafe.isSafeUrl` (REQ-868).
+                #
+                # The link is correct *because* the seat could not be
+                # instantiated: there is no branch here where the operator has
+                # already done this, so the guidance cannot be wrong.
                 await self.send_error_message(
                     contents_div_id,
-                    f"Error: blueprint '{blueprint_id}' was not found or could not be initialized.",
+                    f"Error: blueprint '{blueprint_id}' was not found or could not be "
+                    "initialized. [Manage blueprints](settings:blueprint)",
                 )
                 return
 
@@ -355,13 +412,36 @@ class StubsMixin:
                 if not isinstance(existing, dict):
                     existing = {}
                 blueprint_instance.set_params({**existing, **thread_params})
-            if isinstance(params, dict) and isinstance(params.get("enabled_tools"), list):
-                from swarm.core.mcp_plugins import apply_plugin_mcp_runtime, swarm_config
+            # Remote seats whose impl can pause on an operator question get the
+            # chat ask-user bridge on the instance (mirrors AskUserSession for
+            # API seats). The consumer's per-turn gate wins; otherwise the
+            # capability check covers roster/team remote turns too.
+            remote_id = ""
+            if isinstance(params, dict):
+                remote_id = str(params.get("remote") or params.get("name") or "").strip()
+            if remote_id:
+                try:
+                    from swarm.core.remote_harness import install_remote_ask_user_bridge
 
-                cfg = getattr(blueprint_instance, "config", None)
-                if not isinstance(cfg, dict):
-                    cfg = swarm_config()
-                apply_plugin_mcp_runtime(blueprint_instance, cfg, params.get("enabled_tools"))
+                    bridge = getattr(self, "_ask_user_bridge", None)
+                    if bridge is None:
+                        bridge = self.elicit_user_question
+                    install_remote_ask_user_bridge(
+                        blueprint_instance,
+                        remote_id=remote_id,
+                        elicit_fn=bridge,
+                    )
+                except Exception:
+                    R.logger.exception("Failed to install remote ask-user bridge")
+            from swarm.core.agent_mcp import apply_turn_plugin_tools
+
+            cfg = getattr(blueprint_instance, "config", None)
+            apply_turn_plugin_tools(
+                blueprint_instance,
+                str(blueprint_id or ""),
+                params if isinstance(params, dict) else None,
+                cfg if isinstance(cfg, dict) else None,
+            )
             try:
                 from swarm.core.agent_mailbox import install_mailbox_for_runtime
 
@@ -410,6 +490,9 @@ class StubsMixin:
             streamed_any = False
             token = None
             ask_token = None
+            reaction_token = None
+            reaction_session = None
+            reaction_only_pending = None
             try:
                 from swarm.core.safety import (
                     SafetySession,
@@ -456,6 +539,44 @@ class StubsMixin:
                         )
                 except Exception:
                     R.logger.exception("Failed to install ask_user tools")
+                try:
+                    from swarm.core.message_reactions import (
+                        ReactionSession,
+                        install_reaction_for_runtime,
+                        install_reaction_session,
+                    )
+
+                    async def _emit_reaction(event):
+                        import json as _json
+
+                        await self.send(text_data=_json.dumps(event))
+
+                    theme = "speech"
+                    if isinstance(params, dict):
+                        from swarm.core.message_reactions import resolve_bubble_theme
+
+                        theme = resolve_bubble_theme(params.get("bubble_theme"))
+                    reaction_session = ReactionSession(
+                        messages=self.messages,
+                        agent_id=str(blueprint_id),
+                        channel=channel,
+                        bubble_theme=theme,
+                        emit_fn=_emit_reaction,
+                    )
+
+                    async def _persist_reactions():
+                        conversation_id = getattr(self, "conversation_id", None)
+                        if conversation_id:
+                            await self.save_conversation(
+                                conversation_id, reaction_session.messages
+                            )
+                        reaction_session.messages = self.messages
+
+                    reaction_session.persist_fn = _persist_reactions
+                    reaction_token = install_reaction_session(reaction_session)
+                    install_reaction_for_runtime(blueprint_instance, channel=channel, theme=theme)
+                except Exception:
+                    R.logger.exception("Failed to install add_reaction tools")
                 compact_result = await R._auto_compress_before_send(self, params=params)
                 if compact_result is not None and compact_result.context and (
                     compact_result.acted or getattr(compact_result, "strategy", "") == "cull"
@@ -468,33 +589,47 @@ class StubsMixin:
                         self.messages,
                     )
                 model_messages = await R._expand_model_messages(self, model_messages)
+                model_messages = await R._attach_operator_profile(self, model_messages)
+                from swarm.core.agent_skills import skill_seat_from_params
                 from swarm.core.skill_attach import (
                     apply_skills_to_messages,
+                    attach_params_for_recipe,
                     blueprint_applies_own_skills,
                 )
 
-                skill_owner = run_id if "run_id" in locals() else blueprint_id
-                if (
-                    isinstance(params, dict)
-                    and not blueprint_applies_own_skills(str(skill_owner))
-                ):
-                    model_messages, applied_skills, missing_skills = apply_skills_to_messages(
-                        model_messages, params
+                # ``run_id`` is the recipe that executes (``api_agent`` →
+                # ``chatbot``, a CLI seat → ``cli_agent``). Skills are stored
+                # on the seat, which is the websocket blueprint id.
+                recipe_id = run_id if "run_id" in locals() else blueprint_id
+                client_params = params if isinstance(params, dict) else {}
+                # Seat id is stamped on the blueprint (`agent` / `agent_id`).
+                # Requested skills stay on this message only, so a reused
+                # blueprint instance cannot replay a previous turn's skills.
+                runtime_params = getattr(blueprint_instance, "_params", None)
+                if not isinstance(runtime_params, dict):
+                    runtime_params = client_params
+                seat_id = skill_seat_from_params(runtime_params, blueprint_id)
+                skill_params = attach_params_for_recipe(
+                    client_params,
+                    recipe_applies_own=blueprint_applies_own_skills(str(recipe_id or "")),
+                )
+                model_messages, applied_skills, missing_skills = apply_skills_to_messages(
+                    model_messages, skill_params, agent_id=seat_id
+                )
+                for name in applied_skills:
+                    await self.send(
+                        text_data=R._oob_append_html(
+                            contents_div_id,
+                            f"_Applying skill `{name}` (`skills/{name}/SKILL.md`)…_",
+                        )
                     )
-                    for name in applied_skills:
-                        await self.send(
-                            text_data=R._oob_append_html(
-                                contents_div_id,
-                                f"_Applying skill `{name}` (`skills/{name}/SKILL.md`)…_",
-                            )
+                for name in missing_skills:
+                    await self.send(
+                        text_data=R._oob_append_html(
+                            contents_div_id,
+                            f"_Skill `{name}` not found — running without it._",
                         )
-                    for name in missing_skills:
-                        await self.send(
-                            text_data=R._oob_append_html(
-                                contents_div_id,
-                                f"_Skill `{name}` not found — running without it._",
-                            )
-                        )
+                    )
                 server_managed = getattr(blueprint_instance, "server_managed_context", False)
                 if not server_managed:
                     caps = getattr(blueprint_instance, "capabilities", None)
@@ -542,6 +677,16 @@ class StubsMixin:
                             if not transcript_already_has_notice(R._display_rows(self), notice):
                                 await self.send(text_data=R._status_line_html(notice))
                                 R._record_status(self, notice, ts=R._message_ts())
+                        continue
+                    if isinstance(chunk, dict) and chunk.get("type") == "fusion_progress":
+                        # Bubble-less CLI/orchestration progress. `transient`
+                        # lines (a CLI's own tool output) are shown but never
+                        # recorded, so a transient trace cannot become history.
+                        progress = str(chunk.get("content") or "").strip()
+                        if progress:
+                            await self.send(text_data=R._status_line_html(progress))
+                            if not chunk.get("transient"):
+                                R._record_status(self, progress, ts=R._message_ts())
                         continue
                     message = _extract_message_from_chunk(chunk)
                     if message is None:
@@ -614,6 +759,12 @@ class StubsMixin:
                     from swarm.core.ask_user import reset_ask_user_session
 
                     reset_ask_user_session(ask_token)
+                if reaction_session is not None:
+                    reaction_only_pending = reaction_session.reaction_only
+                if reaction_token is not None:
+                    from swarm.core.message_reactions import reset_reaction_session
+
+                    reset_reaction_session(reaction_token)
 
             # #198: a cancel that landed mid-turn (possibly with partial chunks
             # already streamed, or the generator having stopped on its own cancel
@@ -626,6 +777,50 @@ class StubsMixin:
                 await self.send_error_message(contents_div_id, "Interrupted.")
                 return
 
+            from swarm.core.model_text import (
+                error_body_message,
+                sanitize_model_text,
+            )
+
+            raw_content = (
+                final_message.get("content") if isinstance(final_message, dict) else None
+            )
+            full_message = (
+                sanitize_model_text(raw_content) if isinstance(raw_content, str) else ""
+            )
+            # #1411: a theme reaction can be the entire turn — no assistant text.
+            if reaction_only_pending and not full_message:
+                import json as _json
+
+                from swarm.core.message_reactions import (
+                    reaction_only_record,
+                    reaction_turn_event,
+                )
+
+                record = reaction_only_record(
+                    emoji=reaction_only_pending["emoji"],
+                    actor=reaction_only_pending["actor"],
+                )
+                R._record_turn(
+                    self,
+                    "assistant",
+                    "",
+                    ts=R._message_ts(),
+                    reaction_only=True,
+                    reactions=record["reactions"],
+                )
+                await self.send(
+                    text_data=_json.dumps(
+                        reaction_turn_event(
+                            message_id=contents_div_id,
+                            emoji=reaction_only_pending["emoji"],
+                            reactions=record["reactions"],
+                        )
+                    )
+                )
+                await self._persist_completed_turn()
+                return
+
             if not isinstance(final_message, dict) or final_message.get("content") is None:
                 await self.send_error_message(
                     contents_div_id,
@@ -633,12 +828,6 @@ class StubsMixin:
                 )
                 return
 
-            from swarm.core.model_text import (
-                error_body_message,
-                sanitize_model_text,
-            )
-
-            full_message = sanitize_model_text(final_message["content"])
             if not full_message:
                 await self.send_error_message(
                     contents_div_id,

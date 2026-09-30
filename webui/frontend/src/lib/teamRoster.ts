@@ -122,17 +122,17 @@ export interface ToolSlot {
 export const COS_ELIGIBLE_KINDS: readonly MemberKind[] = ['api', 'cli']
 
 export const DEFAULT_COS_STARTER =
-  "Coordinate this team's roster. Hand off or use-as-tool according to each member's strengths. Do not duplicate work. Report back.\n\nAdd specifics for this team: …"
+  "Coordinate this rig's roster. Hand off or use-as-tool according to each member's strengths. Do not duplicate work. Report back.\n\nAdd specifics for this rig: …"
 
 export const COS_INSTRUCTIONS_HELPER =
-  "Add specifics for this team — for example prefer grok_agent for revision control, use skeptic only after implement, Hermes for long-running host tasks. The same agent can sit on multiple teams; this team's CoS brief steers how members are used here."
+  "Add specifics for this rig — for example prefer grok_agent for revision control, use skeptic only after implement, Hermes for long-running host tasks. The same agent can sit on multiple rigs; this rig's CoS brief steers how members are used here."
 
 export const COS_EMPTY_ROSTER_HINT = 'Add agents first'
 
 export const COS_REMOTE_REASON =
   'Remote members cannot be Chief of Staff yet — pick an API or CLI agent that can hand off or use them as tools.'
 
-export const COS_NESTED_REASON = 'Nested teams and Herdr slots cannot be Chief of Staff.'
+export const COS_NESTED_REASON = 'Nested rigs and Herdr slots cannot be Chief of Staff.'
 
 export const NO_COS_VALUE = ''
 /** Sentinel for the Team lead picker: CoS tracks members[0] (issue #105). */

@@ -64,4 +64,74 @@ describe('renderSafeMarkdown', () => {
     expect(view).toContain('href="/chat?settings=cli-agents"')
     expect(view).toContain('Manage CLI')
   })
+
+  it('REQ-1320: renders markdown images as inline os-msg-image', () => {
+    const view = renderSafeMarkdown('![shot](/v1/chat/attachments/9/content)')
+    expect(view).toContain('<img')
+    expect(view).toContain('class="os-msg-image"')
+    expect(view).toContain('src="/v1/chat/attachments/9/content"')
+    expect(view).toContain('alt="shot"')
+  })
+
+  it('REQ-1320: promotes a bare raster data URL to an inline image', () => {
+    const data = 'data:image/png;base64,iVBORw0KGgo='
+    const view = renderSafeMarkdown(`screenshot:\n\n${data}`)
+    expect(view).toContain('<img')
+    expect(view).toContain(`src="${data}"`)
+  })
+
+  it('#1322: Voice note markdown renders as os-msg-audio, not an image', () => {
+    const view = renderSafeMarkdown('![Voice note](/v1/chat/attachments/9/content)')
+    expect(view).toContain('<audio')
+    expect(view).toContain('class="os-msg-audio"')
+    expect(view).toContain('src="/v1/chat/attachments/9/content"')
+    expect(view).toContain('controls')
+    expect(view.toLowerCase()).not.toContain('<img')
+  })
+
+  it('REQ-1320: strips javascript: image URLs from markdown', () => {
+    const view = renderSafeMarkdown('![x](javascript:alert(1))')
+    expect(view).not.toContain('javascript:')
+    expect(view.toLowerCase()).not.toContain('<img')
+  })
+
+  it('REQ-1321: renders inline $…$ as KaTeX', () => {
+    const view = renderSafeMarkdown('$E=mc^2$')
+    expect(view).toContain('class="katex"')
+    expect(view).not.toContain('$E=mc^2$')
+    expect(view).not.toContain('katex-error')
+  })
+
+  it('REQ-1321: renders display $$…$$ as katex-display', () => {
+    const view = renderSafeMarkdown('$$\\int_0^1 x\\,dx$$')
+    expect(view).toContain('katex-display')
+    expect(view).not.toContain('\\int_0^1')
+  })
+
+  it('REQ-1321: leaves $ literal inside inline code and fenced code', () => {
+    const inline = renderSafeMarkdown('use `$x$` here')
+    expect(inline).toContain('$x$')
+    expect(inline).not.toContain('class="katex"')
+
+    const fenced = renderSafeMarkdown('```\n$y=1$\n```')
+    expect(fenced).toContain('$y=1$')
+    expect(fenced).not.toContain('class="katex"')
+  })
+
+  it('REQ-1321: malformed LaTeX does not throw and renders an error node', () => {
+    const source = '$\\frac{1}{$'
+    expect(() => renderSafeMarkdown(source)).not.toThrow()
+    expect(renderSafeMarkdown(source)).toContain('katex-error')
+  })
+
+  it('REQ-1321 security: \\href and raw HTML cannot inject links/scripts', () => {
+    const href = renderSafeMarkdown('$\\href{javascript:alert(1)}{x}$')
+    expect(href).not.toContain('<a ')
+    expect(href).not.toContain('href=')
+    expect(href).not.toContain('<script')
+
+    const raw = renderSafeMarkdown('$$<img src=x onerror=alert(1)>$$')
+    expect(raw).not.toContain('onerror')
+    expect(raw.toLowerCase()).not.toContain('<img')
+  })
 })

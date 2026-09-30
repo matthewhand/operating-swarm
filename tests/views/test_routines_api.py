@@ -75,12 +75,16 @@ def test_patch_active_test_run_and_delete(api_client):
 
     ran = api_client.post(f"/v1/agents/codey/routines/{routine_id}/test-run/", {}, format="json")
     assert ran.status_code == 200
-    history = ran.json()["history"]
-    assert len(history) == 1
-    assert history[0]["status"] == "success"
-    assert history[0]["source"] == "test_run"
-    assert history[0]["ran_at"]
-    assert store.fired_prompts()[0]["instruction"] == "Write the merge recap."
+    body = ran.json()
+    assert body["object"] == "routine_dry_run"
+    assert body["dry_run"] is True
+    assert body["history"] == []
+    preview = body["preview"]
+    assert preview["dry_run"] is True
+    assert preview["side_effects"] == "none"
+    assert preview["prompt"] == "Write the merge recap."
+    assert "No messages sent" in preview["note"]
+    assert store.fired_prompts() == []
 
     deleted = api_client.delete(f"/v1/agents/codey/routines/{routine_id}/")
     assert deleted.status_code == 204
@@ -140,6 +144,37 @@ def test_unmerged_github_payload_is_rejected(api_client):
     assert "merged" in response.json()["error"].lower()
 
 
+def test_patch_model_and_create_inactive_draft(api_client):
+    """#1405 — model and inactive (unarmed) drafts persist through the API."""
+    created = api_client.post(
+        "/v1/agents/codey/routines/",
+        {
+            "name": "Draft notes",
+            "instruction": "Keep this unpublished.",
+            "active": False,
+            "model": "orchestration",
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    row = created.json()
+    assert row["active"] is False
+    assert row["model"] == "orchestration"
+
+    patched = api_client.patch(
+        f"/v1/agents/codey/routines/{row['id']}/",
+        {"model": "auxiliary", "active": False},
+        format="json",
+    )
+    assert patched.status_code == 200
+    assert patched.json()["model"] == "auxiliary"
+    assert patched.json()["active"] is False
+
+    fetched = api_client.get(f"/v1/agents/codey/routines/{row['id']}/").json()
+    assert fetched["model"] == "auxiliary"
+    assert fetched["active"] is False
+
+
 def test_run_now_and_mailbox_delivery(api_client):
     created = api_client.post(
         "/v1/agents/codey/routines/",
@@ -162,6 +197,88 @@ def test_run_now_and_mailbox_delivery(api_client):
     assert delivery.status_code == 200
     assert delivery.json()["count"] >= 1
     assert delivery.json()["object"] == "routine_mailbox_delivery"
+
+
+def test_issue_trigger_defaults_open_pr_and_remove_persists(api_client):
+    created = api_client.post(
+        "/v1/agents/codey/routines/",
+        {
+            "name": "Solve issue",
+            "instruction": "Fix it.",
+            "trigger": {
+                "kind": "github_event",
+                "event_type": "issues.opened",
+                "owner_repo": "owner/repo",
+            },
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    row = created.json()
+    assert row["tools"] == ["open_pull_request"]
+    assert row["tools_explicit"] is False
+
+    cron = api_client.post(
+        "/v1/agents/codey/routines/",
+        {
+            "name": "Hourly",
+            "instruction": "Recap.",
+            "trigger": {"kind": "interval", "seconds": 3600},
+        },
+        format="json",
+    ).json()
+    assert cron["tools"] == []
+
+    removed = api_client.patch(
+        f"/v1/agents/codey/routines/{row['id']}/",
+        {"tools": []},
+        format="json",
+    )
+    assert removed.status_code == 200
+    assert removed.json()["tools"] == []
+    assert removed.json()["tools_explicit"] is True
+    again = api_client.get(f"/v1/agents/codey/routines/{row['id']}/").json()
+    assert again["tools"] == []
+
+
+def test_tool_catalog_and_extra_plugin_tools_persist(api_client, monkeypatch):
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    catalog = api_client.get("/v1/routines/tool-catalog/")
+    assert catalog.status_code == 200
+    body = catalog.json()
+    assert body["object"] == "routine_tool_catalog"
+    by_id = {row["id"]: row for row in body["items"]}
+    assert "open_pull_request" in by_id
+    assert "web_search" in by_id
+    brave = by_id.get("brave_search")
+    assert brave is not None
+    assert brave["available"] is False
+    assert "BRAVE_API_KEY" in brave["reason"]
+    assert "Tokens stay out of this builder" in brave["reason"]
+
+    created = api_client.post(
+        "/v1/agents/codey/routines/",
+        {
+            "name": "Search recap",
+            "instruction": "Search then summarize.",
+            "trigger": {"kind": "interval", "seconds": 3600},
+            "tools": ["web_search", "git_status"],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.content
+    assert created.json()["tools"] == ["web_search", "git_status"]
+    routine_id = created.json()["id"]
+
+    removed = api_client.patch(
+        f"/v1/agents/codey/routines/{routine_id}/",
+        {"tools": ["git_status"]},
+        format="json",
+    )
+    assert removed.status_code == 200
+    assert removed.json()["tools"] == ["git_status"]
+    again = api_client.get(f"/v1/agents/codey/routines/{routine_id}/").json()
+    assert again["tools"] == ["git_status"]
 
 
 def test_list_all_routines(api_client):

@@ -38,21 +38,25 @@ describe('#805 speech theme avatar offset', () => {
 })
 
 describe('#806 divider snap at the avatar-only threshold', () => {
-  it('snaps into the avatar zone to MIN_RAIL_WIDTH, leaves wider rails alone', async () => {
-    const { snapRailWidth, MIN_RAIL_WIDTH, AVATAR_ONLY_THRESHOLD } = await import('../railResize')
-    expect(MIN_RAIL_WIDTH).toBeLessThan(AVATAR_ONLY_THRESHOLD)
-    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD)).toBe(MIN_RAIL_WIDTH)
-    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD - 10)).toBe(MIN_RAIL_WIDTH)
-    expect(snapRailWidth(MIN_RAIL_WIDTH)).toBe(MIN_RAIL_WIDTH)
-    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD + 1)).toBe(AVATAR_ONLY_THRESHOLD + 1)
-    expect(snapRailWidth(256)).toBe(256)
+  it('snaps into the avatar zone to the ultra-compact detent, leaves wider rails alone', async () => {
+    // #1289 supersedes the old MIN_RAIL_WIDTH snap: the ultra-compact
+    // (avatar-only) tier is its own detent = AVATAR_ONLY_THRESHOLD (88, #1350).
+    const { snapRailWidth, ULTRACOMPACT_RAIL_WIDTH, AVATAR_ONLY_THRESHOLD } = await import('../railResize')
+    expect(ULTRACOMPACT_RAIL_WIDTH).toBe(AVATAR_ONLY_THRESHOLD)
+    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD)).toBe(ULTRACOMPACT_RAIL_WIDTH)
+    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD - 10)).toBe(ULTRACOMPACT_RAIL_WIDTH)
+    // 97 sits within the 14px slop of the 88 detent → sticks to it.
+    expect(snapRailWidth(AVATAR_ONLY_THRESHOLD + 1)).toBe(ULTRACOMPACT_RAIL_WIDTH)
+    // Far outside every detent's slop → continuous, pointer keeps tracking.
+    expect(snapRailWidth(160)).toBe(160)
     expect(snapRailWidth(1000, 800)).toBe(360) // viewport clamp still applies
   })
 
   it('the sidebar drag handlers use the snapping clamp', () => {
     // #856 slice C: the drag handlers live in sidebar/useRailResize.ts; the
     // sidebar consumes them via useRailResize.
-    expect(sidebarResizeHook()).toMatch(/snapRailWidth\(/)
+    // #1289: the drag now snaps to the pinned-grid detents.
+    expect(sidebarResizeHook()).toMatch(/snapRailWidthToPoints\(/)
     expect(sidebar()).toMatch(/useRailResize\(/)
   })
 })
@@ -84,14 +88,25 @@ describe('#817 one team face + universal +N', () => {
   })
 })
 
-describe('#820 scrollbar-gutter alignment', () => {
-  it('pinned and hidden rows compensate the scroller gutter, reset in avatar-only mode', () => {
+describe('#1261 scrollbar gutter is owned by the scroll container', () => {
+  // #1261 supersedes #820: the hand-tuned `--os-rail-gutter` padding was
+  // *permanent* dead space — it reserved a gutter whether or not the rail
+  // overflowed, and never shift-compensated when the scrollbar appeared. The
+  // contract is now that the scroll container alone reserves the gutter with
+  // `scrollbar-gutter: stable`, and the compensating padding/margin are gone.
+  // jsdom computes no layout, so this keys off the stylesheet contract.
+  it('reserves the gutter on .os-rail-scroller instead of padding the rows', () => {
     const text = css()
-    expect(text).toMatch(/--os-rail-gutter:/)
-    expect(ruleBlock(text, '.os-fav-grid {')).toMatch(/padding-right:\s*var\(--os-rail-gutter\)/)
-    expect(ruleBlock(text, '.os-hidden-bots {')).toMatch(/margin-right:\s*calc\(0\.5rem \+ var\(--os-rail-gutter/) // #820
+    expect(text).not.toMatch(/--os-rail-gutter:/)
+    expect(ruleBlock(text, '.os-rail-scroller {')).toMatch(/scrollbar-gutter:\s*stable/)
+    expect(ruleBlock(text, '.os-fav-grid {')).not.toMatch(/padding-right:\s*var\(--os-rail-gutter\)/)
+    expect(ruleBlock(text, '.os-hidden-bots {')).not.toMatch(/margin-right:\s*calc\(0\.5rem \+ var\(--os-rail-gutter/)
+  })
+
+  it('reclaims the gutter in avatar-only mode, where the rail is narrowest', () => {
+    const text = css()
     const avatarOnly = text.slice(text.indexOf('.os-agent-sidebar--avatar-only'))
-    expect(avatarOnly).toMatch(/avatar-only[^{]*\{[^}]*--os-rail-gutter:\s*0px/)
+    expect(avatarOnly).toMatch(/avatar-only[^{]*\.os-rail-scroller[^{]*\{[^}]*scrollbar-gutter:\s*auto/)
   })
 })
 
@@ -116,11 +131,16 @@ describe('#826 Hidden Agents copy', () => {
 })
 
 describe('#829 pinned tiles are squares', () => {
-  it('square floor + even distribution + constant badge anchor', () => {
+  it('square floor + left-anchored fixed tracks + constant badge anchor', () => {
     const text = css()
     // #1071: the square is a floor now (min-height), not a hard clamp.
     expect(ruleBlock(text, '.os-fav-tile {')).toMatch(/width:\s*5\.25rem/)
-    expect(ruleBlock(text, '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
+    // Left-anchored, not centred: centring made a tile's x a function of the
+    // container width, so tiles slid sideways on every resize pixel and jumped
+    // on each 1->2->3 column change. `scripts/measure-pinned-grid.mjs` measured
+    // 70 distinct x values across an 88..420 sweep with `center`, and zero
+    // movement with `start`. jsdom cannot catch this — it has no layout engine.
+    expect(ruleBlock(text, '.os-fav-grid {')).toMatch(/justify-content:\s*start/)
   })
 })
 
@@ -135,12 +155,16 @@ describe('#902 pinned tile geometry is width-independent', () => {
     expect(tile).toMatch(/min-height:\s*5\.25rem/)
     expect(tile).not.toMatch(/(^|[^-])height:\s*5\.25rem/)
     expect(tile).not.toMatch(/aspect-ratio/)
+    // #1262 revert: the tile centres in its fixed track — the fixed-width
+    // track (not a fluid 1fr column) is what keeps rail resizes stable.
     expect(tile).toMatch(/justify-self:\s*center/)
     expect(tile).toMatch(/flex:\s*0 0 auto/)
   })
 
-  it('grid columns may stay fluid but tiles no longer stretch to fill them', () => {
-    expect(ruleBlock(css(), '.os-fav-grid {')).toMatch(/justify-content:\s*space-evenly/)
+  it('grid uses fixed auto-fill tracks instead of fluid columns', () => {
+    // Left-anchored so a column-count change only appends/removes tracks at the
+    // trailing edge; `center` made every tile's x depend on container width.
+    expect(ruleBlock(css(), '.os-fav-grid {')).toMatch(/justify-content:\s*start/)
     // a fixed tile width makes the container-query column churn cosmetic only
     expect(css()).toMatch(/@container \(max-width: 200px\)/)
   })
@@ -200,6 +224,14 @@ describe('#1075 avatar-only search chrome stays inside the sidebar', () => {
     // to its content with the chrome height as the floor.
     expect(row).toMatch(/height:\s*auto/)
     expect(row).toMatch(/min-height:\s*var\(--os-top-chrome-h\)/)
+  })
+
+  it('ultra-compact search trigger is a 2.25rem circle like the Add agent button', () => {
+    const search = ruleBlock(css(), '.os-agent-sidebar--avatar-only .os-rail-search {')
+    expect(search).toMatch(/width:\s*2\.25rem/)
+    expect(search).toMatch(/height:\s*2\.25rem/)
+    expect(search).toMatch(/border-radius:\s*999px/)
+    expect(search).toMatch(/padding:\s*0/)
   })
 })
 

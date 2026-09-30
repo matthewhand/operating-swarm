@@ -35,7 +35,7 @@ No secrets are documented here. Use `${VAR}` names only.
 
 ## 1. Feasibility (what exists today)
 
-Open Swarm is already a **local web app**. The missing piece is a Windows-owned process + window, not a new UI.
+Operating Swarm is already a **local web app**. The missing piece is a Windows-owned process + window, not a new UI.
 
 | Piece | Today (`8f99e136`) | Desktop implication |
 |---|---|---|
@@ -82,9 +82,9 @@ Read from that tree (not cloned into open-swarm):
 
 **What to copy:** loopback server, window owns lifecycle, host CLIs, user-profile data dir, Windows zip-then-NSIS, no secrets in git.
 
-**What not to copy:** Electron as the runtime. OMB can run the harness **on Electron’s Node**. Open Swarm’s server is Django / Channels / uvicorn (`src/swarm/asgi.py`, `swarm_api.py`). An Electron shell would still ship a **Python sidecar**. That is Chromium + Node + CPython — two runtimes — for a pane of glass.
+**What not to copy:** Electron as the runtime. OMB can run the harness **on Electron’s Node**. Operating Swarm’s server is Django / Channels / uvicorn (`src/swarm/asgi.py`, `swarm_api.py`). An Electron shell would still ship a **Python sidecar**. That is Chromium + Node + CPython — two runtimes — for a pane of glass.
 
-Open Swarm already talks to OpenMausBot as a **remote** (`kind=omb`, HTTP only, no source clone — `docs/REMOTE_HARNESSES.md`, FEATURE_STATUS §11b). Desktop packaging does not replace that remote; it packages *this* product.
+Operating Swarm already talks to OpenMausBot as a **remote** (`kind=omb`, HTTP only, no source clone — `docs/REMOTE_HARNESSES.md`, FEATURE_STATUS §11b). Desktop packaging does not replace that remote; it packages *this* product.
 
 ---
 
@@ -143,7 +143,7 @@ WebView2 is present on current Windows 10/11. If it is missing, fail with a link
 
 ## 5. Desktop profile vs ADR-002
 
-ADR-002 already says Docker ephemeral needs **RW config + RW data** volumes, and that two XDG helpers can disagree (`~/.config/swarm` vs platformdirs `OpenSwarm/swarm`). A Windows desktop must **not** rely on Unix `~/.config`.
+ADR-002 already says Docker ephemeral needs **RW config + RW data** volumes. Config-root unify (#1434) made discovery and `get_user_config_dir_for_swarm()` the same directory: `$XDG_CONFIG_HOME/swarm` or `~/.config/swarm`. A Windows desktop must **not** rely on Unix `~/.config`.
 
 **Pick for desktop (implement later):** set explicit env at process start so discovery cannot split:
 
@@ -155,7 +155,7 @@ ADR-002 already says Docker ephemeral needs **RW config + RW data** volumes, and
 | Sqlite + attachments + chat JSON | `{profile}\data\` (`DJANGO_DB_NAME`, `SWARM_CHAT_DIR`, `SWARM_ATTACHMENTS_DIR`) | Never `/tmp/db.sqlite3`. Never `${DATABASE_URL}` / Neon. |
 | SPA prefs | Browser `localStorage` inside WebView2 until #540 | Same as Chrome today; wiping the webview partition wipes favourites unless #540 lands. |
 
-Unify the XDG helpers (ADR-002 follow-up 3) **before** or **with** desktop freeze, or desktop-only env will paper over the split while `swarm-cli` on the same box writes a different folder.
+Config-root unify landed in #1434. Desktop freeze must still set `XDG_CONFIG_HOME` (or `SWARM_CONFIG_PATH` for `swarm_config.json`) at process start. Sibling JSON follows `get_user_config_dir_for_swarm()`, not the directory of `SWARM_CONFIG_PATH`, so a Windows profile path has to be that config root — not a second folder.
 
 ### 5.2 First-run secret materialization
 

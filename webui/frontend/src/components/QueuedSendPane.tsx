@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { SendHorizontal, X } from 'lucide-react'
 import { Textarea } from './DaisyUI'
 import {
   QUEUED_PANE_MAX_HEIGHT_CLASS,
@@ -16,6 +16,8 @@ export function QueuedSendPane({
   onDelete,
   onHoldIdsChange,
   interruptible = false,
+  /** #1232: send this specific row now (interrupting if needed) — others stay queued. */
+  onSendImmediately,
 }: {
   rows: QueuedSendRow[]
   maxHeightPx?: number
@@ -25,6 +27,8 @@ export function QueuedSendPane({
   onHoldIdsChange: (ids: string[]) => void
   /** #198: when true, the top row shows the "enter to interrupt" hint. */
   interruptible?: boolean
+  /** #1232: per-row immediate send; omit for legacy mounts. */
+  onSendImmediately?: (id: string) => void
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -152,6 +156,19 @@ export function QueuedSendPane({
                   ↵ interrupt
                 </span>
               )}
+              {onSendImmediately ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs btn-square os-queued-row__send"
+                  data-testid="queued-row-send"
+                  aria-label="Send queued message immediately"
+                  title="Send immediately"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onSendImmediately(row.id)}
+                >
+                  <SendHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="btn btn-ghost btn-xs btn-square os-queued-row__remove"

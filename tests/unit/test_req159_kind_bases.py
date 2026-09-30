@@ -1,6 +1,7 @@
 """REQ-159: ADR-005 + developer-doc cross-link from the openai-agents section."""
 
 from swarm.core.handoff_graph import repo_root
+from helpers.private_net import assert_no_private_ip
 
 
 def test_adr005_has_today_vs_target_and_diagram():
@@ -13,7 +14,7 @@ def test_adr005_has_today_vs_target_and_diagram():
     assert "Today" in text
     assert "Target" in text
     assert "#564" in text or "REQ-156" in text
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)
     lowered = text.lower()
     for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered

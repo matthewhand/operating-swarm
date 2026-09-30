@@ -229,6 +229,16 @@ def test_list_rail_agents_http_error_is_honest():
 
 
 def test_list_rail_agents_empty_catalog_is_not_faked():
+    """Blueprints-only must yield [] -- and must not fabricate teams/herdr.
+
+    The `getter` 404s every catalog except `/v1/blueprints/`, so this also
+    pins the contract that a missing team-roster or herdr-agent catalog is
+    optional rather than fatal: the rail renders the blueprints it has and
+    stops. An earlier `test_missing_team_and_herdr_catalogs_are_optional`
+    further down this file had a byte-identical body and ran the same grep a
+    second time under a second name; this copy is the survivor.
+    """
+
     def getter(url: str, _headers: dict[str, str]) -> httpx.Response:
         if url.endswith("/v1/blueprints/"):
             return _response(200, {"object": "list", "data": []})
@@ -357,14 +367,10 @@ def test_list_rail_agents_uses_httpx_when_no_getter(monkeypatch):
     assert isinstance(captured["headers"], dict)
 
 
-def test_missing_team_and_herdr_catalogs_are_optional():
-    def getter(url: str, _headers: dict[str, str]) -> httpx.Response:
-        if url.endswith("/v1/blueprints/"):
-            return _response(200, {"object": "list", "data": []})
-        return _response(404, {"detail": "not found"})
-
-    # Blueprints alone never fabricates teams / herdr members.
-    assert list_rail_agents(getter=getter) == []
+# A `test_missing_team_and_herdr_catalogs_are_optional` used to live here with
+# a body byte-identical to `test_list_rail_agents_empty_catalog_is_not_faked`
+# above. Both collected, so the same call ran twice under two names. That
+# test's contract is now stated in the survivor's docstring.
 
 
 # --- Wave 1b: kind sections CLI / API / Blueprint / Remote -----------------

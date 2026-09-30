@@ -1,6 +1,6 @@
 # Orchestration Patterns
 
-Open Swarm exposes each multi-agent orchestration pattern as a **blueprint** — a
+Operating Swarm exposes each multi-agent orchestration pattern as a **blueprint** — a
 `model` id you select from any OpenAI client. This page gives a sequence diagram
 for each, its status, and the field-standard pattern it mirrors (the same set
 Microsoft's Agent Framework names: sequential, concurrent, handoff, group-chat,
@@ -9,7 +9,7 @@ Magentic-One).
 All diagrams are GitHub-rendered Mermaid. Backends shown (`gemini`, `claude`,
 `grok`) are illustrative — any configured CLI fills any role.
 
-> **The bundled blueprints are *examples*, not the product.** Open Swarm is a
+> **The bundled blueprints are *examples*, not the product.** Operating Swarm is a
 > **composition system**: you define your own personas and teams (via config or
 > Django [`/agent-creator/`](../FEATURE_STATUS.md); the SPA Builder route is
 > unmounted) and choose *how* consensus is invoked. The patterns below are
@@ -59,7 +59,7 @@ prompts change.
 ## Consensus invocation: always vs gated
 
 The architectural fork that matters most: **is consensus always paid, or does a
-router decide it's worth it?** Open Swarm supports both, because the underlying
+router decide it's worth it?** Operating Swarm supports both, because the underlying
 openai-agents framework lets a routing/orchestration agent *decide whether to
 hand off* to a consensus panel.
 

@@ -86,6 +86,42 @@ describe('spaSocket singleton', () => {
     expect(activeSpaConversations().sort()).toEqual(['conv-A', 'conv-B'])
   })
 
+  it('unwraps HTML frames delivered inside data.text object from SPA multiplexer (#1285)', () => {
+    const gotA: Array<{ kind: string; id?: string; text?: string }> = []
+    subscribeSpa('conv-A', (event) => gotA.push(event as { kind: string; id?: string; text?: string }))
+    const ws = lastSocket()
+    ws.open()
+
+    // 1. assistant_start wrapped in {"text": "<div..."}
+    ws.deliver({
+      kind: 'spa.frame',
+      conversationId: 'conv-A',
+      data: {
+        text: '<div id="message-list" hx-swap-oob="beforeend"><div id="message-response-456" class="assistant-message chatbot-text-system add-loading-dots mb-2"></div></div>',
+      },
+    })
+
+    // 2. assistant_final wrapped in {"text": "<div..."}
+    ws.deliver({
+      kind: 'spa.frame',
+      conversationId: 'conv-A',
+      data: {
+        text: '<div id="message-response-456" class="assistant-message chatbot-text-system mb-2" hx-swap-oob="true">Hello from agy!</div>',
+      },
+    })
+
+    expect(gotA).toHaveLength(2)
+    expect(gotA[0]).toEqual({
+      kind: 'assistant_start',
+      id: 'message-response-456',
+    })
+    expect(gotA[1]).toEqual({
+      kind: 'assistant_final',
+      id: 'message-response-456',
+      text: 'Hello from agy!',
+    })
+  })
+
   it('refcounts duplicate subscriptions and releases listeners cleanly', () => {
     const l1 = vi.fn()
     const l2 = vi.fn()

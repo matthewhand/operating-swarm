@@ -43,20 +43,29 @@ def test_apply_model_pins_gemini_before_prompt_not_over_gotchas():
     assert out["cmd"][-2:] == ["--yolo", "--skip-trust"]
 
 
-def test_apply_model_pins_pi_before_end_of_options():
-    # pi --help: --model <provider/id> before -- / {prompt}. #1186: the
-    # catalog carries a working gateway default; apply_model REPLACES it
-    # (never duplicates) when the Chat pill supplies a different pin.
+def test_apply_model_pins_pi_without_an_end_of_options_marker():
+    # pi --help: `--model <pattern>` takes a provider/id, and pi's parser is
+    # order-independent, so the pin just replaces the shipped default in place.
+    # #1186: the catalog carries a working gateway default; apply_model
+    # REPLACES it (never duplicates) when the Chat pill supplies a different one.
+    #
+    # pi is NOT a `--`-terminated CLI: 0.74.2 rejects a bare `--` outright
+    # ("Unknown option: --"), so there is no end-of-options marker to sit in
+    # front of, and the prompt is on stdin rather than in argv.
     assert c.MODEL_FLAG["pi"] == "--model"
     entry = c.catalog_entry("pi")
-    assert entry["cmd"][entry["cmd"].index("--model") + 1] == "litellm/tiny"
+    assert entry["cmd"][entry["cmd"].index("--model") + 1] == "litellm-fly/orchestration"
     out = c.apply_model(entry, "pi", "openai/gpt-4o")
     cmd = out["cmd"]
     assert cmd.count("--model") == 1
     assert cmd[cmd.index("--model") + 1] == "openai/gpt-4o"
-    assert "litellm/tiny" not in cmd
-    assert cmd.index("--model") < cmd.index("--")
-    assert cmd[-2:] == ["--", "{prompt}"]
+    assert "litellm-fly/orchestration" not in cmd
+    # The pin must not disturb the -p print switch or resurrect a prompt token.
+    assert cmd[0] == "pi"
+    assert cmd[1] == "-p"
+    assert "--" not in cmd
+    assert "{prompt}" not in cmd
+    assert out["prompt_mode"] == "stdin"
 
 
 def test_apply_model_noop_for_cli_without_model_flag():
@@ -65,6 +74,28 @@ def test_apply_model_noop_for_cli_without_model_flag():
     entry = c.catalog_entry("codex")
     out = c.apply_model(entry, "codex", "whatever")
     assert out["cmd"] == entry["cmd"]
+
+
+def test_codex_catalog_pins_gateway_provider_and_model():
+    """The codex catalog seat must pin the app gateway provider + model.
+
+    The host default (~/.codex/config.toml model_provider=lmstudio) can point
+    at a dead local model server; without the pin `codex exec` loops on
+    network retries or dies with "Missing env OPENAI_API_KEY". The pin is a
+    pair of ``-c key=value`` overrides placed before ``--``.
+    """
+    entry = c.catalog_entry("codex")
+    cmd = entry["cmd"]
+    assert cmd[:2] == ["codex", "exec"]
+    assert cmd[2:6] == [
+        "-c",
+        "model_provider=litellm",
+        "-c",
+        "model=delegation",
+    ]
+    assert cmd.index("--") < cmd.index("{prompt}")
+    # The gateway auth var must be allowed through to the child process.
+    assert "OPENAI_API_KEY" in (entry.get("env_allowlist") or [])
 
 
 def test_apply_model_empty_cmd_unchanged():

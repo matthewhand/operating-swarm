@@ -31,7 +31,7 @@ architectures rather than the current one:
 
 ## Lineage in one paragraph
 
-Open Swarm began as a derivative of OpenAI's experimental
+Operating Swarm began as a derivative of OpenAI's experimental
 [Swarm](https://github.com/openai/swarm), then migrated its runtime to the
 [openai-agents SDK](https://github.com/openai/openai-agents-python). An early
 emphasis on a blueprint **marketplace** and MCP distribution (the

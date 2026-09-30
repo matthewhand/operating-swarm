@@ -1,6 +1,6 @@
 """Browser automation honesty helpers.
 
-Open Swarm provisions the official microsoft/playwright-mcp server for blueprints
+Operating Swarm provisions the official microsoft/playwright-mcp server for blueprints
 that declare a ``browser`` capability (see :mod:`swarm.core.tool_capabilities`).
 There is no built-in stub that fakes successful navigation: when Playwright MCP
 is not running or not reachable, callers should surface a clear structured error

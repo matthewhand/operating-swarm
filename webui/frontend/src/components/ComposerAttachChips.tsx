@@ -1,4 +1,4 @@
-import { AlertCircle, File, FileCode, FileSpreadsheet, FileText, Loader2, X } from 'lucide-react'
+import { AlertCircle, File, FileCode, FileSpreadsheet, FileText, Loader2, Music, X } from 'lucide-react'
 import {
   attachmentCategory,
   formatFileSize,
@@ -20,6 +20,8 @@ function AttachmentIcon({ category }: { category: AttachmentCategory }) {
       return <FileCode className="h-5 w-5 text-blue-500 shrink-0" aria-hidden="true" />
     case 'document':
       return <FileText className="h-5 w-5 text-amber-500 shrink-0" aria-hidden="true" />
+    case 'audio':
+      return <Music className="h-5 w-5 text-primary shrink-0" aria-hidden="true" />
     default:
       return <File className="h-5 w-5 text-base-content/70 shrink-0" aria-hidden="true" />
   }

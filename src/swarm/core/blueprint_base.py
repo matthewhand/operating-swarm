@@ -321,7 +321,15 @@ class BlueprintBase(ABC):
         llm = self._config.get("llm", {})
 
         if "llm_profile" in self._config:
-            self._llm_profile_name = self._config["llm_profile"]
+            candidate = self._config["llm_profile"]
+            from swarm.core.model_namespace import model_valid_for_provider
+
+            if model_valid_for_provider("api", "", candidate, config=self._config):
+                self._llm_profile_name = candidate
+            else:
+                logger.warning(
+                    "Ignoring config llm_profile %r not valid for an API seat", candidate
+                )
 
         profiles = llm.get("profiles", llm)
         # When profile name is still unresolved, leave data empty — property
@@ -526,7 +534,12 @@ class BlueprintBase(ABC):
             try:
                 import json
                 from pathlib import Path
-                config_paths = [Path.cwd() / 'swarm_config.json', Path.home() / '.config/swarm/swarm_config.json']
+
+                from swarm.core.paths import get_swarm_config_file
+
+                # Same root as discovery / CLI create-if-missing (#1434). A
+                # hardcoded home config path ignores $XDG_CONFIG_HOME.
+                config_paths = [Path.cwd() / 'swarm_config.json', get_swarm_config_file()]
                 for path in config_paths:
                     if path.exists():
                         with open(path) as f:
@@ -933,6 +946,11 @@ class BlueprintBase(ABC):
             except Exception as e:
                 logger.warning("Failed to attach sandbox tools to agent '%s': %s", name, e)
 
+        if isinstance(instructions, str):
+            from swarm.core.operator_profile import instructions_with_about_me
+
+            instructions = instructions_with_about_me(instructions)
+
         agent = Agent(
             name=name,
             model=model_instance,
@@ -947,6 +965,24 @@ class BlueprintBase(ABC):
         if memory_instance:
             # We add it as a custom attribute if the SDK agent doesn't have it
             agent.memory = memory_instance
+
+        # #1684: the turn-phase `tool_status` producer. Attached HERE, at the one
+        # factory every seat converges on, because the `ApiKindBase.run`
+        # chokepoint is bypassed by the three API seats that shadow `run` —
+        # including ChatbotBlueprint, which is what `api_agent` (the default
+        # chat seat) resolves to. A frame the SPA never receives is a badge that
+        # never appears, so the producer has to sit on the path that actually
+        # runs; see `kind_bases.ApiKindBase.__init_subclass__`.
+        #
+        # `attach_turn_phase_hooks` is idempotent, so this cannot stack a second
+        # `ToolPhaseHooks` on an agent that already carries one, and it raises
+        # nothing: a status frame must never be able to fail agent creation.
+        try:
+            from swarm.core.turn_phase import attach_turn_phase_hooks
+
+            attach_turn_phase_hooks(agent)
+        except Exception:
+            logger.debug("turn-phase hook attach skipped", exc_info=True)
 
         return agent
 

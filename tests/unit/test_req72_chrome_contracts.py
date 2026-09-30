@@ -72,9 +72,21 @@ def test_sidebar_team_hide_id_and_plugins_popup():
     assert "id: 'delete'" in menu
     assert "label: 'Delete'" in menu
     assert "danger: true" in menu
-    assert "label: 'Edit Profile'" in menu
-    assert "opts.kind === 'cli'" in menu
-    assert "id: 'edit'" in menu
+    # REQ-82's Edit Profile item is still DECLARED in the menu builder, but
+    # #1727 routes it through the one capability matrix, so the label travels
+    # as an argument rather than an object literal. `id: 'edit'` and
+    # `label: 'Edit Profile'` are therefore gone as text — a pin on either
+    # only said "this string is somewhere in the file", and could not say the
+    # item is still offered, or that the per-kind decision is the matrix's.
+    assert "'Edit Profile'" in menu
+    assert "for (const id of ['edit', 'duplicate'] as const)" in menu
+    assert "capabilityItem(" in menu
+    # The per-kind omit/grey decision is the matrix's, declared once per kind.
+    assert "railMenuCapability" in menu
+    assert "omit: true" in menu
+    # The only remaining inline kind branch is the CLI-only Terminate item.
+    assert "if (opts.kind === 'cli')" in menu
+    assert "id: 'terminate'" in menu
 
 
 def test_app_mobile_rail_and_settings_event():

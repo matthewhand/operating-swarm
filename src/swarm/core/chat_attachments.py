@@ -8,6 +8,7 @@ sqlite (``ChatAttachment``). No Neon. Filenames are never used as paths.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,94 @@ def write_bytes(user, attachment_id, data: bytes, *, base_dir: Path | None = Non
     return path
 
 
+# REQ-38 / #1329: small extension → content-type guess so a tool-attached file
+# behaves like a composer upload (text excerpts, image parts) without the
+# browser-supplied MIME type. Unknown extensions stay opaque bytes.
+_EXT_CONTENT_TYPES: dict[str, str] = {
+    ".txt": "text/plain",
+    ".log": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
+    ".json": "application/json",
+    ".jsonl": "application/json",
+    ".xml": "application/xml",
+    ".yaml": "application/x-yaml",
+    ".yml": "application/x-yaml",
+    ".toml": "application/toml",
+    ".ini": "text/plain",
+    ".cfg": "text/plain",
+    ".sql": "application/sql",
+    ".py": "text/x-python",
+    ".js": "application/javascript",
+    ".ts": "text/typescript",
+    ".tsx": "text/typescript",
+    ".jsx": "application/javascript",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".css": "text/css",
+    ".sh": "text/x-shellscript",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".zip": "application/zip",
+    ".webm": "audio/webm",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".opus": "audio/opus",
+}
+
+
+def guess_content_type(name: str | None) -> str:
+    """Content type from a display name's extension (opaque by default)."""
+    suffix = Path(safe_display_name(name)).suffix.lower()
+    return _EXT_CONTENT_TYPES.get(suffix, "application/octet-stream")
+
+
+def store_for_user(
+    user,
+    conversation_id: str,
+    name: str,
+    content_type: str,
+    data: bytes,
+    *,
+    base_dir: Path | None = None,
+):
+    """Create the metadata row and write bytes — the one attachment write path.
+
+    Shared by the composer upload view (``chat_attachment_upload``) and the
+    ``sandbox_attach_file`` agent tool (#1329). Callers may pre-check the size
+    for a friendlier response; this is the enforcement point of record.
+    """
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise ValueError(f"file too large (max {MAX_ATTACHMENT_BYTES} bytes)")
+
+    from swarm.models import ChatAttachment
+
+    row = ChatAttachment.objects.create(
+        owner=user,
+        conversation_id=(conversation_id or "").strip()[:255],
+        original_name=safe_display_name(name),
+        content_type=(content_type or "").strip()[:255],
+        size=len(data),
+    )
+    try:
+        write_bytes(user, row.id, data, base_dir=base_dir)
+    except OSError:
+        row.delete()
+        raise
+    return row
+
+
 def read_bytes(user, attachment_id, *, base_dir: Path | None = None) -> bytes:
     path = attachment_path(user, attachment_id, base_dir=base_dir)
     return path.read_bytes()
@@ -109,6 +198,38 @@ def excerpt_text(data: bytes, content_type: str) -> str | None:
 def is_image_content_type(content_type: str) -> bool:
     ctype = (content_type or "").split(";", 1)[0].strip().lower()
     return ctype.startswith("image/")
+
+
+# Token only: drop parameters and reject CR/LF so a stored type cannot
+# smuggle a second response header.
+_SAFE_MIME_RE = re.compile(
+    r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
+)
+
+
+def normalized_content_type(content_type: str | None, name: str | None = None) -> str:
+    """MIME type safe to put on a Content-Type header.
+
+    A browser-supplied type may include ``codecs=`` parameters or, worse,
+    CR/LF. Playback only needs the type token. Anything that is not a single
+    type token falls back to the filename extension.
+    """
+    raw = (content_type or "").split(";", 1)[0].strip().lower()
+    if _SAFE_MIME_RE.fullmatch(raw):
+        return raw
+    return guess_content_type(name)
+
+
+def is_audio_content_type(content_type: str) -> bool:
+    ctype = (content_type or "").split(";", 1)[0].strip().lower()
+    return ctype.startswith("audio/")
+
+
+def content_path(attachment_id) -> str:
+    """Same-origin URL the SPA audio bubble plays (#1322)."""
+    aid = str(attachment_id).strip()
+    uuid.UUID(aid)
+    return f"/v1/chat/attachments/{aid}/content"
 
 
 def image_data_url(data: bytes, content_type: str) -> str:

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   OMB_BOT_REQUIRED_GAP,
+  isChiefOfStaffName,
   ombBotsFromOperate,
+  ombChiefOfStaffId,
   ombNavbarOptions,
   ombSendTarget,
 } from '../ombBots'
@@ -51,10 +53,37 @@ describe('ombBotsFromOperate (#102)', () => {
     expect(ombBotsFromOperate({ bots: [{ id: 'omb', name: 'OpenMousBot' }] })).toEqual([])
   })
 
+  it('reads Hermes-style nested models as navbar options (#hermes)', () => {
+    expect(
+      ombBotsFromOperate({
+        models: { object: 'list', data: [{ id: 'hermes-agent', object: 'model' }] },
+        sessions: { object: 'list', data: [{ id: 'run_a' }] },
+      }),
+    ).toEqual([{ id: 'hermes-agent', name: 'hermes-agent' }])
+  })
+
   it('send target ignores kind ids and empty session', () => {
     expect(ombSendTarget('', 'omb')).toBe('')
     expect(ombSendTarget('omb', 'omb')).toBe('')
     expect(ombSendTarget('desk-1', 'omb')).toBe('desk-1')
     expect(OMB_BOT_REQUIRED_GAP).toBe('omb_bot_required')
+  })
+
+  it('defaults to the chief of staff when no explicit bot is picked', () => {
+    expect(isChiefOfStaffName('Chief of Staff')).toBe(true)
+    expect(isChiefOfStaffName('cos')).toBe(true)
+    expect(isChiefOfStaffName('chief-of-staff')).toBe(true)
+    expect(isChiefOfStaffName('Specialist')).toBe(false)
+    const bots = [
+      { id: 'desk-1', name: 'Desk' },
+      { id: 'cos-1', name: 'Chief of Staff' },
+    ]
+    expect(ombChiefOfStaffId(bots)).toBe('cos-1')
+    expect(ombSendTarget('', 'omb', bots)).toBe('cos-1')
+    expect(ombSendTarget('omb', 'omb', bots)).toBe('cos-1')
+    // An explicit pick always wins over the chief-of-staff default.
+    expect(ombSendTarget('desk-1', 'omb', bots)).toBe('desk-1')
+    // No CoS anywhere → no default (the caller shows omb_bot_required).
+    expect(ombSendTarget('', 'omb', [{ id: 'spec-9', name: 'Specialist' }])).toBe('')
   })
 })

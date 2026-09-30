@@ -1,6 +1,6 @@
-# Open Swarm workflow models
+# Operating Swarm workflow models
 
-Open Swarm has **two primary multi-agent workflow styles**. They differ in
+Operating Swarm has **two primary multi-agent workflow styles**. They differ in
 *who may change the world* and *how specialization is expressed*.
 
 | | **A. Orchestrated consensus (MoA)** | **B. Persona / agent-as-tool swarm** |

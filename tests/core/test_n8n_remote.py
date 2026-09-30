@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from swarm.core import remotes as remotes_core
+from helpers.private_net import assert_no_private_ip
 from swarm.core.remote_harness import (
     REMOTE_IMPL_IDS,
     all_harnesses,
@@ -24,6 +25,7 @@ from swarm.core.remote_harness import (
     is_remote_impl_id,
     sessions_from_operate,
 )
+from functools import partial
 
 
 class _Router(BaseHTTPRequestHandler):
@@ -53,15 +55,24 @@ class _Router(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
 @pytest.fixture
 def http_router():
     server = HTTPServer(("127.0.0.1", 0), _Router)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     thread.start()
     host, port = "127.0.0.1", server.server_address[1]
     yield host, port, _Router
     server.shutdown()
+    server.server_close()
     _Router.routes = {}
     _Router.posts = []
 
@@ -133,7 +144,10 @@ def test_n8n_is_a_catalog_remote_kind():
     assert row["label"] == "n8n"
     caps = row["capabilities"]
     assert caps["list"] is True and caps["send"] is True and caps["health"] is True
-    assert caps["operate"] is False
+    # #1672: `operate` is not published at all (server-side classification
+    # only), so the catalog cannot offer a computer control it cannot back up.
+    assert "operate" not in caps
+    assert capabilities_for("n8n").operate is False
     assert caps["sessions"] is True
     assert capabilities_for("n8n").transport == "http"
 
@@ -188,8 +202,12 @@ def test_env_bootstrap_shows_n8n(monkeypatch):
 
 def test_default_spec_is_sanitized_and_has_no_secret():
     spec = remotes_core.default_spec("n8n")
-    assert spec.base_url == "http://127.0.0.1:5678"
-    assert "10.0.0." not in spec.base_url and "192.168." not in spec.base_url
+    # Documentation address, not 127.0.0.1:5678: a bare loopback default is a
+    # claim this box runs n8n, and a silent bind to some other local service
+    # reads as a healthy n8n.
+    assert spec.base_url == "http://192.0.2.1:5678"
+    assert remotes_core.is_placeholder_base_url(spec.base_url) is True
+    assert_no_private_ip(spec.base_url)
     assert remotes_core._ENV_BASE["n8n"] == "N8N_BASE_URL"
     assert remotes_core._ENV_KEY["n8n"] == "N8N_API_KEY"
     assert spec.health_path == "/healthz"

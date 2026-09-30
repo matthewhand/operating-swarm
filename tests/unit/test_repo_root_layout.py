@@ -10,16 +10,19 @@ import re
 import subprocess
 from pathlib import Path
 
+from helpers.private_net import assert_no_private_ip
+
 REPO = Path(__file__).resolve().parents[2]
 
 # Live-looking secrets / operator LAN must not appear in the committed example.
+# The IP half of this rule used to be the bare needles "10.0.0.", "192.168." and
+# "172.16." -- one /24 out of 10/8, plus a /16 that did not exist, which is how
+# #1712's private literals shipped past it. Private addresses are now matched by
+# helpers/private_net.py, so there is one rule and not four substrings.
 FORBIDDEN_IN_EXAMPLE = (
     "sk-",
     "sk_live",
     "BEGIN PRIVATE",
-    "10.0.0.",
-    "192.168.",
-    "172.16.",
 )
 
 
@@ -59,6 +62,7 @@ def test_example_config_is_valid_and_sanitized():
     blob = example.read_text(encoding="utf-8")
     for needle in FORBIDDEN_IN_EXAMPLE:
         assert needle not in blob, f"example contains forbidden {needle!r}"
+    assert_no_private_ip(blob, where="swarm_config.example.json")
     # Keys stay env placeholders, never raw credential material.
     default_key = data["llm"]["default"].get("api_key", "")
     assert default_key.startswith("${") or default_key == ""

@@ -1,6 +1,6 @@
 # REQ-861 — Left and right sidepane conceal buttons and click-outside dismissal (#251)
 
-> Both left and right sidepanes feature intuitive, accessible buttons in their top-left headers to conceal them, complementing existing click-outside and backdrop dismissal. The left sidepane features the Open Swarm logo (in mono-colour matching the active WebUI theme) as its top-left conceal button when expanded. The right sidepane features a double-chevron/double-less-than `>>` button in its top-left header to tuck/conceal the pane.
+> Both left and right sidepanes feature intuitive, accessible buttons in their top-left headers to conceal them, complementing existing click-outside and backdrop dismissal. The left sidepane features the Operating Swarm logo (in mono-colour matching the active WebUI theme) as its top-left conceal button when expanded. The right sidepane features a double-chevron/double-less-than `>>` button in its top-left header to tuck/conceal the pane.
 
 **Issue:** [#251](https://github.com/matthewhand/open-swarm-private/issues/251)
 
@@ -17,8 +17,8 @@ Users navigating the WebUI require immediate, visible, and predictable affordanc
 ## 2. Detailed Requirements
 
 ### 2.1 Left Sidepane (Agent Rail)
-1. **Top-Left Open Swarm Brand Mark Button**:
-   - When the left sidepane is open/expanded, the top-left corner must display an interactive button containing the Open Swarm logo.
+1. **Top-Left Operating Swarm Brand Mark Button**:
+   - When the left sidepane is open/expanded, the top-left corner must display an interactive button containing the Operating Swarm logo.
    - **Styling**: The logo must be mono-colour, styled dynamically to match the active WebUI theme (e.g., using `currentColor` / `text-base-content` via the mono geometry from `assets/brand/webui-geometric-mono.svg` or `webui-geometric.svg`).
    - **Action**: Clicking this button conceals the sidebar:
      - On desktop (`lg+`): Collapses the sidebar to the avatar-only / compact rail or toggles the rail closed.
@@ -47,7 +47,7 @@ Users navigating the WebUI require immediate, visible, and predictable affordanc
 ## 3. Acceptance Criteria
 
 - [ ] **Left Sidepane Conceal Button**:
-  - [ ] Top-left of the expanded left sidepane renders the Open Swarm logo in mono-colour matching `text-base-content`.
+  - [ ] Top-left of the expanded left sidepane renders the Operating Swarm logo in mono-colour matching `text-base-content`.
   - [ ] Clicking the logo button triggers sidepane concealment/collapse.
   - [ ] Button provides `aria-label="Conceal sidebar"` and keyboard accessibility.
   - [ ] Clicking outside the sidebar (backdrop or main canvas) conceals the sidebar when open in drawer/overlay mode.
@@ -81,7 +81,7 @@ Users navigating the WebUI require immediate, visible, and predictable affordanc
 
 1. **Vitest Unit Tests**:
    - `webui/frontend/src/components/__tests__/AgentSidebar.test.tsx`:
-     - Test that the mono Open Swarm logo button renders in top-left when expanded.
+     - Test that the mono Operating Swarm logo button renders in top-left when expanded.
      - Test that clicking the logo triggers conceal/collapse.
      - Test accessibility attributes (`aria-label`, button role).
    - `webui/frontend/src/components/DaisyUI/__tests__/Modal.test.tsx`:

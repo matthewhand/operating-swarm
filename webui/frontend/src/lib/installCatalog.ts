@@ -271,7 +271,7 @@ export function backendToCatalogItem(row: MarketplaceCatalogItem): InstallCatalo
   return {
     id: catalogText(row.id, 120) || 'catalog-item',
     name: catalogText(row.name, 80) || row.id,
-    summary: catalogText(row.summary) || (row.kind === 'teams' ? 'OS team pack.' : ''),
+    summary: catalogText(row.summary) || (row.kind === 'teams' ? 'OS rig pack.' : ''),
     sourceLabel: catalogText(row.source_label, 48) || row.source,
     sourceKind,
     kind,
@@ -301,6 +301,40 @@ export function safeHttpsUrl(raw: unknown): string | undefined {
   const trimmed = raw.trim().split(/[?#]/)[0]
   if (!/^https:\/\//i.test(trimmed) || /javascript:/i.test(trimmed)) return undefined
   return trimmed.replace(/\/$/, '')
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  mcp_registry: 'Official MCP Registry',
+  github: 'GitHub topic',
+  composio: 'Composio',
+  agent_skills: 'Agent Skills',
+  local: 'Installed',
+  os_team_pack: 'OS team packs',
+}
+
+/**
+ * #1327: per-source status lines. A stalled source must say why and how many
+ * items it is still showing, instead of silently hiding its results.
+ */
+export function sourceStatusLines(backend?: MarketplaceCatalogResponse | null): string[] {
+  const statuses = backend?.source_status || []
+  const lines: string[] = []
+  for (const status of statuses) {
+    if (!status || !status.source) continue
+    const label = status.source_label || SOURCE_LABELS[status.source] || status.source
+    if (status.stalled_reason === 'not_configured') {
+      lines.push(`${label}: not configured`)
+      continue
+    }
+    if (status.stalled_reason && status.enabled !== false) {
+      const count = typeof status.item_count === 'number' ? status.item_count : 0
+      const cached = status.cached ? 'cached ' : ''
+      lines.push(
+        `${label}: stalled — ${status.stalled_reason}; showing ${count} ${cached}item${count === 1 ? '' : 's'}`,
+      )
+    }
+  }
+  return lines
 }
 
 export function mergeCatalog(args: {

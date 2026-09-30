@@ -35,7 +35,7 @@ hide-from-sidebar`). No test rewrites, no recapture.
 | 4 | D-04 | P1 | `tests/e2e_visual/test_golden_journey.py` | `test_chat_websocket_connects` waits 20s for exact `Connected`; fails on Unavailable; substring-adjacent to “Connected and ready” |
 | 5 | D-05 | P1 | `tests/e2e_visual/test_golden_journey.py` (`test_dark_mode_toggle`) | Looks for `aria-label="Toggle dark mode"`; REQ-5 uses “Switch to light/dark theme” → silent skip in visual CI |
 | 6 | D-06 | P1 | `scripts/capture_user_journey.py` | spa-chat Connected wait is word-bounded (good) but swallows the Playwright timeout then hard-fails; `--allow-connecting` can still publish a Connecting frame |
-| 7 | D-07 | P1 | `pytest.ini` + `pyproject.toml` `[tool.pytest.ini_options]` | Dual pytest config: always-on `--cov`, `log_cli=true`, coverage `fail_under` 0 vs 70; CONTRIBUTING documents only pyproject |
+| 7 | ~~D-07~~ | ~~P1~~ | **RESOLVED** — `pytest.ini` is now the single source | Dual pytest config where the `pyproject.toml` half was silently ignored. The original diagnosis ("pytest merges them") was wrong — it does not merge, the first file found wins. See §D-07 |
 | 8 | D-08 | P1 | `.github/workflows/python-pytest.yml` vs `scripts/run_tests.py` | CI is `uv run pytest` (plugin autoload); `make test` disables autoload and pins plugins — two suites |
 | 9 | D-09 | P1 | `tests/conftest.py` | Unused fixtures `mock_openai_client`, `mock_model_instance`, `authenticated_client` |
 | 10 | D-10 | P1 | `tests/integration/test_memory_mem0_e2e.py` | Only in-tree test that requires live OpenAI embeddings (`RUN_MEM0_E2E=1` + real `OPENAI_API_KEY`, 300s) |
@@ -209,12 +209,54 @@ hazards:
 
 ---
 
-### D-07 — P1 — Dual pytest config (pytest-django + coverage + logging)
+### D-07 — P1 — Dual pytest config — **RESOLVED**
 
-**Path:** `pytest.ini`; `pyproject.toml` `[tool.pytest.ini_options]`.
+**Path:** `pytest.ini` (kept). `pyproject.toml` `[tool.pytest.ini_options]` (removed).
 
-**Why:** Both files set `DJANGO_SETTINGS_MODULE`, `testpaths`,
-`asyncio_mode`, and warning filters. Pytest merges them.
+**Original diagnosis, and why it was wrong:** this entry previously read
+*"Both files set `DJANGO_SETTINGS_MODULE`, `testpaths`, `asyncio_mode`, and
+warning filters. Pytest merges them."* **Pytest does not merge.** For a given
+rootdir it takes the **first** config file it finds, in the order `pytest.ini`,
+`pyproject.toml`, `tox.ini`, `setup.cfg`, and ignores the rest. So the situation
+was never a benign "merge" — it was **one file entirely inert**, and pytest said
+so on every single run:
+
+```
+configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+```
+
+That warning went unread, which is how a P1 item sat unfixed while the audit that
+wrote it documented a merge that does not happen. Assuming a merge is what made
+the keys look redundant enough to leave alone.
+
+**What was actually dead** — the entire `pyproject.toml` block, including:
+
+- `SWARM_SKIP_DOTENV=true` — the #1335 guard that stops `settings.py` loading the
+  operator's real `~/.config/swarm/.env` (API_AUTH_TOKEN, DATABASE_URL) into the
+  run. It only ever worked because `tests/conftest.py` *also* sets it by
+  `os.environ.setdefault`. Two mechanisms, one live; the redundancy is what hid
+  the rot.
+- `DJANGO_ALLOW_ASYNC_UNSAFE=true` — set nowhere else. Genuinely absent from
+  every bare `uv run pytest`, including CI.
+- the `Marks applied to fixtures have no effect` filter for pytest 9.
+
+**Fix:** migrated those keys into `pytest.ini`, deleted the dead block, corrected
+`CONTRIBUTING.md`, and added
+`tests/core/test_pytest_config_single_source.py`, which asserts the *resolved*
+config via `request.config` and the live process env — not file text, so it
+cannot be satisfied by a config file nothing reads.
+
+**Also folded in:** the commented-out `timeout = 30` hang guard is now
+`timeout = 600`. It was parked with "enable if we observe hangs in CI"; we do
+observe them, and only one workflow job passed `--timeout=180`, so a hang in the
+main job had no ceiling. 600s is a hang guard, not a perf budget — the full suite
+runs in ~570s *total*.
+
+**Not fixed here (still open, lower priority):** `pytest.ini` forces `--cov` and
+`--cov-fail-under=0` while `[tool.coverage.report] fail_under = 70` in
+`pyproject.toml` is overridden by that CLI flag on every pytest run. The two
+gates can therefore never both bite. `log_cli`/`log_file = pytest.log` noise is
+also untouched.
 
 - `pytest.ini` `addopts = -ra --cov=src/swarm --cov-report=term-missing
   --cov-fail-under=0` — every invocation pays coverage; fail-under is

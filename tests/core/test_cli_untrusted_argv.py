@@ -48,12 +48,44 @@ def test_positional_flag_shaped_prompt_is_not_a_flag():
 
 
 def test_catalog_positional_prompts_keep_flag_shaped_text_after_end_marker():
-    for name in ("opencode", "codex", "pi"):
+    # CLIs whose parser accepts a `--` terminator. pi is deliberately NOT in
+    # this list — see the stdin test below.
+    for name in ("opencode", "codex", "claude"):
         adapter = CliAdapter.from_config(name, catalog_entry(name))
         argv, _ = adapter._build_invocation("--model evil", "/tmp/proj")
         assert "--" in argv, name
         assert argv[argv.index("--") + 1] == "--model evil"
         assert argv[-1] == "--model evil"
+
+
+def test_catalog_stdin_cli_never_gets_a_flag_shaped_prompt_in_argv():
+    """pi must never be handed the end-of-options treatment it rejects.
+
+    _protect_prompt_argv defers a flag-shaped prompt behind a `--` marker. That
+    is correct for opencode/codex/claude, but pi 0.74.2's parser has no
+    separator branch and answers `Error: Unknown option: --`, so the argv it
+    would build fails before the model runs. pi's catalog entry therefore uses
+    prompt_mode "stdin": the prompt is delivered byte-for-byte on the pipe and
+    no marker is ever synthesised.
+    """
+    adapter = CliAdapter.from_config("pi", catalog_entry("pi"))
+    # "-p" is deliberately NOT in this list: it is pi's own print flag, so
+    # "the prompt is not in argv" is not a meaningful assertion for it. The
+    # exact-argv equality below already proves nothing was appended.
+    for prompt in ("--model evil", "-x", "@secret.md", "-- --approve"):
+        argv, stdin = adapter._build_invocation(prompt, "/tmp/proj")
+        assert stdin == prompt.encode("utf-8"), prompt
+        assert "--" not in argv, prompt
+        assert prompt not in argv, prompt
+        # The shipped flags survive untouched — nothing was reordered or eaten.
+        assert argv == [
+            "pi",
+            "-p",
+            "--mode",
+            "text",
+            "--model",
+            "litellm-fly/orchestration",
+        ], prompt
 
 
 def test_print_flag_attaches_flag_shaped_prompt():

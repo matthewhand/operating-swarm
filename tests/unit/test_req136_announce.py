@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from helpers.private_net import assert_no_private_ip
 
 REPO = Path(__file__).resolve().parents[2]
 README = REPO / "README.md"
@@ -70,8 +71,7 @@ def test_announce_sot_has_spiel_roster_and_checklist():
     lowered = text.lower()
     for needle in SECRET_NEEDLES:
         assert needle not in lowered
-    assert "10.0.0." not in text
-    assert "192.168." not in text
+    assert_no_private_ip(text)
 
 
 def test_readme_embeds_spiel_and_hero_path():
@@ -88,7 +88,7 @@ def test_readme_embeds_spiel_and_hero_path():
     # README already documents a `sk-...` placeholder and a `:8001` seed pointer.
     assert "github_pat_" not in text.lower()
     assert "ghp_" not in text.lower()
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)
 
 
 def test_asset_path_contract_matches_456():

@@ -6,7 +6,7 @@ point (REQ-920 / #539; SDK docs: REQ-921 / #540).
 Base: RemoteKindBase (``swarm.core.kind_bases``). Why: the transcript and
 the brain live on a REMOTE harness (OpenMausBot, Hermes, Rakazo, Herdr,
 nested swarm, TrueForge, …). Per ADR-011 / REQ-203 these are all
-implementations of ONE remote harness kind — Open Swarm sits in front and
+implementations of ONE remote harness kind — Operating Swarm sits in front and
 consults them; it never impersonates them.
 
 Hooks / helpers used here, and why:
@@ -56,7 +56,7 @@ class ExampleRemoteMinimalBlueprint(RemoteKindBase):
             "honest when it is DOWN. Read its source before copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "remote", "minimal"],
         "required_mcp_servers": [],
         "env_vars": [],

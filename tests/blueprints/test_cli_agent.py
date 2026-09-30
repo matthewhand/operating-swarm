@@ -381,9 +381,17 @@ async def test_second_turn_passes_stored_resume_id(tmp_path, monkeypatch):
     _assert_notice_before_assistant(first, "Started a new echo session.")
     assert "restored" not in " ".join(_session_notices(first)).lower()
 
+    from swarm.core import chat_store
     from swarm.core.cli_sessions import get_cli_session
 
-    assert get_cli_session("u1", "cli_agent", "echo") == "sid-1"
+    # The id lives on THIS conversation's record
+    # (``<agent>__<conversation_id>.json``), not on the agent's default file —
+    # one id per agent leaks context into an unrelated conversation in the same
+    # seat (#1690).
+    assert get_cli_session("u1", "cli_agent", "echo", conversation_id="t-echo") == "sid-1"
+    assert get_cli_session("u1", "cli_agent", "echo") is None
+    default_record = chat_store.load("u1", "cli_agent") or {}
+    assert not (default_record.get("cli_sessions") or {}), default_record.get("cli_sessions")
 
     bp.set_params({**thread, "cli": "echo", "failover": False})
     second = await _collect(
@@ -431,8 +439,15 @@ async def test_missing_session_starts_new_and_is_honest(tmp_path, monkeypatch):
     )
     chunks = await _collect(bp.run([{"role": "user", "content": "hi"}]))
     assert _final_content(chunks) == "fresh"
-    assert _session_notices(chunks) == ["Started a new echo session."]
+    # The notice names the lost session rather than repeating the generic
+    # "Started a new …" a first turn also produces — a recovered turn must be
+    # distinguishable from a deliberately fresh one. Still exactly one notice,
+    # still never claiming a restore.
+    assert _session_notices(chunks) == [
+        "The previous echo session was gone; started a new echo session."
+    ]
     assert "restored" not in " ".join(_session_notices(chunks)).lower()
+    assert all("Resumed" not in n for n in _session_notices(chunks))
     from swarm.core.cli_sessions import get_cli_session
 
     assert get_cli_session("u1", "cli_agent", "echo") == "sid-new"
@@ -490,6 +505,47 @@ async def test_blueprint_non_streaming_still_single_full_message():
     # Non-streaming yields exactly one content message (the full answer).
     assert _message_contents(chunks) == ["line1\nline2"]
     assert chunks[-1].get("final") is True
+
+
+def _stderr_config():
+    # A CLI that answers on stdout but prints its tool/subagent trail to stderr,
+    # with ANSI codes and a key-shaped token, exactly like opencode under `run`.
+    code = (
+        "import sys;"
+        "sys.stdout.write('ANSWER');"
+        "sys.stderr.write('\\x1b[0m[tool] ls\\n');"
+        "sys.stderr.write('build - orchestration\\n');"
+        "sys.stderr.write('auth sk-abc1234567890\\n')"
+    )
+    return {
+        "cli_agents": {"s": {"cmd": [PY, "-c", code, "{prompt}"], "parse": "text"}},
+        "cli_fusion": {"default_cli": "s"},
+    }
+
+
+async def test_blueprint_surfaces_cli_stderr_progress_transiently():
+    """CLI tool/subagent lines (stderr) become marked status lines, not the reply."""
+    bp = CliAgentBlueprint(blueprint_id="cli_agent", config=_stderr_config())
+    chunks = await _collect(bp.run([{"role": "user", "content": "go"}]))
+
+    assert _final_content(chunks) == "ANSWER"
+    assert "[tool] ls" not in _final_content(chunks)
+
+    progress = [
+        c for c in chunks if isinstance(c, dict) and c.get("type") == "fusion_progress"
+    ]
+    lines = [c.get("content") for c in progress]
+    assert "[tool] ls" in lines
+    assert "build - orchestration" in lines
+    # secrets never reach the transcript; ANSI stays stripped
+    assert "auth [REDACTED]" in lines
+    assert all("abcdef1234567890" not in (line or "") for line in lines)
+    assert all("\x1b" not in (line or "") for line in lines)
+    # bubble-less + never persisted as the assistant reply
+    stderr_progress = [c for c in progress if c.get("content") in ("[tool] ls", "build - orchestration", "auth [REDACTED]")]
+    assert stderr_progress
+    assert all(c.get("transient") is True for c in stderr_progress)
+    assert all("messages" not in c for c in progress)
 
 
 async def test_blueprint_streaming_reports_failure():

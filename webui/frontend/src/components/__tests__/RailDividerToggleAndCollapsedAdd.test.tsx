@@ -15,16 +15,16 @@ const sidebarSource = readFileSync(
   join(__dirname, '..', 'AgentSidebar.tsx'),
   'utf8',
 )
+const addMenuSource = readFileSync(join(__dirname, '..', 'AddBotMenu.tsx'), 'utf8')
 
-describe('#754 divider pill placement', () => {
-  it('anchors the pill to the chat side of the divider, not centered on it', () => {
-    const pillBlock = css.match(/\.os-rail-divider-pill\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(pillBlock).toBeTruthy()
-    // Chat side = right of the divider line: anchored from the left edge of
-    // the resizer, offset right, no centering translate on the X axis.
-    expect(pillBlock).toMatch(/left:\s*(100%|calc\(100%)/)
-    expect(pillBlock).not.toMatch(/left:\s*50%/)
-    expect(pillBlock).toMatch(/translate\(\s*0(?:%|px)?\s*,\s*-50%\s*\)/)
+describe('#754 → #1246 divider affordance placement', () => {
+  it('retires the mid-divider pill and keeps the draggable spine', () => {
+    // #1246 supersedes #754: the pill no longer rides the divider at all.
+    // The spine (::after) remains the resize affordance, with no floating
+    // notch left behind.
+    expect(css).not.toMatch(/\.os-rail-divider-pill/)
+    expect(css).not.toMatch(/top:\s*40%/)
+    expect(css).toMatch(/\.os-rail-resizer::after/)
   })
 })
 
@@ -44,7 +44,10 @@ describe('#764 add agent button in avatar-only rail', () => {
   })
 
   it('the add button renders in the search row in the component', () => {
-    const row = sidebarSource.match(/os-rail-search-row[\s\S]{0,1400}os-search-add-btn/)
+    // #1674: the row now mounts the shared `AddBotMenu`, which owns the
+    // `.os-search-add-btn` trigger. Pin both halves of that chain.
+    const row = sidebarSource.match(/os-rail-search-row[\s\S]{0,1400}<AddBotMenu/)
     expect(row).toBeTruthy()
+    expect(addMenuSource).toMatch(/className="os-search-add-btn"/)
   })
 })

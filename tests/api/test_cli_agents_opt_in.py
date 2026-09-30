@@ -12,7 +12,7 @@ FAKE_CLIS = ("echo", "fake", "dummy", "mock", "testcli", "placeholder")
 
 @pytest.mark.django_db
 def test_cli_agents_endpoint_empty_configured_with_path_suggestions(client, monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: "/bin/grok" if exe == "grok" else None)
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: "/bin/grok" if exe == "grok" else None)
     app = apps.get_app_config("swarm")
     orig = getattr(app, "config", {})
     app.config = {"cli_agents": {}}
@@ -38,7 +38,7 @@ def test_cli_agents_endpoint_empty_configured_with_path_suggestions(client, monk
 
 @pytest.mark.django_db
 def test_cli_agents_endpoint_configured_excludes_from_suggestions(client, monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: "/bin/" + exe)
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: "/bin/" + exe)
     app = apps.get_app_config("swarm")
     orig = getattr(app, "config", {})
     app.config = {"cli_agents": {"claude": {"cmd": ["claude", "-p", "{prompt}"]}}}
@@ -56,7 +56,7 @@ def test_cli_agents_endpoint_configured_excludes_from_suggestions(client, monkey
 def test_cli_agents_endpoint_discovered_excludes_fake_and_absent(client, monkeypatch):
     """Issue #147: GET /v1/cli-agents/ start set is PATH-discovered, no fake CLIs."""
     monkeypatch.setattr(
-        cli_catalog.shutil, "which", lambda exe, path=None: "/bin/grok" if exe == "grok" else None
+        cli_catalog, "which_cli", lambda exe, path=None: "/bin/grok" if exe == "grok" else None
     )
     app = apps.get_app_config("swarm")
     orig = getattr(app, "config", {})

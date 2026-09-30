@@ -7,7 +7,7 @@
  * ``applyApiRoutingChange`` land provider/model picks into the ``?cli=`` /
  * ``?model=`` channels + per-agent dropdown memory. Moved verbatim.
  */
-import { useCallback, type MutableRefObject } from 'react'
+import { useCallback, useRef, type MutableRefObject } from 'react'
 import {
   formatDropdownStatus,
   shouldRecordDropdownChange,
@@ -16,8 +16,9 @@ import {
 import type { ChatMessage } from './chatMessages'
 import { appendAgentMessage } from '../../lib/agentChat'
 import {
-  crossKindHopForReconfigure,
   hopCliSession,
+  reconfigureHopForSeat,
+  reconfigureHopIsIdentity,
 } from '../../lib/cliSessionHop'
 import { providerReconfigureNotice } from '../../lib/seatRouting'
 import { persistAgentDropdownChoice } from '../../lib/userPrefs'
@@ -64,6 +65,25 @@ export function useChatRouting({
   setSearchParams,
   addToast,
 }: UseChatRoutingOptions) {
+  const warnedRef = useRef('')
+  const warnBeforeEngineSwitch = useCallback(
+    (message: string) => {
+      const text = message.trim()
+      if (!text) return
+      // The picker and the routing change announce the same sentence in one
+      // click. Ignore that twin, then forget it so the next switch can warn.
+      if (warnedRef.current === text) {
+        warnedRef.current = ''
+        return
+      }
+      warnedRef.current = text
+      addToast({ type: 'warning', title: 'Engine switch', message: text })
+      queueMicrotask(() => {
+        if (warnedRef.current === text) warnedRef.current = ''
+      })
+    },
+    [addToast],
+  )
   const recordDropdownChange = useCallback(
     (kind: DropdownKind, fromLabel: string, toLabel: string) => {
       if (!shouldRecordDropdownChange(fromLabel, toLabel)) return
@@ -100,16 +120,17 @@ export function useChatRouting({
 // the new backend injects it (CLI: prompt seed; api: system turn; remote:
 // merged into the user prompt).
   const reconfigureProviderForSeat = useCallback(
-    (profile: string) => {
+    (profile: string, detail?: { capabilityWarning?: string }) => {
+      if (detail?.capabilityWarning) warnBeforeEngineSwitch(detail.capabilityWarning)
       const kind: 'api' | 'cli' | 'remote' | 'team' =
         isRemoteAgent || isRemoteBackedTeam ? 'remote' : isCliAgent ? 'cli' : 'api'
-      const spec = crossKindHopForReconfigure({
+      const spec = reconfigureHopForSeat({
+        seatKind: kind,
         seatId: activeChatAgentId,
         conversationId: conversationIdRef.current || '',
-        fromCli: kind === 'cli' ? (currentCli || 'prior') : kind === 'remote' ? (activeRemoteId || 'prior') : 'api',
-        toCli: profile,
-        toKind: 'api',
-        toBackendId: profile,
+        profile,
+        currentCli,
+        currentRemoteId: activeRemoteId,
       })
       const appendStatus = (text: string) => {
         const statusMsg: ChatMessage = {
@@ -124,6 +145,13 @@ export function useChatRouting({
           [threadKey]: [...(prev[threadKey] ?? []), statusMsg],
         }))
       }
+      // A CLI profile pick stays on the current adapter, so from and to match.
+      // The hop endpoint rejects that pair. Show the notice — do not POST a 400
+      // and do not clear the CLI session.
+      if (reconfigureHopIsIdentity(spec)) {
+        appendStatus(providerReconfigureNotice(profile, kind))
+        return
+      }
       void hopCliSession({
         agentId: spec.agentId,
         fromCli: spec.fromCli,
@@ -136,6 +164,9 @@ export function useChatRouting({
       })
         .then((hop) => {
           appendStatus(hop?.status?.trim() || providerReconfigureNotice(profile, kind))
+          const lost = hop?.capability_warning?.trim()
+          const already = detail?.capabilityWarning?.trim()
+          if (lost && lost !== already) warnBeforeEngineSwitch(lost)
         })
         .catch(() => {
           // Hop failed — keep the honest notice rather than silently dropping
@@ -143,14 +174,18 @@ export function useChatRouting({
           appendStatus(providerReconfigureNotice(profile, kind))
         })
     },
-    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey, activeChatAgentId, currentCli, activeRemoteId],
+    [isRemoteAgent, isRemoteBackedTeam, isCliAgent, threadKey, activeChatAgentId, currentCli, activeRemoteId, warnBeforeEngineSwitch],
   )
   const applyCliRoutingChange = useCallback(
     (next: RoutingPathChange) => {
       if (next.changed === 'agent') {
+        if (next.capabilityWarning) warnBeforeEngineSwitch(next.capabilityWarning)
+        // Switching CLI is a source switch: always write the model slot (even
+        // when empty, which clears it) so the previous CLI's model can never
+        // carry into the new CLI's picker (a foreign-id namespace leak).
         persistAgentDropdownChoice(dropdownAgentId, {
           cli: next.agent,
-          ...(next.model ? { model: next.model } : {}),
+          model: next.model || '',
           effort: next.effort || '',
         })
         setSearchParams(
@@ -179,6 +214,9 @@ export function useChatRouting({
             kind: 'cli',
           })
             .then((hop) => {
+              const lost = hop?.capability_warning?.trim()
+              const already = next.capabilityWarning?.trim()
+              if (lost && lost !== already) warnBeforeEngineSwitch(lost)
               if (!hop?.status?.trim()) return
               const statusMsg: ChatMessage = {
                 key: `hop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -240,7 +278,7 @@ export function useChatRouting({
       }
       recordDropdownChange('model', next.previous.modelBase || next.previous.model, next.modelBase || next.model)
     },
-    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey],
+    [addToast, dropdownAgentId, recordDropdownChange, setSearchParams, teamFromUrl, remoteFromUrl, selectedBlueprint, threadKey, warnBeforeEngineSwitch],
   )
 
   // #108: API seats route via LLM profiles. A pick lands in the same
@@ -268,5 +306,11 @@ export function useChatRouting({
     },
     [dropdownAgentId, recordDropdownChange, setSearchParams],
   )
-  return { recordDropdownChange, reconfigureProviderForSeat, applyCliRoutingChange, applyApiRoutingChange }
+  return {
+    recordDropdownChange,
+    reconfigureProviderForSeat,
+    applyCliRoutingChange,
+    applyApiRoutingChange,
+    warnBeforeEngineSwitch,
+  }
 }

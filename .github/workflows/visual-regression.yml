@@ -18,13 +18,34 @@ on:
 
 jobs:
   golden-journey:
-    # HOLD (REQ-89 #446): skipped during merge-smash flush — screenshots/tour lock stale.
-    # Re-enable after smash / PNG recapture. Do not delete this workflow.
-    # Own-diff triage still applies, but goal is green main Python Tests (REQ-134 #524).
-    # This HOLD is not a pytest waiver.
-    # Vitest (`npm test`) now gates PRs in python-pytest.yml `vitest` (REQ-171C-7
-    # / #616). Do not flip this job back on to recover SPA unit coverage.
-    if: false
+    # #1730 claim B: this job used to be `if: false`, behind a HOLD note saying
+    # "screenshots/tour lock stale -- re-enable after smash / PNG recapture".
+    # That justification was wrong on both counts:
+    #
+    #   * There are no golden images. tests/e2e_visual/test_golden_journey.py
+    #     has 6 computed-style / behavioural assertions and no
+    #     toHaveScreenshot; the only PNGs are *failure* screenshots written to a
+    #     gitignored artifacts/. There was nothing to recapture.
+    #   * The suite is green. Verified on this tree: 5 passed, 1 skipped, where
+    #     the skip states its own reason (the SPA dark-mode toggle is not on the
+    #     Django-canonical / shell, so the theme assertion is N/A there).
+    #
+    # An `if: false` job whose stated blocker no longer exists is worse than no
+    # job: every future reader sees a gate and assumes it fires. The HOLD is
+    # lifted and the job runs.
+    #
+    # Still workflow_dispatch only, deliberately. This repo has a documented
+    # exhausted GitHub Actions budget (#1346, see scripts/ci_gates.py), and a new
+    # always-on PR trigger cannot be verified from a workstation. What is removed
+    # is the part that was a lie -- the disabled job. What remains is an honest,
+    # runnable-on-demand browser gate. Adding the pull_request trigger is a
+    # one-line change once Actions budget is restored.
+    #
+    # Provenance, so a future reader does not swap one gate for the other: this
+    # HOLD was placed by REQ-89 during a merge-smash flush. Vitest (npm test)
+    # remains the automatic SPA PR gate in python-pytest.yml (REQ-171C-7 /
+    # #616) -- re-enabling this job does not replace that, and it is not a way to
+    # recover SPA unit coverage.
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

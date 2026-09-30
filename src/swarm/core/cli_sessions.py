@@ -5,8 +5,10 @@ remote's session. This module stores only the **CLI's** session id so the
 next send can pass ``--resume`` / ``--session`` / ``exec resume`` and the
 CLI restores its own context.
 
-Ids are persisted on the per-agent chat JSON record (``cli_sessions``),
-keyed by CLI name. Nothing here stores secrets, API keys, or env dumps.
+Ids are persisted on the chat thread's own JSON record (``cli_sessions``),
+keyed by CLI name — one id per (thread, CLI), never one per agent, so two
+unrelated conversations in the same seat cannot resume each other's session.
+Nothing here stores secrets, API keys, or env dumps.
 """
 
 from __future__ import annotations
@@ -38,9 +40,11 @@ DEFAULT_SESSION_ID_PATHS = (
     ".session",
 )
 
+# "no conversation" matches Claude's "No conversation found with session ID".
+# The bare phrase "conversation found" also matches ordinary replies
+# ("The conversation found the regression") and is not a needle.
 _RESUME_FAILURE_NEEDLES = (
     "no conversation",
-    "conversation found",
     "session not found",
     "unknown session",
     "invalid session",
@@ -159,6 +163,28 @@ def resolve_thread(
     return None
 
 
+def thread_session_id(
+    user_key: str,
+    agent_id: str,
+    conversation_id: str = "",
+    base_dir: Path | None = None,
+) -> str:
+    """The ``chat_store`` session stem that holds this thread's transcript.
+
+    Thin alias for :func:`chat_store.session_stem_for_conversation`, which is
+    now the single copy of the file-layout rule. This module used to re-derive
+    it here and ``chat_repository._session_id_for`` derived it again, and the
+    two copies had drifted: this one honoured a layout already on disk, that
+    one only predicted. A CLI id written to the file the transcript is *not*
+    in is invisible to the next turn, which then starts a fresh host session
+    every follow-up (#1690) — and the same drift is what made the metadata
+    read below answer with the agent's default file (#1722).
+    """
+    return chat_store.session_stem_for_conversation(
+        user_key, agent_id, conversation_id, base_dir=base_dir
+    )
+
+
 def get_cli_session(
     user_key: str,
     agent_id: str,
@@ -169,13 +195,26 @@ def get_cli_session(
     base_dir: Path | None = None,
 ) -> str | None:
     """Stored CLI session id for this chat thread + CLI, or None."""
-    record = chat_store.load(
-        user_key,
-        agent_id,
-        conversation_id=conversation_id,
-        session_id=session_id,
-        base_dir=base_dir,
+    # Read the conversation's OWN record first (#1690). A conversation-scoped
+    # lookup alone is not enough: it scans the agent's files newest-first, and
+    # ``_iso`` only has second resolution, so which file answers is a coin
+    # flip whenever an id was written to the wrong one.
+    stem = session_id or thread_session_id(
+        user_key, agent_id, conversation_id, base_dir=base_dir
     )
+    record = None
+    if stem:
+        record = chat_store.load(
+            user_key, agent_id, session_id=stem, base_dir=base_dir
+        )
+    if not record:
+        record = chat_store.load(
+            user_key,
+            agent_id,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            base_dir=base_dir,
+        )
     if not record:
         return None
     sessions = chat_store.normalize_cli_sessions(record.get("cli_sessions"))
@@ -193,8 +232,35 @@ def put_cli_session(
 ) -> str | None:
     """Write or clear one CLI session id on the thread. Returns the stored id."""
     sid = sanitize_cli_session_id(session_id)
-    record = chat_store.load(user_key, agent_id, base_dir=base_dir)
-    messages = (record or {}).get("messages") or []
+    # Land the id on the record that owns THIS thread (#1690). Writing it to
+    # the agent's default file instead leaves the conversation's own record
+    # without a ``cli_sessions`` key, so the next turn reads nothing and starts
+    # a fresh host session.
+    #
+    # The load below is scoped to the thread's own stem. There is deliberately
+    # **no** fallback to the agent's default file, and no "hydrate the caller's
+    # conversation from Django" fallback either: both of those read a
+    # *different* conversation's turns and then, because this used to pass
+    # those turns to ``chat_store.save(..., mirror_db=True)``, published them
+    # under the caller's conversation id. One ``put_cli_session(conversation_id=B)``
+    # then replaced B's canonical ``ChatMessage`` rows with A's content
+    # (#1722 repro A), and it ran on *every successful CLI turn*.
+    #
+    # This is a metadata write. ``messages=None`` keeps the file's existing
+    # transcript and skips the Django mirror; ``mirror_db=False`` makes that
+    # unconditional, so a metadata write can never be a database write no
+    # matter which code path reaches it later.
+    stem = thread_session_id(user_key, agent_id, conversation_id, base_dir=base_dir)
+    record = None
+    if stem:
+        record = chat_store.load(user_key, agent_id, session_id=stem, base_dir=base_dir)
+    if record is None:
+        record = chat_store.load(
+            user_key,
+            agent_id,
+            conversation_id=conversation_id,
+            base_dir=base_dir,
+        )
     sessions = chat_store.normalize_cli_sessions((record or {}).get("cli_sessions"))
     key = chat_store.normalize_agent_id(cli_name)
     if sid:
@@ -204,12 +270,14 @@ def put_cli_session(
     chat_store.save(
         user_key,
         agent_id,
-        messages,
+        None,
         conversation_id=conversation_id
         or (record or {}).get("conversation_id")
         or "",
+        session_id=stem,
         cli_sessions=sessions,
         base_dir=base_dir,
+        mirror_db=False,
     )
     return sid
 

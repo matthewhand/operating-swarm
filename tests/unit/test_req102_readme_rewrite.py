@@ -6,6 +6,7 @@ on DEVELOPER.md; README must not become a developer novel again.
 """
 
 from swarm.core.handoff_graph import repo_root
+from helpers.private_net import assert_no_private_ip
 
 
 def _readme() -> str:
@@ -77,7 +78,7 @@ def test_developer_doc_holds_moved_internals():
     lowered = text.lower()
     for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)
 
 
 def test_vision_points_at_current_readme_not_stale_466():

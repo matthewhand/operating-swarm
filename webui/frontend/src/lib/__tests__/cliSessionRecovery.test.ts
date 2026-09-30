@@ -18,6 +18,8 @@ describe('cliSessionRecovery', () => {
   it('classifies resume failures as fatal', () => {
     expect(isFatalConfigErrorText('[grok] failed: session not found')).toBe(true)
     expect(isFatalConfigErrorText('Cannot resume expired session')).toBe(true)
+    expect(isFatalConfigErrorText('No conversation found with session ID')).toBe(true)
+    expect(isFatalConfigErrorText('The conversation found the regression')).toBe(false)
   })
 
   it('classifies unconfigured harness copy as fatal', () => {

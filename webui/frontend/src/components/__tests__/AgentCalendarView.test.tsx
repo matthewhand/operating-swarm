@@ -521,7 +521,7 @@ describe("AgentCalendarView component", () => {
     }
   })
 
-  it("AgentSidebar footer contains Calendar button that opens AgentCalendarView", () => {
+  it("AgentSidebar footer contains Calendar button that opens AgentCalendarView", async () => {
     renderWithProviders(<AgentSidebar open={true} />)
 
     // REQ-913 / #512: the entry is named Routines; the testid is unchanged.
@@ -533,7 +533,7 @@ describe("AgentCalendarView component", () => {
     expect(screen.queryByTestId("agent-calendar-view")).not.toBeInTheDocument()
 
     fireEvent.click(calendarBtn)
-    expect(screen.getByTestId("agent-calendar-view")).toBeInTheDocument()
+    expect(await screen.findByTestId("agent-calendar-view")).toBeInTheDocument()
   })
 
   it("renders executed runs in calendar day cells with status styling", () => {

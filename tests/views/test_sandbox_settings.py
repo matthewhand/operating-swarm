@@ -71,6 +71,9 @@ def test_daytona_without_sdk_is_honest(monkeypatch):
 
 
 def test_daytona_env_name_resolution(monkeypatch):
+    # Isolate from any operator-set DAYTONA_API_KEY (which _resolve_api_key
+    # falls back to) so the assertion is hermetic.
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.setenv("MY_DAYTONA_KEY", "secret-token")
     backend = DaytonaSandbox()
     backend.config.extra_options["daytona_api_key_env"] = "MY_DAYTONA_KEY"

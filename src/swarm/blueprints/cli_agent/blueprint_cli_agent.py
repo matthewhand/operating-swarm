@@ -18,20 +18,43 @@ from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
 from swarm.core.cli_adapter import CliAdapter, CliResult
-from swarm.core.cli_session_error import is_fatal_config_error
+from swarm.core.cli_session_error import (
+    is_fatal_config_error,
+    missing_session_notice_text,
+    should_recover_cli_session,
+)
 from swarm.core.cli_sessions import (
     clear_cli_session,
     get_cli_session,
-    is_resume_failure,
     is_resume_failure_text,
     put_cli_session,
     resolve_thread,
+    thread_session_id,
 )
 from swarm.core.consensus import run_consensus
 from swarm.core.kind_bases import CliKindBase
 from swarm.core.session_policy import resume_cli_session_id
 
 logger = logging.getLogger(__name__)
+
+
+def _cli_failure_text(result: Any) -> str:
+    """Every stream of a failed :class:`CliResult` as one string.
+
+    The classifier must see the same text the adapter reported — a
+    non-zero exit puts it in ``error``, a provider may only print it, and a
+    rejected session id has shown up in all three.
+    """
+    if result is None:
+        return ""
+    return " ".join(
+        str(part or "")
+        for part in (
+            getattr(result, "error", None),
+            getattr(result, "stderr", None),
+            getattr(result, "text", None),
+        )
+    ).strip()
 
 
 class CliAgentBlueprint(CliKindBase):
@@ -45,7 +68,7 @@ class CliAgentBlueprint(CliKindBase):
             "over the OpenAI-compatible API. The 'cli' param selects which one."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "subagent", "adapter", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],
@@ -270,13 +293,34 @@ class CliAgentBlueprint(CliKindBase):
         return remote_endpoint_label(endpoint)
 
     def _session_notice(
-        self, adapter: Any, params: dict[str, Any], *, resumed: bool
+        self,
+        adapter: Any,
+        params: dict[str, Any],
+        *,
+        resumed: bool,
+        recovered: bool = False,
     ) -> dict[str, Any]:
+        host = self._remote_host(adapter, params)
         return support.session_notice_chunk(
             adapter.name,
             resumed=resumed,
-            host=self._remote_host(adapter, params),
+            host=host,
+            text=(
+                missing_session_notice_text(adapter.name, host=host)
+                if recovered
+                else None
+            ),
+            recovered=recovered,
         )
+
+    def _recovered_notice(self, adapter: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """Session line for a turn that recovered from a missing session.
+
+        Named here so the streaming path, which recovers mid-stream before it
+        knows whether the fresh run succeeds, says what happened instead of
+        repeating the generic "Started a new session" a first turn produces.
+        """
+        return self._session_notice(adapter, params, resumed=False, recovered=True)
 
     def _mark_active_cli(self, params: dict[str, Any], cli_name: str) -> None:
         ref = self._thread_ref(params)
@@ -285,11 +329,19 @@ class CliAgentBlueprint(CliKindBase):
         try:
             from swarm.core import chat_store
 
+            conversation_id = str(params.get("conversation_id") or "")
             chat_store.save(
                 ref[0],
                 ref[1],
                 None,
-                conversation_id=str(params.get("conversation_id") or ""),
+                conversation_id=conversation_id,
+                # The stamp belongs on the thread's OWN record, next to the
+                # session id it explains. Written to the agent's default file
+                # it is invisible to the next turn, which then reads an
+                # unstamped thread and hops off a phantom ``_default`` (#1690).
+                session_id=thread_session_id(
+                    ref[0], ref[1], conversation_id=conversation_id
+                ),
                 active_cli=cli_name,
             )
         except Exception:
@@ -303,11 +355,14 @@ class CliAgentBlueprint(CliKindBase):
         params: dict[str, Any],
         workdir: str | None,
         prepared: dict[str, Any] | None = None,
-    ) -> tuple[CliResult, bool]:
+    ) -> tuple[CliResult, bool, bool]:
         """Run one CLI, replaying a stored session id when the CLI can resume.
 
-        Returns ``(result, resumed)``. ``resumed`` is True only when a stored
-        id was passed and the run succeeded without falling back to a new session.
+        Returns ``(result, resumed, recovered)``. ``resumed`` is True only when a
+        stored id was passed and the run succeeded without falling back to a new
+        session. ``recovered`` is True when the CLI rejected that id and this
+        turn ran fresh instead — the caller says so rather than claiming a
+        resume that never happened.
         """
         prepared = prepared or self._prepare_cli_turn(
             adapter, messages, full_prompt, params, workdir
@@ -319,13 +374,21 @@ class CliAgentBlueprint(CliKindBase):
             prompt, workdir=workdir, session_id=stored if can_resume else None
         )
         resumed = can_resume and result.ok
-        if can_resume and not result.ok and is_resume_failure(result):
+        recovered = False
+        # A stored id the CLI no longer recognises is recoverable, not fatal:
+        # drop it, run once fresh, and say so. One retry, never a loop, and
+        # never for a credential or model fault — that would hide a real
+        # problem and cost a turn to hide it.
+        if should_recover_cli_session(
+            _cli_failure_text(result), session_id=stored if can_resume else None
+        ):
             self._forget_session(params, adapter.name)
-            prompt = self._turn_prompt(
+            fresh_prompt = self._turn_prompt(
                 messages, full_prompt, params, workdir, resume=False
             )
-            result = await adapter.run(prompt, workdir=workdir, session_id=None)
+            result = await adapter.run(fresh_prompt, workdir=workdir, session_id=None)
             resumed = False
+            recovered = True
         if result.session_id:
             self._remember_session(params, adapter.name, result.session_id)
         elif resumed and stored:
@@ -334,7 +397,7 @@ class CliAgentBlueprint(CliKindBase):
             self._stamp_store_session(params, adapter, result)
         if result.ok:
             self._mark_active_cli(params, adapter.name)
-        return result, resumed
+        return result, resumed, recovered
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
         # Snapshot params once before any await: the API view may reuse a cached
@@ -419,13 +482,26 @@ class CliAgentBlueprint(CliKindBase):
         workdir: str | None,
         **kwargs: Any,
     ) -> Any:
+        from swarm.core.agent_skills import (
+            consume_applied_first_run,
+            merge_pending_first_run,
+            skill_seat_from_params,
+        )
         from swarm.core.skills import requested_skill_names
 
-        requested = requested_skill_names(params)
+        # ``agent`` is the seat key used by folder/remote resolution in this
+        # file. The shared ``cli_agent`` engine id is not a seat.
+        blueprint_seat = str(self.blueprint_id or "").strip()
+        if blueprint_seat.lower() in {"", "cli_agent"}:
+            blueprint_seat = ""
+        agent_id = skill_seat_from_params(params, kwargs.get("agent_id"), blueprint_seat or None)
+        skill_params = merge_pending_first_run(agent_id, params)
+        requested = requested_skill_names(skill_params)
         if requested:
             prompt, applied, missing = support.apply_skills_to_prompt(
-                prompt, params, workdir=workdir
+                prompt, skill_params, workdir=workdir, agent_id=agent_id
             )
+            consume_applied_first_run(agent_id, applied)
             for name in applied:
                 yield support.progress_chunk(
                     f"_Applying skill `{name}` (`skills/{name}/SKILL.md`)…_"
@@ -542,9 +618,12 @@ class CliAgentBlueprint(CliKindBase):
                     elif chunk.delta:
                         yield support.message_chunk(chunk.delta)  # incremental delta
                 resumed = can_resume and result is not None and result.ok
-                if result is not None and can_resume and not result.ok and is_resume_failure(result):
+                if result is not None and should_recover_cli_session(
+                    _cli_failure_text(result), session_id=stored if can_resume else None
+                ):
+                    # One retry, no loop: drop the dead id, run fresh, say so.
                     self._forget_session(params, adapter.name)
-                    yield self._session_notice(adapter, params, resumed=False)
+                    yield self._recovered_notice(adapter, params)
                     turn_prompt = self._turn_prompt(
                         messages, prompt, params, workdir, resume=False
                     )
@@ -609,15 +688,23 @@ class CliAgentBlueprint(CliKindBase):
             # REQ-92: new-session line before the CLI runs so it precedes the reply.
             if announce_new:
                 yield self._session_notice(adapter, params, resumed=False)
-            result, resumed = await self._invoke_cli(
+            result, resumed, recovered = await self._invoke_cli(
                 adapter, messages, prompt, params, workdir, prepared=prepared
             )
             if result.terminated:
                 yield support.terminated_notice_chunk()
                 return
             if not announce_new:
-                yield self._session_notice(adapter, params, resumed=resumed)
+                # ``recovered`` distinguishes "your session was gone, I started a
+                # new one" from a plain resume, so the line stays honest.
+                yield self._session_notice(
+                    adapter, params, resumed=resumed, recovered=recovered
+                )
             if result.ok:
+                # Surface the CLI's own tool/subagent progress (stderr) as
+                # bubble-less status lines — context, never the assistant reply.
+                for line in support.cli_progress_lines(result.stderr):
+                    yield support.cli_progress_chunk(line)
                 if result.parse_error:
                     logger.warning("CLI %s parse issue: %s", name, result.parse_error)
                 yield support.message_chunk(result.text, final=True, meta=support.backend_meta([name]))

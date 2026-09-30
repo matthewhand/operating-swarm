@@ -246,3 +246,21 @@ def test_chief_of_staff_role_attaches_tools_when_wired():
     support.tools = []
     assert attach_to_agent(support, _ctx("support", caller_id="support")) == []
     assert support.tools == []
+
+
+def test_section_change_emits_one_activity_event(tmp_path, monkeypatch):
+    """#1314: a topology mutation records one ActivityEvent for the caller."""
+    import json
+
+    from swarm.core import activity_log as al
+
+    log_path = tmp_path / "activity_log.jsonl"
+    monkeypatch.setenv(al.ENV_LOG_PATH, str(log_path))
+    ctx = _ctx(user_key="user:ada")
+    created = ctx.create_section("Review")
+    assert created["ok"] is True
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["action"] == "topology.changed"
+    assert rows[0]["actor_id"] == "user:ada"
+    assert "Review" in rows[0]["detail"]["message"] or rows[0]["detail"]["message"]

@@ -12,6 +12,7 @@ import {
   mergeCatalog,
   outcomeFromInstall,
   safeGithubUrl,
+  sourceStatusLines,
   templateToCatalogItem,
   usesBackendInstall,
   type InstallCatalogItem,
@@ -283,5 +284,52 @@ describe('REQ-887 backend catalog mapping', () => {
         message: 'Already installed.',
       }),
     ).toMatchObject({ status: 'ok', message: 'Already installed.' })
+  })
+})
+
+describe('sourceStatusLines (#1327)', () => {
+  it('names the stalled source, reason and cached item count', () => {
+    const lines = sourceStatusLines({
+      object: 'marketplace_catalog',
+      kind: 'plugins',
+      sources: ['mcp_registry', 'github', 'composio'],
+      external: true,
+      items: [],
+      warnings: [],
+      source_status: [
+        { source: 'mcp_registry', enabled: true, stalled_reason: null, item_count: 12 },
+        {
+          source: 'composio',
+          source_label: 'Composio',
+          enabled: true,
+          stalled_reason: 'timeout',
+          cached: true,
+          item_count: 42,
+        },
+      ],
+    })
+    expect(lines).toEqual([
+      'Composio: stalled — timeout; showing 42 cached items',
+    ])
+  })
+
+  it('reports a disabled optional source as not configured, not an outage', () => {
+    const lines = sourceStatusLines({
+      object: 'marketplace_catalog',
+      kind: 'plugins',
+      sources: ['mcp_registry', 'github'],
+      external: true,
+      items: [],
+      warnings: [],
+      source_status: [
+        {
+          source: 'composio',
+          enabled: false,
+          stalled_reason: 'not_configured',
+          item_count: 0,
+        },
+      ],
+    })
+    expect(lines).toEqual(['Composio: not configured'])
   })
 })

@@ -129,6 +129,17 @@ def test_list_tools_disabled_refuses():
             list_tools_fn=lambda _spec: [{"name": "fetch"}],
         )
     assert exc.value.code == "disabled"
+    with pytest.raises(McpPluginError) as text_exc:
+        list_tools_for_spec(
+            {"name": "fetch", "command": "uvx", "enabled": "false"},
+            list_tools_fn=lambda _spec: [{"name": "fetch"}],
+        )
+    assert text_exc.value.code == "disabled"
+
+
+def test_public_server_string_false_is_disabled():
+    row = public_server("fetch", {"command": "uvx", "enabled": "False"})
+    assert row["enabled"] is False
 
 
 def test_public_server_redacts_and_lists_tools():
@@ -369,9 +380,107 @@ def test_plugin_catalog_ids_include_discovered():
                 "custom": {
                     "command": "uvx",
                     "discovered_tools": [{"name": "acme_lookup", "description": "Lookup"}],
-                }
+                },
+                "off": {
+                    "command": "uvx",
+                    "enabled": "false",
+                    "discovered_tools": [{"name": "should_stay_off", "description": "Off"}],
+                },
             }
         }
     )
     assert "acme_lookup" in ids
     assert "web_search" in ids
+    assert "should_stay_off" not in ids
+
+
+def test_1263_attach_reaches_starting_agent_factory():
+    """#1263 — a fresh chat blueprint exposes `create_starting_agent` as a
+    *method* (agents not built yet). Attach must wrap the factory so the
+    enabled plugin tools land on the graph the moment it is constructed,
+    instead of silently attaching to nothing."""
+    config = {
+        "mcpServers": {
+            "fetch": {
+                "command": "uvx",
+                "args": ["mcp-server-fetch"],
+                "discovered_tools": [{"name": "web_fetch", "description": "Fetch a URL"}],
+            },
+        }
+    }
+
+    class FreshApiBlueprint:
+        """No `agents`, no `starting_agent` — the pre-run chat state."""
+
+        def __init__(self) -> None:
+            self.built = None
+
+        def create_starting_agent(self, mcp_servers):  # noqa: ARG002
+            agent = SimpleNamespace(functions=[_fn("chat")], tools=[], mcp_servers=[])
+            self.built = agent
+            return agent
+
+    bp = FreshApiBlueprint()
+    attached = attach_plugin_mcp_tools(bp, config)
+    assert attached == ["web_fetch"]
+
+    built = bp.create_starting_agent([])
+    names = [getattr(fn, "name", "") for fn in built.functions]
+    assert "web_fetch" in names
+    assert "chat" in names
+    assert built.mcp_servers == ["fetch"]
+
+
+def test_1263_allowlist_applies_to_factory_agents():
+    """#1263 — the per-chat allowlist must also see factory-built agents:
+    after attach wraps `create_starting_agent`, running the allowlist with an
+    empty `enabled_tools` strips the plugin tool from the next built graph."""
+    config = {
+        "mcpServers": {
+            "fetch": {
+                "command": "uvx",
+                "args": ["mcp-server-fetch"],
+                "discovered_tools": [{"name": "web_fetch", "description": "Fetch a URL"}],
+            },
+        }
+    }
+
+    class FreshApiBlueprint:
+        def create_starting_agent(self, mcp_servers):  # noqa: ARG002
+            return SimpleNamespace(functions=[_fn("chat")], tools=[], mcp_servers=[])
+
+    bp = FreshApiBlueprint()
+    attach_plugin_mcp_tools(bp, config)
+    # Plugin toggled OFF for this chat -> allowlist drops the tool from the factory path.
+    apply_plugin_mcp_runtime(bp, config, [])
+    built = bp.create_starting_agent([])
+    names = [getattr(fn, "name", "") for fn in built.functions]
+    assert "web_fetch" not in names
+    assert "chat" in names
+
+
+def test_1263_factory_still_receives_mcp_server_names():
+    """#1263 — the wrap is additive: the original factory signature is
+    preserved and `mcp_servers` names still flow to the built agent."""
+    config = {
+        "mcpServers": {
+            "fetch": {
+                "command": "uvx",
+                "args": ["mcp-server-fetch"],
+                "discovered_tools": [{"name": "web_fetch", "description": "Fetch a URL"}],
+            },
+        }
+    }
+
+    seen = {}
+
+    class FreshApiBlueprint:
+        def create_starting_agent(self, mcp_servers):
+            seen["mcp"] = list(mcp_servers or [])
+            return SimpleNamespace(functions=[], tools=[], mcp_servers=list(mcp_servers or []))
+
+    bp = FreshApiBlueprint()
+    attach_plugin_mcp_tools(bp, config)
+    built = bp.create_starting_agent(["preexisting"])
+    assert seen["mcp"] == ["preexisting"]
+    assert built.mcp_servers == ["preexisting", "fetch"]

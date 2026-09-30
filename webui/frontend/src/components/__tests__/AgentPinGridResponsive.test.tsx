@@ -10,15 +10,19 @@ describe('REQ-206: Pinned grid columns adapt to sidepane width (1 / 2 / 3)', () 
     expect(cssContent).toMatch(/\.os-agent-sidebar\s*\{[^}]*container-type:\s*inline-size/s)
   })
 
-  it('defines container queries for 1, 2, and 3 columns on .os-fav-grid', () => {
-    // Default 2-column layout
-    expect(cssContent).toMatch(/\.os-fav-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s)
+  it('uses fixed-width auto-fill tracks centred as a block, not fluid columns', () => {
+    // #1262 revert: fixed 5.25rem tracks (width-independent tile geometry)
+    // centred as a block. Fluid 1fr columns re-flowed at every rail width,
+    // which read as wobble; auto-fill + fixed tracks keeps it stable.
+    expect(cssContent).toMatch(
+      /\.os-fav-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*5\.25rem\)/s,
+    )
+    expect(cssContent).toMatch(/\.os-fav-grid\s*\{[^}]*justify-content:\s*center/s)
+  })
 
-    // Narrow rail container query: 1 column
-    expect(cssContent).toMatch(/@container\s*\([^)]*max-width:\s*200px[^)]*\)\s*\{[^}]*\.os-fav-grid\s*\{[^}]*grid-template-columns:\s*1fr/s)
-
-    // Wide rail container query: 3 columns
-    expect(cssContent).toMatch(/@container\s*\([^)]*min-width:\s*320px[^)]*\)\s*\{[^}]*\.os-fav-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s)
+  it('keeps container queries as gap-only narrow/wide refinements', () => {
+    expect(cssContent).toMatch(/@container\s*\([^)]*max-width:\s*200px[^)]*\)/)
+    expect(cssContent).toMatch(/@container\s*\([^)]*min-width:\s*320px[^)]*\)/)
   })
 
   it('preserves single-column collapsed avatar-only mode', () => {

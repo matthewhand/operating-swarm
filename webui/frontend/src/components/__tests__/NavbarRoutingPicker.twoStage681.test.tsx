@@ -379,6 +379,38 @@ describe('#832 Custom Blueprint / Team routing in the two-stage picker', () => {
     })
   })
 
+  it('#1436: a remote id in the blueprint bucket navigates as remote', async () => {
+    const navigate = vi.fn()
+    render(
+      <NavbarRoutingPicker
+        seatKind="cli"
+        aria-label="CLI"
+        agents={[{ id: 'codex', label: 'codex', kind: 'cli' as const }]}
+        selectedAgent="codex"
+        models={[]}
+        selectedModel=""
+        onChange={() => {}}
+        onNavigateAgent={navigate}
+        twoStage={{
+          providers: [
+            { id: 'custom_blueprint', label: 'Custom Blueprint', kind: 'blueprint' },
+          ],
+          getProviderOptions: () => [
+            { id: 'blueprint:omb', label: 'OpenMousBot', tag: 'blueprint', kind: 'blueprint' },
+          ],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    const dialog = await screen.findByTestId('composer-picker')
+    // A single stage-2 row auto-picks (#803) — the remote id must still
+    // navigate as remote, not as an api blueprint.
+    fireEvent.click(within(dialog).getByText('Custom Blueprint'))
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('omb', 'remote')
+    })
+  })
+
   it('picking a team option navigates to team seat with team id', async () => {
     const navigate = vi.fn()
     render(

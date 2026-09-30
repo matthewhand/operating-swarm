@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "kind": "agent_template",
+  "agent_id": "storefront-bee",
+  "profile": {
+    "display_name": "Storefront Bee",
+    "description": "Short storefront blurb for the rail and pack card.",
+    "title": "Guide",
+    "role": "support",
+    "avatar_shape": "hexagon",
+    "avatar_color": "#f59e0b",
+    "avatar_path": "/avatars/bee/bee-profile-worker.svg"
+  },
+  "memories": [
+    {
+      "kind": "profile",
+      "title": "Voice",
+      "body": "Keep answers short and point at the next step."
+    },
+    {
+      "kind": "log",
+      "title": "Launch notes",
+      "body": "Shipped the storefront card. No private links."
+    }
+  ],
+  "skills": [
+    {
+      "name": "welcome-tour",
+      "description": "Walk the first conversation.",
+      "instructions": "Greet the operator and list three first steps."
+    }
+  ],
+  "gettingStarted": {
+    "skill": "welcome-tour"
+  },
+  "routines": [],
+  "plugins": []
+}

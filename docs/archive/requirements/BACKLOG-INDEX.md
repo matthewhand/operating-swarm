@@ -1,4 +1,4 @@
-# Open Swarm REQ backlog (archived)
+# Operating Swarm REQ backlog (archived)
 
 > **Historical.** This index is not the REQ source of truth. GitHub Issues
 > are. Live pointers: [../../requirements/](../../requirements/).

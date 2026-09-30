@@ -3,7 +3,7 @@ Expose Blueprints as MCP Tools via `django-mcp-server`
 
 Objective
 ---------
-Let external MCP clients call Open Swarm blueprints as tools using the Django-hosted MCP server (`omarbenhamid/django-mcp-server`). Keep it opt-in and safe by default.
+Let external MCP clients call Operating Swarm blueprints as tools using the Django-hosted MCP server (`omarbenhamid/django-mcp-server`). Keep it opt-in and safe by default.
 
 High-level Approach
 -------------------
@@ -12,7 +12,7 @@ High-level Approach
   - Enumerates available blueprints (bundled + custom if desired).
   - Maps blueprint execution into MCP Tool definitions (name, description, parameters schema).
   - Executes blueprint calls by invoking the blueprint’s `run` (or `Runner.run`) with parsed args, returning structured output.
-- Serve MCP over the same host under `/mcp/` (configurable), reusing Open Swarm auth.
+- Serve MCP over the same host under `/mcp/` (configurable), reusing Operating Swarm auth.
 
 Tool Definition Design
 ----------------------

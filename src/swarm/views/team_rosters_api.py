@@ -18,6 +18,7 @@ Endpoints:
     GET    /v1/team-rosters/<id>/     -> roster
     PUT    /v1/team-rosters/<id>/     -> roster
     DELETE /v1/team-rosters/<id>/     -> 204
+    GET    /v1/team-rosters/<id>/topology/ -> OpenRig nodes + edges (#1222)
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from swarm.core.rig_topology import build_rig_topology
 from swarm.core.team_agents import list_team_agents
 from swarm.core.team_rosters import (
     delete_roster,
@@ -66,6 +68,62 @@ def _public_roster(entry: dict) -> dict:
     return data
 
 
+
+
+def _scope_list(request, scope: str) -> Response:
+    from swarm.auth import request_principal
+    from swarm.core.workspace_library import LibraryError, list_items
+
+    try:
+        data = list_items(
+            scope=scope,
+            principal=request_principal(request),
+            team_id=request.query_params.get("team_id"),
+            kind="team",
+        )
+    except LibraryError as exc:
+        return _error(str(exc), exc.status)
+    return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
+
+
+def _scope_action(request, action: str) -> Response:
+    """Publish, unpublish, or import a roster pack (#1311)."""
+    from swarm.auth import request_principal
+    from swarm.core.team_rosters import publish_roster
+    from swarm.core.workspace_library import LibraryError, import_item, unpublish
+
+    principal = request_principal(request)
+    body = request.data or {}
+    try:
+        if action == "publish":
+            skills = body.get("skill_ids") if isinstance(body.get("skill_ids"), list) else None
+            servers = body.get("mcp_server_ids") if isinstance(body.get("mcp_server_ids"), list) else None
+            item = publish_roster(
+                str(body.get("roster_id") or body.get("id") or ""),
+                scope=str(body.get("scope") or request.query_params.get("scope") or "org"),
+                principal=principal,
+                team_id=body.get("team_id") or request.query_params.get("team_id"),
+                skill_ids=skills,
+                mcp_server_ids=servers,
+            )
+            return Response(item, status=status.HTTP_201_CREATED)
+        if action == "unpublish":
+            item = unpublish(item_id=str(body.get("id") or ""), principal=principal)
+            return Response(item, status=status.HTTP_200_OK)
+        if action == "import":
+            item = import_item(
+                item_id=str(body.get("id") or ""),
+                principal=principal,
+                team_id=body.get("team_id") or request.query_params.get("team_id"),
+            )
+            return Response(item, status=status.HTTP_200_OK)
+        return _error("Unknown roster action.", status.HTTP_400_BAD_REQUEST)
+    except LibraryError as exc:
+        return _error(str(exc), exc.status)
+    except ValueError as exc:
+        return _error(str(exc), status.HTTP_400_BAD_REQUEST)
+
+
 class TeamRostersAPIView(APIView):
     """GET /v1/team-rosters/  POST /v1/team-rosters/"""
 
@@ -82,11 +140,14 @@ class TeamRostersAPIView(APIView):
         responses={200: OpenApiTypes.OBJECT, 500: OpenApiTypes.OBJECT},
     )
     def get(self, request, *_args, **_kwargs):
+        scope = str(request.query_params.get("scope") or "").strip().lower()
+        if scope in ("team", "org"):
+            return _scope_list(request, scope)
         try:
             rosters = list(load_team_rosters().values())
             # #601: the rail's team-row time slot needs an honest instant.
             # Team threads persist under ``team:<id>`` in the chat store.
-            from swarm.core.chat_store import rail_activity_summaries
+            from swarm.core.chat_store import rail_activity_summaries, stamp_rail_activity
 
             user = getattr(request, "user", None)
             if user is not None and getattr(user, "is_authenticated", False):
@@ -100,11 +161,7 @@ class TeamRostersAPIView(APIView):
                 payload = _public_roster(roster)
                 # Store stems slugify ':' → '-': team threads persist as
                 # 'team-<id>.json', matching teamThreadId() on the SPA side.
-                summary = activity.get(f"team-{payload.get('id', '')}")
-                if summary:
-                    payload["last_message_at"] = summary["at"]
-                    if summary.get("text"):
-                        payload["last_message"] = summary["text"]
+                stamp_rail_activity(payload, activity.get(f"team-{payload.get('id', '')}"))
                 data.append(payload)
             return Response({"object": "list", "data": data}, status=status.HTTP_200_OK)
         except Exception:
@@ -194,6 +251,9 @@ class TeamRostersAPIView(APIView):
     def post(self, request, *_args, **_kwargs):
         try:
             body = request.data or {}
+            action = str(body.get("action") or "").strip().lower()
+            if action in ("publish", "unpublish", "import"):
+                return _scope_action(request, action)
             name = (body.get("name") or body.get("id") or "").strip()
             if not name:
                 return _error("Team name is required.", status.HTTP_400_BAD_REQUEST)
@@ -291,6 +351,38 @@ class TeamRosterDetailAPIView(APIView):
         except Exception:
             logger.exception("Error deleting team roster '%s'.", roster_id)
             return _error("Failed to delete team roster.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class TeamRosterTopologyAPIView(APIView):
+    """GET /v1/team-rosters/<roster_id>/topology/ — OpenRig nodes + wires (#1222).
+
+    Read-only projection of the same roster the composer edits: nodes are the
+    members and edges are the declared ``handoff`` / ``as_tool`` tools. No
+    parallel topology model is stored.
+    """
+
+    permission_classes = ROSTER_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_team_rosters_topology",
+        summary="Rig topology (OpenRig nodes + edges) for one roster",
+        description=(
+            "Derive the OpenRig topology from a saved team roster: members as "
+            "nodes and `handoff` / `as_tool` tools as `delegates_to` / "
+            "`collaborates_with` edges. Reuses the roster store — nothing new "
+            "is persisted."
+        ),
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, roster_id: str, *_args, **_kwargs):
+        try:
+            entry = get_roster(roster_id)
+            if not entry:
+                return _error("not found", status.HTTP_404_NOT_FOUND)
+            return Response(build_rig_topology(serialize_roster(entry)), status=status.HTTP_200_OK)
+        except Exception:
+            logger.exception("Error reading rig topology '%s'.", roster_id)
+            return _error("Failed to retrieve rig topology.", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TeamAgentsAPIView(APIView):

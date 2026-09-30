@@ -1,5 +1,5 @@
 [Unit]
-Description=Open Swarm — DEV stack (docker compose, host :8002)
+Description=Operating Swarm — DEV stack (docker compose, host :8002)
 Documentation=file:///home/YOURUSER/open-swarm/docs/DEPLOYMENT.md
 # Needs the daemon and a routed network before compose can publish :8002.
 After=network-online.target docker.service

@@ -118,7 +118,7 @@ describe('REQ-41 / #736: composer working indicator', () => {
   it('places a small avatar-only indicator inline in the chat pane while streaming', async () => {
     renderChat()
     await openSocket()
-    await screen.findByRole('button', { name: /Open Codey definition/i })
+    await screen.findByRole('button', { name: /Rename Codey/i })
     await startStream()
 
     const indicator = screen.getByTestId('composer-working-indicator')
@@ -152,7 +152,7 @@ describe('REQ-41 / #736: composer working indicator', () => {
   it('exposes the working label only as a hover tooltip', async () => {
     renderChat()
     await openSocket()
-    await screen.findByRole('button', { name: /Open Codey definition/i })
+    await screen.findByRole('button', { name: /Rename Codey/i })
     await startStream()
 
     const indicator = screen.getByTestId('composer-working-indicator')

@@ -1,6 +1,6 @@
 # Codey Blueprint
 
-**Codey** is an agentic code and semantic search/analysis blueprint for Open Swarm, demonstrating agent-based orchestration, robust UX with ANSI/emoji output, spinner feedback, and resilient fallback for agent/LLM errors.
+**Codey** is an agentic code and semantic search/analysis blueprint for Operating Swarm, demonstrating agent-based orchestration, robust UX with ANSI/emoji output, spinner feedback, and resilient fallback for agent/LLM errors.
 
 ---
 
@@ -42,7 +42,7 @@ _Last updated: 2025-04-21_
 
 # (Legacy content below)
 
-Codey is an agentic coding assistant blueprint for Open Swarm, inspired by OpenAI Codex CLI. It orchestrates specialized agents and tools to automate and assist with software engineering tasks, especially those involving code, git, and project workflows.
+Codey is an agentic coding assistant blueprint for Operating Swarm, inspired by OpenAI Codex CLI. It orchestrates specialized agents and tools to automate and assist with software engineering tasks, especially those involving code, git, and project workflows.
 
 ---
 

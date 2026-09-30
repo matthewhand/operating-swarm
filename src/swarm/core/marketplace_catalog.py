@@ -22,6 +22,7 @@ from typing import Any, Callable
 from urllib.parse import quote
 
 from swarm.core import marketplace, mcp_plugins, mcp_registry, skills, team_rosters
+from swarm.core import composio_catalog
 from swarm.core.cli_catalog import installed_catalog_clis
 from swarm.core.team_agents import list_blueprint_ids, list_team_agents
 
@@ -52,10 +53,21 @@ COMMUNITY_NOTE = "Community / external content — not vetted by open-swarm."
 
 
 class MarketplaceCatalogError(Exception):
-    def __init__(self, message: str, *, code: str = "marketplace_error", status: int = 400):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "marketplace_error",
+        status: int = 400,
+        partial: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.status = status
+        # #1327: when a source stalls after assembling items, carry the partial
+        # payload so the API can return 200 with what is available instead of a
+        # bare error status that hides the catalog.
+        self.partial = partial
 
 
 def _fetch(fetch_json: FetchJson | None) -> FetchJson:
@@ -135,10 +147,18 @@ def _github_plugin_item(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def catalog_plugins(*, fetch_json: FetchJson | None = None, **registry_kw: Any) -> dict[str, Any]:
+def catalog_plugins(
+    *,
+    fetch_json: FetchJson | None = None,
+    composio_enabled: bool | None = None,
+    composio_fetch_json: FetchJson | None = None,
+    composio_cache_file: Path | None = None,
+    **registry_kw: Any,
+) -> dict[str, Any]:
     installed = _installed_plugin_ids()
     registry = mcp_registry.fetch_registry_servers(fetch_json=fetch_json, **registry_kw)
-    items = [_mark_plugin_installed(dict(row), installed) for row in registry.get("items") or []]
+    registry_items = list(registry.get("items") or [])
+    items = [_mark_plugin_installed(dict(row), installed) for row in registry_items]
     seen = {item["id"] for item in items}
     seen_names = {
         str((item.get("plugin") or {}).get("name") or item.get("name") or "").lower()
@@ -146,6 +166,16 @@ def catalog_plugins(*, fetch_json: FetchJson | None = None, **registry_kw: Any) 
     }
     scan = marketplace.scan_marketplace("plugins", fetch_json=fetch_json)
     warnings = list(registry.get("warnings") or []) + list(scan.get("warnings") or [])
+    source_status: list[dict[str, Any]] = [
+        {
+            "source": "mcp_registry",
+            "source_label": "Official MCP Registry",
+            "enabled": True,
+            "stalled_reason": registry.get("stalled_reason"),
+            "cached": bool(registry.get("cached")),
+            "item_count": len(registry_items),
+        }
+    ]
     for row in scan.get("items") or []:
         item = _github_plugin_item(row)
         name_key = str(item.get("name") or "").lower()
@@ -153,9 +183,48 @@ def catalog_plugins(*, fetch_json: FetchJson | None = None, **registry_kw: Any) 
             continue
         seen.add(item["id"])
         items.append(item)
+
+    # Optional Composio source (#1327). Default off; never an error.
+    if composio_enabled is None:
+        composio_enabled = composio_catalog.composio_enabled_from_config()
+    composio = composio_catalog.fetch_composio_servers(
+        fetch_json=composio_fetch_json,
+        cache_file=composio_cache_file,
+        enabled=bool(composio_enabled),
+    )
+    composio_items = list(composio.get("items") or [])
+    for row in composio_items:
+        item = _mark_plugin_installed(dict(row), installed)
+        name_key = str((item.get("plugin") or {}).get("name") or item.get("name") or "").lower()
+        if item["id"] in seen or (name_key and name_key in seen_names):
+            continue
+        seen.add(item["id"])
+        if name_key:
+            seen_names.add(name_key)
+        items.append(item)
+    warnings.extend(composio.get("warnings") or [])
+    source_status.append(
+        {
+            "source": "composio",
+            "source_label": "Composio",
+            "enabled": bool(composio_enabled),
+            "stalled_reason": composio.get("stalled_reason"),
+            "cached": bool(composio.get("cached")),
+            "item_count": len(composio_items),
+        }
+    )
     if not items and not warnings:
         warnings.append("No plugins in the Official MCP Registry cache or GitHub topic scan.")
-    return _catalog_payload("plugins", items, warnings, sources=["mcp_registry", "github"])
+    sources = ["mcp_registry", "github"]
+    if composio_enabled:
+        sources.append("composio")
+    return _catalog_payload(
+        "plugins",
+        items,
+        warnings,
+        sources=sources,
+        source_status=source_status,
+    )
 
 
 # --------------------------------------------------------------------------- skills
@@ -318,11 +387,31 @@ def catalog_teams(*, fetch_json: FetchJson | None = None) -> dict[str, Any]:
     return _catalog_payload("teams", items, warnings, sources=["os_team_pack", "github"])
 
 
-def _catalog_payload(kind: str, items: list[dict[str, Any]], warnings: list[str], *, sources: list[str]) -> dict[str, Any]:
+def _catalog_payload(
+    kind: str,
+    items: list[dict[str, Any]],
+    warnings: list[str],
+    *,
+    sources: list[str],
+    source_status: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    status = list(source_status or [])
+    # Top-level stall reason is the first *enabled* source that stalled; a
+    # disabled/unconfigured source must not masquerade as an outage (#1327).
+    stalled_reason = next(
+        (
+            entry.get("stalled_reason")
+            for entry in status
+            if entry.get("enabled") and entry.get("stalled_reason")
+        ),
+        None,
+    )
     return {
         "object": "marketplace_catalog",
         "kind": kind,
         "sources": sources,
+        "source_status": status,
+        "stalled_reason": stalled_reason,
         "external": True,
         "items": items,
         "warnings": warnings,

@@ -1,6 +1,6 @@
-# Open Swarm Framework Built-in Tools
+# Operating Swarm Framework Built-in Tools
 
-This document lists and describes the built-in tools available to agents and blueprints in the Open Swarm framework. These tools are accessible via LLM tool-calling or Python code, and are registered in each blueprint's `ToolRegistry`.
+This document lists and describes the built-in tools available to agents and blueprints in the Operating Swarm framework. These tools are accessible via LLM tool-calling or Python code, and are registered in each blueprint's `ToolRegistry`.
 
 ## Tool Types
 - **LLM Tools**: Tools that are exposed to the LLM via OpenAI function-calling or similar APIs.

@@ -86,6 +86,15 @@ def test_mcp_fields_rejected_on_cli_and_remote():
     with pytest.raises(ValueError, match="API managed"):
         mcp_fields_from_raw({"mcp_mode": "progressive"}, kind="remote")
     assert mcp_fields_from_raw({"mcp_mode": "all"}, kind="personality")["mcp_mode"] == MODE_ALL
+    # Off, an empty server list, and an empty map are not a grant.
+    off = mcp_fields_from_raw(
+        {"mcp_mode": "off", "mcp_servers": [], "mcp_tools": {}},
+        kind="cli",
+    )
+    assert off["mcp_mode"] == MODE_OFF
+    assert off["mcp_tools"] == {}
+    with pytest.raises(ValueError, match="API managed"):
+        mcp_fields_from_raw({"mcp_tools": {"serverA": ["tool1"]}}, kind="remote")
 
 
 def test_register_persists_across_cache_reset(tmp_path, monkeypatch):

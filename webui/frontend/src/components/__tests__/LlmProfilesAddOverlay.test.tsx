@@ -89,6 +89,34 @@ describe('LLM profiles add overlay', () => {
     expect(screen.getByLabelText('Temperature')).toBeInTheDocument()
   })
 
+  it('offers mistral in the provider dropdown and prefills shared defaults', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => catalogPayload(['gpt-4o-mini']),
+      } as Response),
+    )
+    renderSheet()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add LLM profile' }))
+    const provider = screen.getByLabelText('Provider') as HTMLSelectElement
+    const optionValues = Array.from(provider.querySelectorAll('option')).map((row) => row.value)
+    expect(optionValues).toContain('mistral')
+
+    fireEvent.change(provider, { target: { value: 'mistral' } })
+    expect(provider.value).toBe('mistral')
+    expect((screen.getByLabelText('API key env') as HTMLInputElement).value).toBe('MISTRAL_API_KEY')
+    expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe(
+      'https://api.mistral.ai/v1',
+    )
+
+    fireEvent.change(provider, { target: { value: 'azure' } })
+    expect(provider.value).toBe('azure')
+    expect((screen.getByLabelText('API key env') as HTMLInputElement).value).toBe('OPENAI_API_KEY')
+    expect((screen.getByLabelText('Base URL') as HTMLInputElement).value).toBe('')
+  })
+
   it('persists a saved profile and round-trips it after remount', async () => {
     const stored = catalogPayload(['gpt-4o-mini'])
     const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -154,6 +182,8 @@ describe('LLM profiles add overlay', () => {
         'local-groq': {
           provider: 'groq',
           model: 'llama-3.1-8b',
+          // #1745: the model type rides along, and a Groq chat profile is chat.
+          model_type: 'chat',
           api_key: '${GROQ_API_KEY}',
           base_url: 'https://api.groq.com/openai/v1',
         },

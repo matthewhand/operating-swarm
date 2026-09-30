@@ -15,7 +15,10 @@ class MockWebSocket {
   send = vi.fn()
   close = vi.fn()
 
-  constructor(_url: string) {
+  // The url is kept so a test can pick the socket it means to drive (#1729
+  // added a second, dedicated Herdr status socket, so "instances[0]" is no
+  // longer a reliable way to name the chat one).
+  constructor(public url: string) {
     MockWebSocket.instances.push(this)
   }
 
@@ -25,14 +28,20 @@ class MockWebSocket {
   }
 }
 
-function renderAppAt(path: string) {
+async function renderAppAt(path: string) {
   window.history.pushState({}, '', path)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: chat routes suspend on the ChatPage chunk. /agents mounts
+  // AgentRouterPage and has no chat composer — waiting for one rejects.
+  if (!path.startsWith('/agents')) {
+    await screen.findByRole('textbox', { name: 'Chat message' })
+  }
+  return view
 }
 
 describe('chatPathWithSearch', () => {
@@ -64,9 +73,12 @@ describe('SPA /chat stays Chat (not /agents)', () => {
   })
 
   it('renders composer + silent healthy status at /chat', async () => {
-    renderAppAt('/chat')
+    await renderAppAt('/chat')
     await act(async () => {
-      MockWebSocket.instances[0]?.open()
+      // The app opens more than one socket: the chat multiplex plus #1729's
+      // dedicated Herdr status feed. Open the CHAT one by URL — index 0 is
+      // whichever mounted first, and this assertion is about chat health.
+      MockWebSocket.instances.find((ws) => ws.url?.includes('/ws/spa/'))?.open()
     })
     expect(window.location.pathname).toBe('/chat')
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
@@ -76,12 +88,14 @@ describe('SPA /chat stays Chat (not /agents)', () => {
   })
 
   it('keeps /agents as Agent Router (not an alias of /chat)', async () => {
-    renderAppAt('/agents')
+    const pending = renderAppAt('/agents')
     expect(window.location.pathname).toBe('/agents')
     // #930: the diverged duplicate sidebar is gone — the page no longer mounts
     // its own rail (no search affordance, no 'Focused' section) and the App
-    // shell is the single sidebar owner.
+    // shell is the single sidebar owner. Assert before the lazy Agent Router
+    // chunk settles, then drain the helper so its promise cannot reject later.
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(screen.queryByText('Focused')).not.toBeInTheDocument()
+    await pending
   })
 })

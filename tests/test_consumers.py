@@ -32,6 +32,7 @@ from swarm.consumers import (
     DjangoChatConsumer,
     _conversation_cache_key,
 )
+from swarm.core.team_roster_executor import RosterRun
 
 # =============================================================================
 # Fixtures
@@ -877,6 +878,63 @@ class TestReceive:
             mock_save.assert_not_called()
         assert consumer.messages[0]["content"] == "cli edit"
 
+    @pytest.mark.asyncio
+    async def test_reaction_frame_toggles_and_emits(self, consumer):
+        """#1411: reaction frame persists and echoes a pill update."""
+        consumer.messages = [{"role": "user", "content": "nice"}]
+        consumer.conversation_id = "test-conv-react"
+        consumer.default_blueprint = "jeeves"
+        consumer.active_agent = "jeeves"
+        sent = []
+
+        async def fake_send(*, text_data=None, **_kwargs):
+            sent.append(text_data)
+
+        consumer.send = fake_send
+        with patch.object(consumer, "save_conversation", new_callable=AsyncMock) as mock_save:
+            await consumer.receive(json.dumps({"reaction": {"index": 0, "emoji": "👍"}}))
+            mock_save.assert_called_once_with("test-conv-react", consumer.messages)
+        assert consumer.messages[0]["reactions"] == [{"emoji": "👍", "actors": ["user"]}]
+        event = json.loads(sent[-1])
+        assert event["type"] == "reaction"
+        assert event["emoji"] == "👍"
+        assert event["reactions"][0]["userReacted"] is True
+
+        with patch.object(consumer, "save_conversation", new_callable=AsyncMock):
+            await consumer.receive(json.dumps({"reaction": {"index": 0, "emoji": "👍"}}))
+        assert "reactions" not in consumer.messages[0]
+
+    @pytest.mark.asyncio
+    async def test_reaction_frame_waits_for_in_flight_turn_lock(self, consumer):
+        """#1411: a mux reaction frame must not mutate under a live turn lock."""
+        consumer.messages = [{"role": "user", "content": "nice"}]
+        consumer.conversation_id = "test-conv-react"
+        consumer.default_blueprint = "jeeves"
+        consumer.active_agent = "jeeves"
+        lock = consumer._agent_lock("team#member")
+        await lock.acquire()
+        consumer._pending_turn_lock_keys = {"team#member"}
+
+        async def fake_send(*, text_data=None, **_kwargs):
+            return None
+
+        consumer.send = fake_send
+        started = asyncio.Event()
+
+        async def run():
+            started.set()
+            await consumer.apply_message_reaction({"index": 0, "emoji": "👍"})
+
+        with patch.object(consumer, "save_conversation", new_callable=AsyncMock):
+            task = asyncio.create_task(run())
+            await started.wait()
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert "reactions" not in consumer.messages[0]
+            lock.release()
+            await task
+        assert consumer.messages[0]["reactions"] == [{"emoji": "👍", "actors": ["user"]}]
+
 
 # =============================================================================
 # Blueprint Selection Tests
@@ -947,25 +1005,215 @@ class TestBlueprintSelection:
 
     @pytest.mark.asyncio
     async def test_receive_team_params_uses_stub_runtime(self, consumer):
-        """REQ-23: params {team, target} stub the roster send path."""
+        """REQ-23 / #1291: a roster yielding nothing keeps the stub runtime."""
         consumer.messages = []
         text_data = json.dumps({
             "message": "hello roster",
             "params": {"team": "demo-team", "target": "all"},
         })
 
+        empty_run = RosterRun(roster_id="demo-team", target="all")
         with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
             with patch.object(consumer, "send", new_callable=AsyncMock):
-                with patch.object(consumer, "respond_with_team_stub", new_callable=AsyncMock) as mock_team:
-                    with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock) as mock_bp:
-                        with patch.object(consumer, "respond_with_default_model", new_callable=AsyncMock) as mock_default:
+                with patch(
+                    "swarm.core.team_roster_executor.execute_roster",
+                    new_callable=AsyncMock,
+                ) as mock_exec:
+                    mock_exec.return_value = empty_run
+                    with patch.object(consumer, "respond_with_team_stub", new_callable=AsyncMock) as mock_team:
+                        with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock) as mock_bp:
+                            with patch.object(consumer, "respond_with_default_model", new_callable=AsyncMock) as mock_default:
+                                await consumer.receive(text_data)
+
+                                mock_exec.assert_awaited_once()
+                                mock_team.assert_awaited_once()
+                                assert mock_team.await_args.args[0]["team"] == "demo-team"
+                                assert mock_team.await_args.args[0]["target"] == "all"
+                                mock_bp.assert_not_awaited()
+                                mock_default.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_receive_cli_member_routes_to_roster_executor(self, consumer):
+        """#1291: a cli-backed member send runs the real roster executor."""
+        consumer.messages = []
+        text_data = json.dumps({
+            "message": "ping the CLI",
+            "params": {"team": "demo-harness-kinds", "target": "grok-cli"},
+        })
+
+        real_run = RosterRun(
+            roster_id="demo-harness-kinds",
+            target="grok-cli",
+            combined="Grok CLI:\nreal reply from executor",
+        )
+        with patch("swarm.consumers.render_to_string", return_value="<div></div>"):
+            with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                with patch(
+                    "swarm.core.team_roster_executor.execute_roster",
+                    new_callable=AsyncMock,
+                ) as mock_exec:
+                    mock_exec.return_value = real_run
+                    with patch.object(consumer, "respond_with_team_stub", new_callable=AsyncMock) as mock_team:
+                        with patch.object(consumer, "respond_with_blueprint", new_callable=AsyncMock) as mock_bp:
                             await consumer.receive(text_data)
 
-                            mock_team.assert_awaited_once()
-                            assert mock_team.await_args.args[0]["team"] == "demo-team"
-                            assert mock_team.await_args.args[0]["target"] == "all"
-                            mock_bp.assert_not_awaited()
-                            mock_default.assert_not_awaited()
+        mock_exec.assert_awaited_once()
+        assert mock_exec.await_args.args[0] == "demo-harness-kinds"
+        assert mock_exec.await_args.args[1] == "grok-cli"
+        mock_team.assert_not_awaited()
+        mock_bp.assert_not_awaited()
+        sent = "".join(
+            call.kwargs.get("text_data") or (call.args[0] if call.args else "")
+            for call in mock_send.await_args_list
+        )
+        assert "real reply from executor" in sent
+
+    @pytest.mark.asyncio
+    async def test_turn_cancel_stops_roster_fanout_without_stub(self, consumer, monkeypatch):
+        """Composer Stop during a roster fan-out cancels every leg.
+
+        The placeholder closes as Interrupted. It does not persist the
+        aggregate and it does not fall through to the team stub echo.
+        """
+        consumer.messages = []
+        consumer.conversation_id = "test-conv-123"
+
+        async def hang(blueprint_id, prompt, *, brief=None, **_kwargs):
+            del blueprint_id, prompt, brief
+            await asyncio.sleep(30)
+            return "ok:should-not-finish"
+
+        roster = {
+            "id": "demo-team",
+            "name": "Fan",
+            "members": [
+                {
+                    "id": "alpha",
+                    "name": "Alpha",
+                    "kind": "blueprint",
+                    "role": "default",
+                    "source": "blueprint:alpha",
+                },
+                {
+                    "id": "bravo",
+                    "name": "Bravo",
+                    "kind": "blueprint",
+                    "role": "default",
+                    "source": "blueprint:bravo",
+                },
+                {
+                    "id": "charlie",
+                    "name": "Charlie",
+                    "kind": "blueprint",
+                    "role": "default",
+                    "source": "blueprint:charlie",
+                },
+            ],
+        }
+        monkeypatch.setattr("swarm.core.team_roster_executor._run_blueprint_member", hang)
+        monkeypatch.setattr(
+            "swarm.core.team_roster_executor.resolve_roster",
+            lambda rid: roster if rid == "demo-team" else None,
+        )
+        sent: list[str] = []
+
+        async def capture_send(*, text_data=None, **_kwargs):
+            sent.append(text_data or "")
+
+        def fake_render(template, context):
+            message = context.get("message", "")
+            contents_id = context.get("contents_div_id", "")
+            if "final_system" in str(template):
+                return f'<div id="{contents_id}" class="assistant-final">{message}</div>'
+            return f'<div id="{contents_id}" class="assistant-start"></div>'
+
+        def _frames():
+            for frame in sent:
+                try:
+                    yield json.loads(frame)
+                except json.JSONDecodeError:
+                    continue
+
+        with patch("swarm.consumers.render_to_string", side_effect=fake_render):
+            with patch.object(consumer, "send", new_callable=AsyncMock, side_effect=capture_send):
+                with patch(
+                    "swarm.core.team_rosters.blueprint_id_for_team_target",
+                    return_value=None,
+                ):
+                    running = asyncio.create_task(
+                        consumer.receive(
+                            json.dumps(
+                                {
+                                    "message": "fan out",
+                                    "params": {"team": "demo-team", "target": "all"},
+                                }
+                            )
+                        )
+                    )
+                    turn_id = ""
+                    saw_running = False
+                    for _ in range(100):
+                        await asyncio.sleep(0.02)
+                        for payload in _frames():
+                            if payload.get("type") == "turn_started" and payload.get("turn_id"):
+                                turn_id = str(payload["turn_id"])
+                            if (
+                                payload.get("type") == "fan_out_leg"
+                                and payload.get("status") == "running"
+                            ):
+                                saw_running = True
+                        if turn_id and saw_running:
+                            break
+                    assert turn_id, "turn_started never arrived"
+                    assert saw_running, "fan-out leg never reached running"
+                    await consumer.receive(
+                        json.dumps({"type": "cancel_turn", "turn_id": turn_id})
+                    )
+                    await asyncio.wait_for(running, timeout=5)
+
+        joined = "\n".join(sent)
+        assert "Interrupted." in joined
+        assert "[team:" not in joined
+        assert "ok:should-not-finish" not in joined
+        assert not any(row.get("role") == "assistant" for row in consumer.messages)
+
+    @pytest.mark.asyncio
+    async def test_turn_cancel_leaves_another_teams_fanout_running(self, consumer):
+        """A stop aimed at team A does not cancel team B's legs."""
+        from swarm.core.team_roster_executor import FanOutCancel
+
+        async def hang():
+            await asyncio.sleep(30)
+
+        with patch.object(consumer, "send", new_callable=AsyncMock):
+            turn_a = await consumer._begin_turn(agent_id="team-a")
+            turn_b = await consumer._begin_turn(agent_id="team-b")
+            handle_a = FanOutCancel()
+            handle_b = FanOutCancel()
+            task_a = asyncio.create_task(hang())
+            task_b = asyncio.create_task(hang())
+            handle_a.track("alpha")
+            handle_a.bind("alpha", task_a)
+            handle_b.track("bravo")
+            handle_b.bind("bravo", task_b)
+            consumer._fan_out_handles()[turn_a.turn_id] = handle_a
+            consumer._fan_out_handles()[turn_b.turn_id] = handle_b
+            try:
+                await consumer._cancel_current_turn(turn_id=turn_a.turn_id)
+                assert handle_a.is_requested("alpha")
+                assert handle_b.is_requested("bravo") is False
+                await consumer._cancel_current_turn(leg_id="bravo")
+                assert handle_b.is_requested("bravo")
+            finally:
+                task_a.cancel()
+                task_b.cancel()
+                await asyncio.gather(task_a, task_b, return_exceptions=True)
+                consumer._fan_out_handles().pop(turn_a.turn_id, None)
+                consumer._fan_out_handles().pop(turn_b.turn_id, None)
+                consumer.active_turns.pop(turn_a.turn_id, None)
+                if turn_b.turn_id in consumer.active_turns:
+                    await consumer._end_turn(turn_b)
+
 
     @pytest.mark.asyncio
     async def test_receive_demo_sdlc_ba_uses_blueprint_not_stub(self, consumer):
@@ -1272,6 +1520,53 @@ class TestBlueprintSelection:
                 instance.set_params.assert_called()
                 passed = instance.set_params.call_args[0][0]
                 assert passed.get("agent") == "cli_agent"
+
+    @pytest.mark.asyncio
+    async def test_blueprint_progress_is_bubbleless_status(self, consumer, monkeypatch):
+        """CLI/orchestration progress renders as status, never as the reply."""
+        monkeypatch.delenv("SWARM_TEST_MODE", raising=False)
+        consumer.messages = [{"role": "user", "content": "Hello"}]
+
+        async def fake_run(messages, **kwargs):
+            yield {
+                "type": "fusion_progress",
+                "content": "_Running CLI agent `echo`..._",
+            }
+            yield {"type": "fusion_progress", "content": "[tool] ls", "transient": True}
+            yield {"messages": [{"role": "assistant", "content": "done"}]}
+
+        instance = MagicMock()
+        instance.run = fake_run
+        instance._params = {}
+
+        with patch("swarm.views.utils.get_blueprint_instance", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = instance
+            with patch.object(consumer, "send", new_callable=AsyncMock) as mock_send:
+                await consumer.respond_with_blueprint("cli_agent", "message-response-prog")
+
+                frames = [
+                    call.kwargs.get("text_data") or call.args[0]
+                    for call in mock_send.await_args_list
+                ]
+
+        assert any(
+            "chat-status-line" in frame and "Running CLI agent" in frame for frame in frames
+        )
+        assert any("chat-status-line" in frame and "[tool] ls" in frame for frame in frames)
+        # Neither progress line leaks into the persisted assistant reply.
+        assistant_text = "".join(
+            str(m.get("content") or "")
+            for m in consumer.messages
+            if m.get("role") == "assistant"
+        )
+        assert "tool" not in assistant_text
+        assert "Running CLI agent" not in assistant_text
+        # Orchestration progress is durable status; a transient tool trace is not.
+        status_contents = [
+            e["content"] for e in consumer.ui_events if e.get("role") == "status"
+        ]
+        assert any("Running CLI agent" in c for c in status_contents)
+        assert "[tool] ls" not in status_contents
 
     @pytest.mark.asyncio
     async def test_cli_stdout_github_pr_emits_view_pr_card(self, consumer, monkeypatch):
@@ -1721,7 +2016,26 @@ class TestFetchConversation:
         assert result == cached_messages
 
     def test_cache_hit_does_not_leak_across_users(self):
-        """Composite cache keys prevent serving another user's transcript on hit."""
+        """A composite cache key AND row ownership both refuse a cross-user read.
+
+        Two layers, both asserted:
+
+        1. the in-memory cache is keyed by ``(user_id, conversation_id)``, so
+           the attacker's key misses the owner's entry and the pre-fix bare
+           ``conversation_id`` key is never consulted;
+        2. the canonical Django row is consulted and is **owned by somebody
+           else** — the load must still refuse it.
+
+        The old patch target, ``swarm.core.thread_load.ChatConversation``, no
+        longer exists: ``thread_load`` delegates to
+        ``swarm.core.chat_db.load_db_thread``, which reads
+        ``ChatConversation.objects.filter(cid).first()``.  The old mock also
+        removed the row entirely, so it could only ever prove "no row -> no
+        leak".  Handing the attacker a *real, readable* row owned by the other
+        user is the stronger test: it fails loudly if the ``student_id``
+        check in ``load_db_thread`` regresses, and it lets the fetch return a
+        genuine transcript if that check is ever dropped.
+        """
         from swarm.models import ChatConversation
 
         owner = MagicMock()
@@ -1735,20 +2049,63 @@ class TestFetchConversation:
         # Pre-fix bug: bare conversation_id key. Must not be returned to attacker.
         IN_MEMORY_CONVERSATIONS[conv_id] = secret
 
+        # A readable row owned by the *other* user: exactly what the attacker
+        # would be served if the ownership check regressed.
+        leaked = SimpleNamespace(
+            sender="user",
+            content="owner secret transcript",
+            extra={},
+            id=1,
+            timestamp=None,
+        )
+        foreign_row = SimpleNamespace(
+            student_id=owner.pk,
+            trashed_at=None,
+            ui_events=[],
+            chat_messages=MagicMock(),
+        )
+        foreign_row.chat_messages.order_by.return_value = [leaked]
+
+        # A queryset double that survives the chained lookups on this path:
+        # chat_repository._owned() does objects.filter(student=user) and then
+        # .filter(conversation_id=...), and chat_db.load_db_thread does
+        # objects.filter(conversation_id=...).first().  Patching the manager's
+        # ``filter`` therefore has to return a queryset whose ``filter`` is
+        # itself, or the first lookup swallows the second.
+        qs = MagicMock()
+        qs.filter.return_value = qs
+        qs.first.return_value = foreign_row
+
         attacker_consumer = DjangoChatConsumer()
         attacker_consumer.user = attacker
         fetch_sync = next(c for c in DjangoChatConsumer.__mro__ if "fetch_conversation" in c.__dict__).__dict__["fetch_conversation"].func
 
-        with patch(
-            "swarm.core.thread_load.ChatConversation.objects.get",
-            side_effect=ChatConversation.DoesNotExist,
-        ) as mock_get:
+        with patch.object(ChatConversation.objects, "filter", return_value=qs) as mock_filter:
             result = fetch_sync(attacker_consumer, conv_id)
 
+        # 1. nothing served — neither from the cache nor from the foreign row.
         assert result == []
-        mock_get.assert_called_once()
+        assert not any("owner secret" in str(row.get("content")) for row in result)
+
+        # 2. the canonical row really was consulted, so this is not a
+        #    cache-only answer that happens to be empty: both the
+        #    ownership-scoped trash check and the load queried it.
+        assert mock_filter.called, "the Django row was never consulted"
+        assert qs.filter.called, "the trash check did not scope by student"
+        assert qs.first.called, "the row was fetched but never read"
+        assert foreign_row.chat_messages.order_by.call_count == 0, (
+            "the attacker reached another user's ChatMessage rows — the "
+            "student_id ownership check in load_db_thread regressed"
+        )
+
+        # 3. the attacker's key was never created ...
         assert _conversation_cache_key(attacker, conv_id) not in IN_MEMORY_CONVERSATIONS
+        # ... and the owner's entry plus the pre-fix bare key are untouched.
         assert IN_MEMORY_CONVERSATIONS[_conversation_cache_key(owner, conv_id)] == secret
+        assert IN_MEMORY_CONVERSATIONS[conv_id] == secret
+
+        IN_MEMORY_CONVERSATIONS.pop(conv_id, None)
+        IN_MEMORY_CONVERSATIONS.pop(_conversation_cache_key(owner, conv_id), None)
 
     @pytest.mark.django_db
     def test_fetch_from_database_sync(self, test_user, tmp_path, monkeypatch):
@@ -1846,7 +2203,29 @@ class TestSaveConversation:
 
     @pytest.mark.django_db
     def test_save_conversation_bulk_creates_messages(self, test_user):
-        """save_conversation persists all messages with a constant number of queries."""
+        """save_conversation writes only the tail — no delete-all, no rewrite.
+
+        The old assertion was ``len(ctx.captured_queries) < num_messages`` on a
+        first save, with a comment describing "get_or_create + delete +
+        bulk_create".  #1440 replaced that implementation on purpose:
+        ``sync_transcript`` now inserts only new tail rows and updates rows
+        whose content changed, so primary keys stay put across a disconnect
+        re-save, and a composer send costs exactly one INSERT (the hot path is
+        one turn, not twenty).  A first save of 20 therefore legitimately
+        issues 20 INSERTs, and the old threshold could only be met by the
+        implementation #1440 deleted.
+
+        A raw query count is also the wrong measurement: it conflates the
+        unavoidable per-row inserts with the part that actually regresses.
+        These assertions state the real invariant — the write is incremental
+        in the *tail*, and its non-message overhead is constant in the number
+        of turns already stored:
+
+        * a first save of 20 inserts exactly 20 message rows, 0 updates, 0 deletes;
+        * re-saving the same transcript writes nothing at all;
+        * growing the transcript by 20 writes only those 20;
+        * the re-save's non-message query count does not grow with N.
+        """
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
@@ -1855,25 +2234,81 @@ class TestSaveConversation:
         consumer = DjangoChatConsumer()
         consumer.user = test_user
 
+        def message_writes(ctx):
+            """(inserts, updates, deletes) against swarm_chatmessage only."""
+            counts = {"INSERT": 0, "UPDATE": 0, "DELETE": 0}
+            other = 0
+            for query in ctx.captured_queries:
+                sql = query["sql"].strip().upper()
+                if sql.startswith("INSERT INTO \"SWARM_CHATMESSAGE\""):
+                    counts["INSERT"] += 1
+                elif sql.startswith("UPDATE \"SWARM_CHATMESSAGE\""):
+                    counts["UPDATE"] += 1
+                elif sql.startswith("DELETE FROM \"SWARM_CHATMESSAGE\""):
+                    counts["DELETE"] += 1
+                else:
+                    other += 1
+            return counts, other
+
+        def capture(conv_id, messages):
+            save_sync = next(
+                c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__
+            ).__dict__["save_conversation"].func
+            with CaptureQueriesContext(connection) as ctx:
+                save_sync(consumer, conv_id, messages)
+            return message_writes(ctx)
+
         num_messages = 20
-        new_messages = [
+        messages = [
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"Message {i}"}
             for i in range(num_messages)
         ]
 
-        # Call the unwrapped sync function behind database_sync_to_async.
-        save_sync = next(c for c in DjangoChatConsumer.__mro__ if "save_conversation" in c.__dict__).__dict__["save_conversation"].func
-        with CaptureQueriesContext(connection) as ctx:
-            save_sync(consumer, "bulk-conv-123", new_messages)
-
+        first, _ = capture("bulk-conv-123", messages)
         assert (
             ChatMessage.objects.filter(
                 conversation__conversation_id="bulk-conv-123"
             ).count()
             == num_messages
         )
-        # get_or_create + delete + bulk_create should stay well below one query per message.
-        assert len(ctx.captured_queries) < num_messages
+        # One INSERT per new turn, and nothing else touched.
+        assert first == {"INSERT": num_messages, "UPDATE": 0, "DELETE": 0}
+
+        # Re-saving the same transcript is a no-op against the rows (#1440:
+        # disconnect persists the same transcript without duplicating it).
+        again, again_other = capture("bulk-conv-123", messages)
+        assert again == {"INSERT": 0, "UPDATE": 0, "DELETE": 0}
+        assert (
+            ChatMessage.objects.filter(
+                conversation__conversation_id="bulk-conv-123"
+            ).count()
+            == num_messages
+        )
+
+        # Growing the transcript writes only the new tail, and the overhead
+        # around the write does not scale with the turns already stored.
+        grown = messages + [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"Grown {i}"}
+            for i in range(num_messages)
+        ]
+        tail, _ = capture("bulk-conv-123", grown)
+        assert tail == {"INSERT": num_messages, "UPDATE": 0, "DELETE": 0}
+
+        recheck, recheck_other = capture("bulk-conv-123", grown)
+        assert recheck == {"INSERT": 0, "UPDATE": 0, "DELETE": 0}
+        # Constant in N: doubling the stored turns must not double the work.
+        assert recheck_other <= again_other + 2, (
+            f"re-save overhead grew with the transcript: {again_other} queries at "
+            f"{num_messages} turns, {recheck_other} at {2 * num_messages}"
+        )
+        assert again_other < num_messages, (
+            f"re-save issued {again_other} queries for {num_messages} stored turns "
+            "— that is one query per message, i.e. an N+1 read"
+        )
+
+        assert ChatMessage.objects.filter(
+            conversation__conversation_id="bulk-conv-123"
+        ).count() == len(grown)
 
         IN_MEMORY_CONVERSATIONS.pop(_conversation_cache_key(test_user, "bulk-conv-123"), None)
 

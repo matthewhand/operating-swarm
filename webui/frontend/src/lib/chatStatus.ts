@@ -18,7 +18,7 @@ export type ChatTranscriptRole = 'user' | 'assistant' | StatusChromeRole
 export type DropdownKind = 'team' | 'cli' | 'model' | 'mode' | 'api' | 'effort'
 
 export const DROPDOWN_KIND_LABEL: Record<DropdownKind, string> = {
-  team: 'Team target',
+  team: 'Rig target',
   cli: 'CLI',
   model: 'Model',
   mode: 'Mode',
@@ -35,7 +35,7 @@ export const MANAGE_SENTINELS = new Set([
 ])
 
 export const MANAGE_CLI_VALUE = '__manage_cli__'
-export const MANAGE_CLI_HREF = '/settings/'
+export const MANAGE_CLI_HREF = '/chat?settings=cli-agents'
 export const MANAGE_MODEL_VALUE = '__manage_model__'
 export const MANAGE_MODEL_HREF = '/profiles/'
 

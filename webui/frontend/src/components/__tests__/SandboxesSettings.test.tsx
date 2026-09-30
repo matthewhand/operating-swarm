@@ -122,4 +122,42 @@ describe('Sandboxes settings pane', () => {
     fireEvent.click(screen.getByTestId('sandbox-provider-daytona'))
     expect(await screen.findByTestId('daytona-options')).toBeInTheDocument()
   })
+
+  // #1201: a failed Daytona probe must show the classified operator hint —
+  // env-var name + copyable server-side snippet — not just "Failed".
+  it('renders the classification and operator hint when the Daytona probe fails', async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes('/v1/settings/sandbox/test')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: false,
+            provider: 'daytona',
+            detail: 'Daytona API key missing — set DAYTONA_API_KEY (or the configured env name)',
+            classification: 'env_name_unset',
+            operator_hint:
+              'Environment variable DAYTONA_API_KEY is not set in the SERVER\'s environment. Operator path: systemctl --user set-environment DAYTONA_API_KEY=<key>',
+          }),
+        } as unknown as Response
+      }
+      return fetchRoute(url, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPane()
+
+    await screen.findByTestId('sandbox-provider-none')
+    fireEvent.click(screen.getByTestId('sandbox-provider-daytona'))
+    await screen.findByTestId('daytona-options')
+    fireEvent.click(screen.getByTestId('sandbox-test'))
+
+    const result = await screen.findByTestId('sandbox-probe-result')
+    expect(result).toHaveTextContent('Failed')
+    expect(screen.getByTestId('sandbox-probe-classification')).toHaveTextContent(
+      'env_name_unset',
+    )
+    const hint = screen.getByTestId('sandbox-probe-hint')
+    expect(hint).toHaveTextContent('DAYTONA_API_KEY')
+    expect(hint).toHaveTextContent('systemctl --user set-environment')
+  })
 })

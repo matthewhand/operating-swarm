@@ -49,7 +49,7 @@ Fixes #348
   No extra Grok trio. GitHub PR only. No secrets, tokens, cookies,
   .env contents, house-identifying stills, or precise personal coordinates.
 - **Owner:** Cursor cloud / open-swarm engineer; skeptic text-only;
-  Open Swarm CoS; Matthew signs off on :8001.
+  Operating Swarm CoS; Matthew signs off on :8001.
 """
 
 FEASIBILITY = "Feasibility: yes — in-tree blueprint + tests, no :8001 deploy."

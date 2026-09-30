@@ -1,4 +1,4 @@
-# Open Swarm SDK reference (REQ-857 / #857)
+# Operating Swarm SDK reference (REQ-857 / #857)
 #
 # Build:  uv run mkdocs build --strict
 # Serve:  uv run mkdocs serve
@@ -7,7 +7,7 @@
 # the module registry below — add a module there and rebuild; the nav stays
 # in sync because this file's API section is also generated.
 
-site_name: Open Swarm SDK
+site_name: Operating Swarm SDK
 site_description: Blueprint SDK reference — base classes, sandbox harnesses, roles, remote adapters, and the Herdr SSH layer.
 repo_url: https://github.com/matthewhand/open-swarm-private
 docs_dir: docs

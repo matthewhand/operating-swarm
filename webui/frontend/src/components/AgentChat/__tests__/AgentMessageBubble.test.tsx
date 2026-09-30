@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { createEvent, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { ToastProvider } from '../../DaisyUI'
 import { COPY_EMPTY_TITLE, COPY_FAILED_TITLE } from '../../../lib/clipboard'
+import { OPEN_SETTINGS_EVENT } from '../../SettingsSheet'
 import { AgentMessageBubble } from '../AgentMessageBubble'
 import type { ChatMessage } from '../../../types/agent'
 
@@ -275,6 +276,61 @@ describe('AgentMessageBubble', () => {
     expect(pill).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByTestId('system-preload-content')).toBeInTheDocument()
     expect(screen.getByTestId('system-preload-content')).toHaveTextContent('Support · support')
+  })
+
+  describe('#1442 settings links in agent replies', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+
+    beforeEach(() => {
+      opened.length = 0
+      window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    })
+
+    afterEach(() => {
+      window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+    })
+
+    it('opens the sheet from a Set inference deeplink without leaving the page', () => {
+      renderBubble(
+        <AgentMessageBubble
+          message={{
+            key: 'support-paths',
+            role: 'assistant',
+            text: 'Try [Set inference](/chat?settings=llm-profiles) or [Settings](/chat?settings=true).',
+            timestamp: new Date(0),
+          }}
+        />,
+      )
+      const inference = screen.getByRole('link', { name: 'Set inference' })
+      const inferenceClick = createEvent.click(inference)
+      fireEvent(inference, inferenceClick)
+      const settings = screen.getByRole('link', { name: 'Settings' })
+      const settingsClick = createEvent.click(settings)
+      fireEvent(settings, settingsClick)
+      expect(inferenceClick.defaultPrevented).toBe(true)
+      expect(settingsClick.defaultPrevented).toBe(true)
+      expect(opened).toEqual([{ section: 'llm-profiles' }, {}])
+    })
+
+    it('leaves ordinary links and modified clicks alone', () => {
+      renderBubble(
+        <AgentMessageBubble
+          message={{
+            key: 'support-paths-plain',
+            role: 'assistant',
+            text: 'Go to [Teams](/teams/launch/) or [Settings](/chat?settings=true).',
+            timestamp: new Date(0),
+          }}
+        />,
+      )
+      fireEvent.click(screen.getByRole('link', { name: 'Teams' }))
+      const settings = screen.getByRole('link', { name: 'Settings' })
+      const modified = createEvent.click(settings, { ctrlKey: true })
+      fireEvent(settings, modified)
+      expect(opened).toEqual([])
+      expect(modified.defaultPrevented).toBe(false)
+    })
   })
 
   it('REQ-213: right-click on a Conversation summary opens Expand/Copy/Remove', () => {

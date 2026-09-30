@@ -4,7 +4,7 @@
  *
  * selectedModelId (#207 default-LLM tip gating), contextMax resolution,
  * sendNowHint (#561), token/message tallies for the meter, composer
- * placeholder, status label, and the #681/#711 composer picker sources
+ * placeholder (#1372 Message <display name>), status label, and the #681/#711 composer picker sources
  * (deferred CLI session fetch, per-remote stage-2 rows, #789 herdr panes).
  * Query payloads and setters stay page-owned.
  */
@@ -17,8 +17,12 @@ import { estimateTokensInContext } from '../../lib/chatMeter'
 import { resolveContextMaxFromProfiles } from '../../lib/chatMeter'
 import { shouldShowDefaultLlmTip } from '../../lib/defaultLlmTip'
 import { isHerdrKind } from '../../lib/remotes'
+import { isWebGpuProviderEnabled } from '../../lib/webgpuProvider'
+import { WEBGPU_MODEL_CATALOGUE } from '../../lib/webgpuInference'
 import { parseTeamRosters } from '../../lib/teamRosters'
 import { workingLabel } from '../../lib/chatBubble'
+import { composerEmptyPlaceholder } from '../../lib/composerPlaceholder'
+import { modelForCompanyRoute } from '../../lib/companyRoute'
 import { fetchCliSessions } from '../../lib/cliSessions'
 import type { ChatMessage } from './chatMessages'
 
@@ -28,7 +32,15 @@ export interface UseChatDerivedOptions {
   currentCli: string
   currentCliModel: string
   persistedDropdown: Partial<Record<'remote' | 'cli' | 'api' | 'blueprint' | 'model' | 'effort', string>>
-  llmProfilesQuery: { data?: { profiles?: { id: string; name?: string }[]; default_llm_profile?: string; default_llm_ready?: boolean } | undefined }
+  /** #1317: auto-applied Company model. Empty / policy-off leaves the pick alone. */
+  companyRoute?: { applied?: boolean; model?: string } | null
+  llmProfilesQuery: {
+    data?: {
+      profiles?: { id: string; name?: string; model_type?: string; owned_by?: string }[]
+      default_llm_profile?: string
+      default_llm_ready?: boolean
+    } | undefined
+  }
   llmDefaultProfile: string | undefined
   input?: string
   queuedRows: QueuedSendRow[]
@@ -60,6 +72,7 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
     currentCli,
     currentCliModel,
     persistedDropdown,
+    companyRoute,
     llmProfilesQuery,
     llmDefaultProfile,
     queuedRows,
@@ -84,9 +97,22 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
     contextMaxRef,
   } = opts
 
+  // #108: API seats route through LLM profiles — their memory lives in the
+  // `api` slot (`applyApiRoutingChange`). Reading the CLI `model` slot here
+  // would surface a stale CLI model id on an API seat: an id the API picker
+  // cannot offer. API seats therefore never consult the `model` slot.
+  const persistedRoutingModel = isApiAgent
+    ? persistedDropdown.api || ''
+    : isCliAgent
+      ? currentCliModel
+      : persistedDropdown.model || persistedDropdown.api || ''
+  const explicitModelId = (
+    (searchParams.get('model') ?? '').trim() || persistedRoutingModel
+  ).trim()
+  // #1317: API seats show the Company route in the composer pill when the
+  // operator has not picked a model. The blueprint / seat is not an input.
   const selectedModelId = (
-    (searchParams.get('model') ?? '').trim() ||
-    (isCliAgent ? currentCliModel : (persistedDropdown.model || persistedDropdown.api || ''))
+    isApiAgent ? modelForCompanyRoute(explicitModelId, companyRoute) : explicitModelId
   ).trim()
   const contextMax = resolveContextMaxFromProfiles(
     llmProfilesQuery.data?.profiles,
@@ -130,7 +156,9 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
     () => messages.filter((m) => m.role === 'assistant').length,
     [messages],
   )
-  const composerPlaceholder = replyTarget ? 'Reply…' : 'Message …'
+  const composerPlaceholder = composerEmptyPlaceholder(selectedAgentName, {
+    reply: Boolean(replyTarget),
+  })
   const workingTip = workingLabel(selectedAgentName)
 
   const statusLabel = useMemo(() => {
@@ -170,10 +198,13 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
 
   const composerSources: ComposerSources = useMemo(
     () => ({
-      api: {
-        profiles: (llmProfilesQuery.data?.profiles ?? []).map((p) => ({
+      api: {        profiles: (llmProfilesQuery.data?.profiles ?? []).map((p) => ({
           id: p.id,
           label: p.name || p.id,
+          // #1745: the composer is a chat surface, so the model type rides
+          // along and `composerSources` drops any System1 gate.
+          modelType: p.model_type,
+          ownedBy: p.owned_by,
         })),
         defaultProfileId: llmProfilesQuery.data?.default_llm_profile || undefined,
       },
@@ -232,6 +263,21 @@ export function useChatDerived(opts: UseChatDerivedOptions) {
         label: b.name || b.id,
         description: b.description,
       })),
+      // #1288: client-side WebGPU provider — present only while its
+      // experimental flag is on. It is never server-routed; picking it
+      // activates a tab-local seat (see webgpuClientSeat) and leaves every
+      // server seat + blueprint_id untouched.
+      ...(isWebGpuProviderEnabled()
+        ? {
+            webgpu: {
+              models: WEBGPU_MODEL_CATALOGUE.filter((m) => !m.placeholder).map((m) => ({
+                id: m.id,
+                label: m.label,
+              })),
+              defaultModelId: WEBGPU_MODEL_CATALOGUE.find((m) => !m.placeholder)?.id,
+            },
+          }
+        : {}),
     }),
     [
       llmProfilesQuery.data,

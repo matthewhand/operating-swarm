@@ -161,6 +161,17 @@ describe('PluginsPopup', () => {
     })
     expect(screen.getByText(/No matches for “zzzz-no-such-tool”/)).toBeInTheDocument()
   })
+
+  it('#1397 Pack pane mounts import/status and never shows tokens', async () => {
+    renderPopup()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Pack' }))
+    const pane = await screen.findByTestId('os-plugin-pack-pane')
+    expect(pane).toBeInTheDocument()
+    expect(screen.getByTestId('os-plugins-pack')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Import pack' })).toBeInTheDocument()
+    expect(screen.getByText(/Ids only — never tokens/i)).toBeInTheDocument()
+    expect(pane.textContent).not.toMatch(/sk-|bearer /i)
+  })
 })
 
 // #179 — marketplace entry point in the Plugins popup

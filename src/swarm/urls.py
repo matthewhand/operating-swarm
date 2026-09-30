@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from django.conf import settings
@@ -6,12 +7,15 @@ from django.contrib import admin
 from django.urls import path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import RedirectView
+logger = logging.getLogger(__name__)
+
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
 
+from swarm.views.activity_log_api import ActivityLogAPIView
 from swarm.views.agent_creator_views import (
     agent_creator_page,
     generate_agent_code,
@@ -25,6 +29,11 @@ from swarm.views.agent_mcp_api import (
     AgentMcpToolDetailAPIView,
     AgentMcpToolExecuteAPIView,
     AgentMcpToolsAPIView,
+)
+from swarm.views.agent_plugin_pack_api import (
+    AgentPluginPackAPIView,
+    AgentPluginPackImportAPIView,
+    AgentPluginsAPIView,
 )
 from swarm.views.agent_router_page import agent_router_page
 from swarm.views.agent_router_views import (
@@ -48,8 +57,34 @@ from swarm.views.agent_router_views import (
     route_message,
     send_to_agent,
 )
+from swarm.views.agent_memory_api import (
+    AgentMemoriesAPIView,
+    AgentMemoryDetailAPIView,
+    AgentMemoryImportAPIView,
+    AgentMemoryPackAPIView,
+)
 from swarm.views.agent_sandbox_display_api import AgentSandboxDisplayView
-from swarm.views.agent_settings_api import AgentSettingsAPIView, AgentTaskSessionAPIView
+from swarm.views.agent_settings_api import (
+    AgentProfileAPIView,
+    AgentSettingsAPIView,
+    AgentTaskSessionAPIView,
+)
+from swarm.views.agent_skills_api import (
+    AgentPackAPIView,
+    AgentPackImportAPIView,
+    AgentPackValidateAPIView,
+    AgentSkillDetailAPIView,
+    AgentSkillsAPIView,
+)
+from swarm.views.agent_template_api import (
+    AgentTemplateAPIView,
+    AgentTemplateCreateAPIView,
+    AgentTemplateFromGrokAPIView,
+    AgentTemplateGrokAPIView,
+    AgentTemplateGrokMapperAPIView,
+    AgentTemplateImportAPIView,
+    AgentTemplateValidateAPIView,
+)
 from swarm.views.api_views import (
     BlueprintPersonasView,
     BlueprintsListView,
@@ -85,7 +120,13 @@ from swarm.views.blueprint_library_views import (
     remove_blueprint_from_library,
     sdk_docs,
 )
+from swarm.views.chat_conversations_api import (
+    ConversationDirectoryView,
+    ConversationHandoffView,
+    ConversationMoveTopicView,
+)
 from swarm.views.chat_persist_views import (
+    chat_attachment_content,
     chat_attachment_upload,
     chat_compact,
     chat_context_start,
@@ -98,17 +139,25 @@ from swarm.views.chat_persist_views import (
 from swarm.views.chat_views import ChatCompletionsView, HealthCheckView
 from swarm.views.cli_runs_api import CliRunStatusAPIView, CliRunTerminateAPIView
 from swarm.views.cli_session_hop_api import CliSessionHopAPIView
+from swarm.views.seat_capabilities_api import SeatCapabilitiesAPIView
 from swarm.views.cli_sessions_api import CliSessionListAPIView, CliSessionSelectAPIView
 from swarm.views.config_ownership_api import ConfigOwnershipView, ConfigSectionView
 from swarm.views.definition_views import DefinitionDetailView, DefinitionSummarizeView
 from swarm.views.diagnostics_views import DiagnosticsView
+from swarm.views.fs_browse_api import FsDirectoriesView
 from swarm.views.herdr_api import (
     HerdrAgentDetailAPIView,
     HerdrAgentsAPIView,
     HerdrDiscoverAPIView,
+    HerdrStatusAPIView,
 )
 from swarm.views.image_gen_api import AgentAvatarGenerateView, ImageGenSettingsView
 from swarm.views.library_api import LibraryAPIView, LibraryDetailAPIView
+from swarm.views.org_library_api import (
+    OrgLibraryAPIView,
+    OrgLibraryDetailAPIView,
+    OrgLibraryShareAPIView,
+)
 from swarm.views.llm_profiles_api import LlmProfilesTestView, LlmProfilesView
 from swarm.views.mailbox_acl_api import (
     MailboxAclAgentAPIView,
@@ -126,15 +175,20 @@ from swarm.views.mcp_plugins_api import (
     McpPluginDiscoverView,
     McpPluginsView,
 )
+from swarm.views.companies_api import CompanyCollectionView, CompanyDetailView
+from swarm.views.company_route_api import CompanyRouteView
 from swarm.views.preferences_api import UserPreferencesView
 from swarm.views.rate_limits_api import RateLimitsView
+from swarm.views.seat_health_api import SeatDoctorView, SeatHealthBatchView, SeatHealthView
 from swarm.views.remotes_api import (
     AgentTeamView,
     RemoteDetailView,
     RemoteHealthView,
+    RemotePairView,
     RemoteOperateView,
     RemoteProbeCandidateView,
     RemoteRoutinesView,
+    RemoteTrueForgeCatalogView,
     RemotesListView,
 )
 from swarm.views.responses_views import (
@@ -145,14 +199,20 @@ from swarm.views.responses_views import (
 from swarm.views.roles_api import RolesAPIView
 from swarm.views.routines_api import (
     AgentRoutineDetailAPIView,
+    AgentRoutineEnableAPIView,
+    AgentRoutineFillAPIView,
     AgentRoutineRunNowAPIView,
     AgentRoutinesAPIView,
+    AgentRoutinesImportAPIView,
+    AgentRoutinesPackAPIView,
     AgentRoutineTestRunAPIView,
     AllRoutinesAPIView,
     GithubRoutineEventsAPIView,
     GithubRoutineMergeAPIView,
     MailboxRoutineMessageAPIView,
+    RoutinePackValidateAPIView,
     RoutinePresetsAPIView,
+    RoutineToolCatalogAPIView,
 )
 from swarm.views.runtime_views import BrowserControlView, RuntimeModeView
 from swarm.views.sandbox_settings_api import (
@@ -174,11 +234,23 @@ from swarm.views.speech_api import (
     SpeechSpeakView,
     SpeechTranscribeView,
 )
+from swarm.views.operator_plane_api import (
+    OperatorPlaneAPIView,
+    OperatorPlaneBudgetChargeAPIView,
+    OperatorPlaneBudgetResetAPIView,
+    OperatorPlaneBudgetsAPIView,
+    OperatorPlaneExportAPIView,
+    OperatorPlaneGatesAPIView,
+    OperatorPlaneImportAPIView,
+    OperatorPlaneTaskCheckoutAPIView,
+    OperatorPlaneTaskReleaseAPIView,
+)
 from swarm.views.suggestions_api import AgentSuggestionsAPIView
-from swarm.views.system_views import LocalStoreView
+from swarm.views.system_views import BuildInfoView, LocalStoreView
 from swarm.views.team_rosters_api import (
     TeamAgentsAPIView,
     TeamRosterDetailAPIView,
+    TeamRosterTopologyAPIView,
     TeamRostersAPIView,
 )
 from swarm.views.teams_api import TeamDetailAPIView, TeamsAPIView
@@ -195,6 +267,7 @@ from swarm.views.test_schedules_api import (
 from swarm.views.web_views import (
     brand_root_file,
     custom_login,
+    custom_logout,
     index,
     profiles_page,
     spa_asset_view,
@@ -209,7 +282,43 @@ from swarm.views.webui import WebUIView
 
 # Prefer the AllowAny variant if it's present in URL mappings elsewhere; for tests,
 # wire the open variant to avoid auth blocking. If needed, switch to ProtectedModelsView.
+# Social sign-in (/oauth/<backend>/login|callback|complete). Registered ahead
+# of the SPA catch-all so an /oauth/... path can never be swallowed by it, and
+# only when the `oauth` extra is installed -- a barebones deploy has no
+# social_django and must still boot. Callbacks need SECURE_PROXY_SSL_HEADER
+# (settings) so redirect_uri is https behind Fly's TLS-terminating proxy.
+SOCIAL_URLPATTERNS: list = []
+_SOCIAL_URLS_MOUNTED = False
+if settings.SOCIAL_AUTH_AVAILABLE:
+    try:
+        from django.urls import include, path as _path
+
+        # include() is required, not optional: social_django declares
+        # app_name="social", and splicing its raw urlpatterns into the root
+        # list drops that namespace, so reverse('social:begin') fails.
+        # Mounted at /oauth/ to match the provider callback URLs registered in
+        # the GitHub / Google developer consoles.
+        SOCIAL_URLPATTERNS = [_path("oauth/", include("social_django.urls", namespace="social"))]
+        _SOCIAL_URLS_MOUNTED = True
+    except Exception:  # pragma: no cover - a partial install must not 500 the site
+        # The site must stay usable, but it must also not advertise sign-in:
+        # with the namespace unmounted, {% url 'social:begin' %} raises
+        # NoReverseMatch and /login/ returns 500 -- i.e. unloginable, not
+        # merely degraded. social_urlpatterns_mounted() lets the login view
+        # fall back to password-only instead.
+        logger.exception("social_django is installed but its URLs could not be loaded")
+
+
+def social_urlpatterns_mounted() -> bool:
+    """Whether the /oauth/ namespace actually resolved.
+
+    Read by web_views._oauth_providers() so a partial social-auth install
+    degrades to password-only rather than 500-ing the login page.
+    """
+    return _SOCIAL_URLS_MOUNTED
+
 urlpatterns = [
+    *SOCIAL_URLPATTERNS,
     path("admin/", admin.site.urls),
     path("", index, name="index"),  # Root path for web UI
     # REQ-106 / #768 bee marks — root URLs browsers and the SPA head request.
@@ -229,10 +338,12 @@ urlpatterns = [
     path("agents", agent_router_page, name="spa_agents"),
     path("agents/", agent_router_page, name="spa_agents_slash"),
     # Lightweight liveness probe (no auth) — used by the Fly health check.
+    # Body is status plus the resolved config root (#1434): a directory path,
+    # not a secret. Do not describe this route as free of host paths.
     path("health", HealthCheckView.as_view(), name="health"),
     path("health/", HealthCheckView.as_view()),
     # REQ-45: runtime banner (where the *app* runs) + browser-control catalog.
-    # AllowAny, no secrets / host paths. Slash twins like /health and /v1/models.
+    # AllowAny, no secrets / host paths. Slash twins like /v1/models.
     path("v1/runtime", RuntimeModeView.as_view(), name="runtime-mode-no-slash"),
     path("v1/runtime/", RuntimeModeView.as_view(), name="runtime-mode"),
     path("v1/browser-control", BrowserControlView.as_view(), name="browser-control-no-slash"),
@@ -248,6 +359,10 @@ urlpatterns = [
     #   'custom_login' name referenced by templates/account/login.html.
     path("accounts/login/", custom_login, name="login"),
     path("login/", custom_login, name="custom_login"),
+    # Session sign-out. There was no logout route at all, so an OAuth session
+    # could never be ended from the UI. Must be POST-capable: GET logout is
+    # CSRF-exposable (a third-party <img> could sign the user out).
+    path("accounts/logout/", custom_logout, name="logout"),
     path("v1/models", OpenAIModelsView.as_view(), name="models-list-no-slash"),
     path("v1/models/", OpenAIModelsView.as_view(), name="models-list"),
     path("v1/blueprints", BlueprintsListView.as_view(), name="blueprints-list-no-slash"),
@@ -319,6 +434,8 @@ urlpatterns = [
     path("v1/cli-sessions/select/", CliSessionSelectAPIView.as_view(), name="cli-sessions-select"),
     path("v1/cli-sessions/hop", CliSessionHopAPIView.as_view(), name="cli-sessions-hop-no-slash"),
     path("v1/cli-sessions/hop/", CliSessionHopAPIView.as_view(), name="cli-sessions-hop"),
+    path("v1/capabilities/seats", SeatCapabilitiesAPIView.as_view(), name="capabilities-seats-no-slash"),
+    path("v1/capabilities/seats/", SeatCapabilitiesAPIView.as_view(), name="capabilities-seats"),
     path("v1/llm-profiles/test", LlmProfilesTestView.as_view(), name="llm-profiles-test-no-slash"),
     path("v1/llm-profiles/test/", LlmProfilesTestView.as_view(), name="llm-profiles-test"),
     path("v1/llm-profiles", LlmProfilesView.as_view(), name="llm-profiles-api-no-slash"),
@@ -375,6 +492,24 @@ urlpatterns = [
     ),
     path("v1/preferences", UserPreferencesView.as_view(), name="user-preferences-api-no-slash"),
     path("v1/preferences/", UserPreferencesView.as_view(), name="user-preferences-api"),
+    # #1315: Company model policy. #1317 requires Company on new-bot create.
+    path("v1/companies", CompanyCollectionView.as_view(), name="companies-api-no-slash"),
+    path("v1/companies/", CompanyCollectionView.as_view(), name="companies-api"),
+    path("v1/company-route", CompanyRouteView.as_view(), name="company-route-no-slash"),
+    path("v1/company-route/", CompanyRouteView.as_view(), name="company-route"),
+    path(
+        "v1/companies/<str:company_id>",
+        CompanyDetailView.as_view(),
+        name="companies-api-detail-no-slash",
+    ),
+    path(
+        "v1/companies/<str:company_id>/",
+        CompanyDetailView.as_view(),
+        name="companies-api-detail",
+    ),
+    # #1314: operator activity log (append-only ActivityEvent; detail redacted)
+    path("v1/activity", ActivityLogAPIView.as_view(), name="activity-log-api-no-slash"),
+    path("v1/activity/", ActivityLogAPIView.as_view(), name="activity-log-api"),
     # #800: 429 burst diagnostics
     path("v1/telemetry/requests/", RequestTelemetryView.as_view(), name="telemetry-requests"),
     path("v1/telemetry/throttles/", ThrottleIncidentsView.as_view(), name="telemetry-throttles"),
@@ -407,6 +542,9 @@ urlpatterns = [
     path("v1/cli-agents/<str:cli>/models/", CliAgentModelsView.as_view(), name="cli-agent-models"),
     path("v1/config-options", ConfigOptionsView.as_view(), name="config-options-api-no-slash"),
     path("v1/config-options/", ConfigOptionsView.as_view(), name="config-options-api"),
+    # #1256: confined host directory browser for the agent Folder picker.
+    path("v1/fs/directories", FsDirectoriesView.as_view(), name="fs-directories-no-slash"),
+    path("v1/fs/directories/", FsDirectoriesView.as_view(), name="fs-directories"),
     path("v1/skills", SkillsListView.as_view(), name="skills-api-no-slash"),
     path("v1/skills/", SkillsListView.as_view(), name="skills-api"),
     path("v1/skills/<str:name>", SkillDetailView.as_view(), name="skill-detail-api-no-slash"),
@@ -454,9 +592,93 @@ urlpatterns = [
     # Composition rosters (REQ-20 / REQ-28). Not teams.json LLM aliases.
     path("v1/team-rosters", TeamRostersAPIView.as_view(), name="team-rosters-api-no-slash"),
     path("v1/team-rosters/", TeamRostersAPIView.as_view(), name="team-rosters-api"),
+    path("v1/team-rosters/<str:roster_id>/topology/", TeamRosterTopologyAPIView.as_view(), name="team-rosters-api-topology"),
     path("v1/team-rosters/<str:roster_id>/", TeamRosterDetailAPIView.as_view(), name="team-rosters-api-detail"),
     path("v1/team-agents", TeamAgentsAPIView.as_view(), name="team-agents-api-no-slash"),
     path("v1/team-agents/", TeamAgentsAPIView.as_view(), name="team-agents-api"),
+    # Operator control plane (#1360). Not a seat kind and not teams.json.
+    path("v1/operator-plane", OperatorPlaneAPIView.as_view(), name="operator-plane-no-slash"),
+    path("v1/operator-plane/", OperatorPlaneAPIView.as_view(), name="operator-plane"),
+    path(
+        "v1/operator-plane/budgets",
+        OperatorPlaneBudgetsAPIView.as_view(),
+        name="operator-plane-budgets-no-slash",
+    ),
+    path(
+        "v1/operator-plane/budgets/",
+        OperatorPlaneBudgetsAPIView.as_view(),
+        name="operator-plane-budgets",
+    ),
+    path(
+        "v1/operator-plane/budgets/charge",
+        OperatorPlaneBudgetChargeAPIView.as_view(),
+        name="operator-plane-budgets-charge-no-slash",
+    ),
+    path(
+        "v1/operator-plane/budgets/charge/",
+        OperatorPlaneBudgetChargeAPIView.as_view(),
+        name="operator-plane-budgets-charge",
+    ),
+    path(
+        "v1/operator-plane/budgets/reset",
+        OperatorPlaneBudgetResetAPIView.as_view(),
+        name="operator-plane-budgets-reset-no-slash",
+    ),
+    path(
+        "v1/operator-plane/budgets/reset/",
+        OperatorPlaneBudgetResetAPIView.as_view(),
+        name="operator-plane-budgets-reset",
+    ),
+    path(
+        "v1/operator-plane/tasks/checkout",
+        OperatorPlaneTaskCheckoutAPIView.as_view(),
+        name="operator-plane-task-checkout-no-slash",
+    ),
+    path(
+        "v1/operator-plane/tasks/checkout/",
+        OperatorPlaneTaskCheckoutAPIView.as_view(),
+        name="operator-plane-task-checkout",
+    ),
+    path(
+        "v1/operator-plane/tasks/release",
+        OperatorPlaneTaskReleaseAPIView.as_view(),
+        name="operator-plane-task-release-no-slash",
+    ),
+    path(
+        "v1/operator-plane/tasks/release/",
+        OperatorPlaneTaskReleaseAPIView.as_view(),
+        name="operator-plane-task-release",
+    ),
+    path(
+        "v1/operator-plane/gates",
+        OperatorPlaneGatesAPIView.as_view(),
+        name="operator-plane-gates-no-slash",
+    ),
+    path(
+        "v1/operator-plane/gates/",
+        OperatorPlaneGatesAPIView.as_view(),
+        name="operator-plane-gates",
+    ),
+    path(
+        "v1/operator-plane/org/export",
+        OperatorPlaneExportAPIView.as_view(),
+        name="operator-plane-org-export-no-slash",
+    ),
+    path(
+        "v1/operator-plane/org/export/",
+        OperatorPlaneExportAPIView.as_view(),
+        name="operator-plane-org-export",
+    ),
+    path(
+        "v1/operator-plane/org/import",
+        OperatorPlaneImportAPIView.as_view(),
+        name="operator-plane-org-import-no-slash",
+    ),
+    path(
+        "v1/operator-plane/org/import/",
+        OperatorPlaneImportAPIView.as_view(),
+        name="operator-plane-org-import",
+    ),
     path("v1/roles", RolesAPIView.as_view(), name="roles-api-no-slash"),
     path("v1/roles/", RolesAPIView.as_view(), name="roles-api"),
     path("v1/roles/<str:role_id>", RolesAPIView.as_view(), name="roles-api-detail-no-slash"),
@@ -468,12 +690,36 @@ urlpatterns = [
     path("v1/remotes/test/", RemoteProbeCandidateView.as_view(), name="remotes-test-candidate"),
     path("v1/remotes/<str:remote_id>", RemoteDetailView.as_view(), name="remotes-detail-no-slash"),
     path("v1/remotes/<str:remote_id>/", RemoteDetailView.as_view(), name="remotes-detail"),
+    path("v1/remotes/<str:remote_id>/pair", RemotePairView.as_view(), name="remotes-pair-no-slash"),
+    path("v1/remotes/<str:remote_id>/pair/", RemotePairView.as_view(), name="remotes-pair"),
     path("v1/remotes/<str:remote_id>/health", RemoteHealthView.as_view(), name="remotes-health-no-slash"),
     path("v1/remotes/<str:remote_id>/health/", RemoteHealthView.as_view(), name="remotes-health"),
+    # Seat health across all three seat kinds (#1658). The batch route is
+    # registered before the per-seat one so "v1/seats/health" is not read as
+    # kind="health" with a missing seat id.
+    path("v1/seats/health", SeatHealthBatchView.as_view(), name="seats-health-no-slash"),
+    path("v1/seats/health/", SeatHealthBatchView.as_view(), name="seats-health"),
+    # Before the <kind>/<seat_id> pattern for readability only: the shapes cannot
+    # collide (3 vs 4 segments), but a reader should see the literal routes first.
+    path("v1/seats/doctor", SeatDoctorView.as_view(), name="seats-doctor-no-slash"),
+    path("v1/seats/doctor/", SeatDoctorView.as_view(), name="seats-doctor"),
+    path(
+        "v1/seats/<str:kind>/<str:seat_id>/health",
+        SeatHealthView.as_view(),
+        name="seat-health-no-slash",
+    ),
+    path(
+        "v1/seats/<str:kind>/<str:seat_id>/health/",
+        SeatHealthView.as_view(),
+        name="seat-health",
+    ),
     path("v1/remotes/<str:remote_id>/operate", RemoteOperateView.as_view(), name="remotes-operate-no-slash"),
     path("v1/remotes/<str:remote_id>/operate/", RemoteOperateView.as_view(), name="remotes-operate"),
     path("v1/remotes/<str:remote_id>/routines", RemoteRoutinesView.as_view(), name="remotes-routines-no-slash"),
     path("v1/remotes/<str:remote_id>/routines/", RemoteRoutinesView.as_view(), name="remotes-routines"),
+    # #1358 — TrueForge-only agents + sessions for the navbar pickers.
+    path("v1/remotes/<str:remote_id>/trueforge", RemoteTrueForgeCatalogView.as_view(), name="remotes-trueforge-catalog-no-slash"),
+    path("v1/remotes/<str:remote_id>/trueforge/", RemoteTrueForgeCatalogView.as_view(), name="remotes-trueforge-catalog"),
     # Handoff Team (API/CLI/remote members) — not /v1/teams/ Profiles aliases.
     path("v1/agent-team", AgentTeamView.as_view(), name="agent-team-no-slash"),
     path("v1/agent-team/", AgentTeamView.as_view(), name="agent-team"),
@@ -481,6 +727,13 @@ urlpatterns = [
     path("v1/library", LibraryAPIView.as_view(), name="library-api-no-slash"),
     path("v1/library/", LibraryAPIView.as_view(), name="library-api"),
     path("v1/library/<str:blueprint_name>/", LibraryDetailAPIView.as_view(), name="library-api-detail"),
+    # #1311 — org-shared bot library, preset bots, whole-team share
+    path("v1/org-library", OrgLibraryAPIView.as_view(), name="org-library-api-no-slash"),
+    path("v1/org-library/", OrgLibraryAPIView.as_view(), name="org-library-api"),
+    path("v1/org-library/<str:bot_id>/share", OrgLibraryShareAPIView.as_view(), name="org-library-share-no-slash"),
+    path("v1/org-library/<str:bot_id>/share/", OrgLibraryShareAPIView.as_view(), name="org-library-share"),
+    path("v1/org-library/<str:bot_id>", OrgLibraryDetailAPIView.as_view(), name="org-library-detail-no-slash"),
+    path("v1/org-library/<str:bot_id>/", OrgLibraryDetailAPIView.as_view(), name="org-library-detail"),
     # Agent Router API (SPA /agents chat uses these)
     path("v1/agents/", list_agents, name="list_agents"),
     path("v1/agents/routing-options/", get_routing_options, name="get_routing_options"),
@@ -513,6 +766,10 @@ urlpatterns = [
     path("v1/herdr-agents/", HerdrAgentsAPIView.as_view(), name="herdr-agents-api"),
     path("v1/herdr-agents/discover", HerdrDiscoverAPIView.as_view(), name="herdr-agents-discover-no-slash"),
     path("v1/herdr-agents/discover/", HerdrDiscoverAPIView.as_view(), name="herdr-agents-discover"),
+    # #1728: before the `<str:agent_id>` detail route, or "status" binds as a
+    # HerdrAgent name lookup and the query surface 404s.
+    path("v1/herdr-agents/status", HerdrStatusAPIView.as_view(), name="herdr-agents-status-no-slash"),
+    path("v1/herdr-agents/status/", HerdrStatusAPIView.as_view(), name="herdr-agents-status"),
     path("v1/herdr-agents/<str:agent_id>", HerdrAgentDetailAPIView.as_view(), name="herdr-agents-api-detail-no-slash"),
     path("v1/herdr-agents/<str:agent_id>/", HerdrAgentDetailAPIView.as_view(), name="herdr-agents-api-detail"),
     # REQ-162: peer-mailbox ACL (whitelist XOR blacklist; Support allow-all).
@@ -541,6 +798,8 @@ urlpatterns = [
     # REQ-65: agent-scoped settings (new chat per task). Not global Settings.
     path("v1/agents/<str:agent_id>/settings", AgentSettingsAPIView.as_view(), name="agent-settings-api-no-slash"),
     path("v1/agents/<str:agent_id>/settings/", AgentSettingsAPIView.as_view(), name="agent-settings-api"),
+    path("v1/agents/<str:agent_id>/profile", AgentProfileAPIView.as_view(), name="agent-profile-api-no-slash"),
+    path("v1/agents/<str:agent_id>/profile/", AgentProfileAPIView.as_view(), name="agent-profile-api"),
     path("v1/agents/<str:agent_id>/mcp", AgentMcpAPIView.as_view(), name="agent-mcp-api-no-slash"),
     path("v1/agents/<str:agent_id>/mcp/", AgentMcpAPIView.as_view(), name="agent-mcp-api"),
     path("v1/agents/<str:agent_id>/mcp/tools", AgentMcpToolsAPIView.as_view(), name="agent-mcp-tools-api-no-slash"),
@@ -565,13 +824,200 @@ urlpatterns = [
         AgentMcpToolExecuteAPIView.as_view(),
         name="agent-mcp-tool-execute-api",
     ),
+    path(
+        "v1/agents/<str:agent_id>/plugins/pack",
+        AgentPluginPackAPIView.as_view(),
+        name="agent-plugin-pack-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/plugins/pack/",
+        AgentPluginPackAPIView.as_view(),
+        name="agent-plugin-pack-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/plugins/import",
+        AgentPluginPackImportAPIView.as_view(),
+        name="agent-plugin-pack-import-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/plugins/import/",
+        AgentPluginPackImportAPIView.as_view(),
+        name="agent-plugin-pack-import-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/plugins",
+        AgentPluginsAPIView.as_view(),
+        name="agent-plugins-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/plugins/",
+        AgentPluginsAPIView.as_view(),
+        name="agent-plugins-api",
+    ),
     path("v1/agents/<str:agent_id>/suggestions", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api-no-slash"),
     path("v1/agents/<str:agent_id>/suggestions/", AgentSuggestionsAPIView.as_view(), name="agent-suggestions-api"),
     path("v1/agents/<str:agent_id>/sessions", AgentTaskSessionAPIView.as_view(), name="agent-task-session-api-no-slash"),
     path("v1/agents/<str:agent_id>/sessions/", AgentTaskSessionAPIView.as_view(), name="agent-task-session-api"),
+    # #1681: the conversation directory. A projection over the canonical
+    # ChatConversation rows, so there is no second chat registry behind it.
+    path("v1/conversations/", ConversationDirectoryView.as_view(), name="conversation-directory-api"),
+    path(
+        "v1/conversations/<str:conversation_id>/handoff/",
+        ConversationHandoffView.as_view(),
+        name="conversation-handoff-api",
+    ),
+    path(
+        "v1/conversations/<str:conversation_id>/move/",
+        ConversationMoveTopicView.as_view(),
+        name="conversation-move-topic-api",
+    ),
+    # #1390: agent-scoped memories (profile/log pack; episode/note stay local).
+    path("v1/agents/<str:agent_id>/memories", AgentMemoriesAPIView.as_view(), name="agent-memories-api-no-slash"),
+    path("v1/agents/<str:agent_id>/memories/", AgentMemoriesAPIView.as_view(), name="agent-memories-api"),
+    path(
+        "v1/agents/<str:agent_id>/memories/pack",
+        AgentMemoryPackAPIView.as_view(),
+        name="agent-memory-pack-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/memories/pack/",
+        AgentMemoryPackAPIView.as_view(),
+        name="agent-memory-pack-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/memories/import",
+        AgentMemoryImportAPIView.as_view(),
+        name="agent-memory-import-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/memories/import/",
+        AgentMemoryImportAPIView.as_view(),
+        name="agent-memory-import-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/memories/<str:memory_id>",
+        AgentMemoryDetailAPIView.as_view(),
+        name="agent-memory-detail-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/memories/<str:memory_id>/",
+        AgentMemoryDetailAPIView.as_view(),
+        name="agent-memory-detail-api",
+    ),
+    # #1392: per-agent skills CRUD + pack (prose only; gettingStarted.skill).
+    path("v1/agents/<str:agent_id>/skills", AgentSkillsAPIView.as_view(), name="agent-skills-api-no-slash"),
+    path("v1/agents/<str:agent_id>/skills/", AgentSkillsAPIView.as_view(), name="agent-skills-api"),
+    path(
+        "v1/agents/<str:agent_id>/skills/<str:name>",
+        AgentSkillDetailAPIView.as_view(),
+        name="agent-skill-detail-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/skills/<str:name>/",
+        AgentSkillDetailAPIView.as_view(),
+        name="agent-skill-detail-api",
+    ),
+    path("v1/agents/<str:agent_id>/pack", AgentPackAPIView.as_view(), name="agent-pack-api-no-slash"),
+    path("v1/agents/<str:agent_id>/pack/", AgentPackAPIView.as_view(), name="agent-pack-api"),
+    path(
+        "v1/agents/<str:agent_id>/pack/import",
+        AgentPackImportAPIView.as_view(),
+        name="agent-pack-import-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/pack/import/",
+        AgentPackImportAPIView.as_view(),
+        name="agent-pack-import-api",
+    ),
+    path("v1/agent-packs/validate", AgentPackValidateAPIView.as_view(), name="agent-pack-validate-api-no-slash"),
+    path("v1/agent-packs/validate/", AgentPackValidateAPIView.as_view(), name="agent-pack-validate-api"),
+    # #1398: template pack (profile/memory/skills/routines/plugins; file Grok mapper).
+    path(
+        "v1/agents/<str:agent_id>/template/import",
+        AgentTemplateImportAPIView.as_view(),
+        name="agent-template-import-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/template/import/",
+        AgentTemplateImportAPIView.as_view(),
+        name="agent-template-import-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/template/grok",
+        AgentTemplateGrokAPIView.as_view(),
+        name="agent-template-grok-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/template/grok/",
+        AgentTemplateGrokAPIView.as_view(),
+        name="agent-template-grok-api",
+    ),
+    path("v1/agents/<str:agent_id>/template", AgentTemplateAPIView.as_view(), name="agent-template-api-no-slash"),
+    path("v1/agents/<str:agent_id>/template/", AgentTemplateAPIView.as_view(), name="agent-template-api"),
+    path(
+        "v1/agent-templates/validate",
+        AgentTemplateValidateAPIView.as_view(),
+        name="agent-template-validate-api-no-slash",
+    ),
+    path(
+        "v1/agent-templates/validate/",
+        AgentTemplateValidateAPIView.as_view(),
+        name="agent-template-validate-api",
+    ),
+    path(
+        "v1/agent-templates/from-grok",
+        AgentTemplateFromGrokAPIView.as_view(),
+        name="agent-template-from-grok-api-no-slash",
+    ),
+    path(
+        "v1/agent-templates/from-grok/",
+        AgentTemplateFromGrokAPIView.as_view(),
+        name="agent-template-from-grok-api",
+    ),
+    path(
+        "v1/agent-templates/import",
+        AgentTemplateCreateAPIView.as_view(),
+        name="agent-template-create-api-no-slash",
+    ),
+    path(
+        "v1/agent-templates/import/",
+        AgentTemplateCreateAPIView.as_view(),
+        name="agent-template-create-api",
+    ),
+    path(
+        "v1/agent-templates/grok-mapper",
+        AgentTemplateGrokMapperAPIView.as_view(),
+        name="agent-template-grok-mapper-api-no-slash",
+    ),
+    path(
+        "v1/agent-templates/grok-mapper/",
+        AgentTemplateGrokMapperAPIView.as_view(),
+        name="agent-template-grok-mapper-api",
+    ),
     # REQ-80: agent-scoped Routines (PR-merge trigger, Test run, history).
     path("v1/agents/<str:agent_id>/routines", AgentRoutinesAPIView.as_view(), name="agent-routines-api-no-slash"),
     path("v1/agents/<str:agent_id>/routines/", AgentRoutinesAPIView.as_view(), name="agent-routines-api"),
+    # #1394: pack/import must win over <routine_id> (otherwise "pack" is a row id).
+    path(
+        "v1/agents/<str:agent_id>/routines/pack",
+        AgentRoutinesPackAPIView.as_view(),
+        name="agent-routines-pack-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/pack/",
+        AgentRoutinesPackAPIView.as_view(),
+        name="agent-routines-pack-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/import",
+        AgentRoutinesImportAPIView.as_view(),
+        name="agent-routines-import-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/import/",
+        AgentRoutinesImportAPIView.as_view(),
+        name="agent-routines-import-api",
+    ),
     path(
         "v1/agents/<str:agent_id>/routines/<str:routine_id>",
         AgentRoutineDetailAPIView.as_view(),
@@ -602,10 +1048,42 @@ urlpatterns = [
         AgentRoutineRunNowAPIView.as_view(),
         name="agent-routine-run-now-api",
     ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/fill",
+        AgentRoutineFillAPIView.as_view(),
+        name="agent-routine-fill-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/fill/",
+        AgentRoutineFillAPIView.as_view(),
+        name="agent-routine-fill-api",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/enable",
+        AgentRoutineEnableAPIView.as_view(),
+        name="agent-routine-enable-api-no-slash",
+    ),
+    path(
+        "v1/agents/<str:agent_id>/routines/<str:routine_id>/enable/",
+        AgentRoutineEnableAPIView.as_view(),
+        name="agent-routine-enable-api",
+    ),
     path("v1/routines", AllRoutinesAPIView.as_view(), name="routines-list-all-no-slash"),
     path("v1/routines/", AllRoutinesAPIView.as_view(), name="routines-list-all"),
     path("v1/routines/presets", RoutinePresetsAPIView.as_view(), name="routines-presets-no-slash"),
     path("v1/routines/presets/", RoutinePresetsAPIView.as_view(), name="routines-presets"),
+    path(
+        "v1/routines/packs/validate",
+        RoutinePackValidateAPIView.as_view(),
+        name="routines-pack-validate-no-slash",
+    ),
+    path(
+        "v1/routines/packs/validate/",
+        RoutinePackValidateAPIView.as_view(),
+        name="routines-pack-validate",
+    ),
+    path("v1/routines/tool-catalog", RoutineToolCatalogAPIView.as_view(), name="routines-tool-catalog-no-slash"),
+    path("v1/routines/tool-catalog/", RoutineToolCatalogAPIView.as_view(), name="routines-tool-catalog"),
     path("v1/routines/github-merge", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api-no-slash"),
     path("v1/routines/github-merge/", GithubRoutineMergeAPIView.as_view(), name="routines-github-merge-api"),
     path(
@@ -673,6 +1151,9 @@ urlpatterns = [
     # Settings System section — local store facts (REQ-56). Read-only.
     path("v1/system", LocalStoreView.as_view(), name="system-local-store-no-slash"),
     path("v1/system/", LocalStoreView.as_view(), name="system-local-store"),
+    # Which install profile this process booted with (extras active, and any
+    # required module that failed to import). Read-only.
+    path("v1/system/build/", BuildInfoView.as_view(), name="system-build"),
     # #905: read-only diagnostics bundle for the WebUI (#906 palette, #907 modal).
     # Slash-only: the no-slash twin would steal the base operationId in the
     # OpenAPI schema (spectacular dedupes alphabetically); APPEND_SLASH covers it.
@@ -710,6 +1191,16 @@ urlpatterns = [
     # REQ-38: composer file upload (sqlite metadata + local bytes).
     path("v1/chat/attachments", chat_attachment_upload, name="chat-attachments-no-slash"),
     path("v1/chat/attachments/", chat_attachment_upload, name="chat-attachments"),
+    path(
+        "v1/chat/attachments/<uuid:attachment_id>/content",
+        chat_attachment_content,
+        name="chat-attachment-content-no-slash",
+    ),
+    path(
+        "v1/chat/attachments/<uuid:attachment_id>/content/",
+        chat_attachment_content,
+        name="chat-attachment-content",
+    ),
     # #858: enhance user prompt via tiny model
     path("v1/assist/enhance-prompt", EnhancePromptAPIView.as_view(), name="assist-enhance-prompt-no-slash"),
     path("v1/assist/enhance-prompt/", EnhancePromptAPIView.as_view(), name="assist-enhance-prompt"),

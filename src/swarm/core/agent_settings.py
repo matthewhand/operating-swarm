@@ -25,7 +25,19 @@ Layout::
           "tts_base_url": "",
           "tts_model": "",
           "tts_api_key_env": "",
-          "auto_speak_replies": false
+          "auto_speak_replies": false,
+          "command_allowlist": {"allow": [], "deny": [], "ask": []},
+          "mcp_tool_grants": [],
+          "mcp_tool_grants_set": false,
+          "profile": {
+            "display_name": "",
+            "description": "",
+            "title": "",
+            "role": "",
+            "avatar_shape": "circle",
+            "avatar_color": "",
+            "avatar_path": null
+          }
         }
       }
     }
@@ -45,8 +57,26 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from swarm.core.agent_profile import (
+    KEY_ROLE,
+    apply_profile_patch,
+    default_profile,
+    normalize_profile,
+    profile_for_replace,
+    public_profile,
+)
 from swarm.core.chat_store import normalize_agent_id
-from swarm.core.paths import ensure_swarm_directories_exist, get_user_config_dir_for_swarm
+from swarm.core.command_allowlist import KEY as KEY_COMMAND_ALLOWLIST
+from swarm.core.command_allowlist import empty_policy as _empty_command_policy
+from swarm.core.command_allowlist import normalize_policy as _normalize_command_policy
+from swarm.core.mcp_tool_grants import KEY as KEY_MCP_TOOL_GRANTS
+from swarm.core.mcp_tool_grants import KEY_SET as KEY_MCP_TOOL_GRANTS_SET
+from swarm.core.mcp_tool_grants import empty_grants as _empty_mcp_tool_grants
+from swarm.core.mcp_tool_grants import normalize_mcp_tool_grants as _normalize_mcp_tool_grants
+from swarm.core.paths import (
+    ensure_swarm_directories_exist,
+    get_user_config_dir_for_swarm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +97,11 @@ KEY_TTS_BASE_URL = "tts_base_url"
 KEY_TTS_MODEL = "tts_model"
 KEY_TTS_API_KEY_ENV = "tts_api_key_env"
 KEY_AUTO_SPEAK_REPLIES = "auto_speak_replies"
+KEY_PROFILE = "profile"
 KEY_STT_API_KEY = "stt_api_key"
 KEY_TTS_API_KEY = "tts_api_key"
+# #1312: per-bot exact command allowlist (allow / deny / ask). Empty = inactive.
+# #1313: per-bot MCP / connector tool grants. Unset = inactive; saved [] = deny-all.
 
 SPEECH_MODE_INHERIT = "inherit"
 SPEECH_MODE_VOICE = "voice"
@@ -94,10 +127,19 @@ DEFAULTS: dict[str, Any] = {
     KEY_TTS_MODEL: "",
     KEY_TTS_API_KEY_ENV: "",
     KEY_AUTO_SPEAK_REPLIES: False,
+    KEY_COMMAND_ALLOWLIST: _empty_command_policy(),
+    KEY_MCP_TOOL_GRANTS: _empty_mcp_tool_grants(),
+    KEY_MCP_TOOL_GRANTS_SET: False,
+    KEY_PROFILE: default_profile(),
 }
 
 _ALLOWED_KEYS = frozenset(DEFAULTS)
-_BOOL_KEYS = frozenset({KEY_NEW_CHAT_PER_TASK, KEY_USE_SUGGESTIONS, KEY_AUTO_SPEAK_REPLIES})
+_BOOL_KEYS = frozenset({
+    KEY_NEW_CHAT_PER_TASK,
+    KEY_USE_SUGGESTIONS,
+    KEY_AUTO_SPEAK_REPLIES,
+    KEY_MCP_TOOL_GRANTS_SET,
+})
 _ID_KEYS = frozenset({KEY_CLI_SESSION, KEY_REMOTE_SESSION})
 _PATH_KEYS = frozenset({KEY_FOLDER})
 _URL_KEYS = frozenset({KEY_STT_BASE_URL, KEY_TTS_BASE_URL})
@@ -188,7 +230,11 @@ def _normalize_bind_url(key: str, value: Any) -> str:
         return ""
     if "://" not in text:
         text = f"http://{text}"
-    from swarm.core.speech import SpeechError, _forbidden_host_reason, _looks_like_forbidden_host
+    from swarm.core.speech import (
+        SpeechError,
+        _forbidden_host_reason,
+        _looks_like_forbidden_host,
+    )
 
     if _looks_like_forbidden_host(text):
         reason = _forbidden_host_reason(text)
@@ -252,19 +298,34 @@ def _normalize_value(key: str, value: Any) -> Any:
         if value is None:
             return ""
         return str(value).strip()
+    if key == KEY_COMMAND_ALLOWLIST:
+        try:
+            return _normalize_command_policy(value)
+        except ValueError as exc:
+            raise ValueError(f"{KEY_COMMAND_ALLOWLIST}: {exc}") from exc
+    if key == KEY_MCP_TOOL_GRANTS:
+        try:
+            return _normalize_mcp_tool_grants(value)
+        except ValueError as exc:
+            raise ValueError(f"{KEY_MCP_TOOL_GRANTS}: {exc}") from exc
+    if key == KEY_PROFILE:
+        return normalize_profile(value)
     return value
 
 
 def public_settings(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     """Stable JSON shape for the editor / API."""
     merged = dict(DEFAULTS)
+    profile_raw = None
     if isinstance(raw, dict):
+        profile_raw = raw.get(KEY_PROFILE)
         for key in _ALLOWED_KEYS:
-            if key in raw:
-                try:
-                    merged[key] = _normalize_value(key, raw[key])
-                except ValueError:
-                    continue
+            if key == KEY_PROFILE or key not in raw:
+                continue
+            try:
+                merged[key] = _normalize_value(key, raw[key])
+            except ValueError:
+                continue
     return {
         KEY_NEW_CHAT_PER_TASK: bool(merged[KEY_NEW_CHAT_PER_TASK]),
         KEY_USE_SUGGESTIONS: bool(merged[KEY_USE_SUGGESTIONS]),
@@ -281,6 +342,10 @@ def public_settings(raw: dict[str, Any] | None = None) -> dict[str, Any]:
         KEY_TTS_MODEL: str(merged[KEY_TTS_MODEL] or ""),
         KEY_TTS_API_KEY_ENV: str(merged[KEY_TTS_API_KEY_ENV] or ""),
         KEY_AUTO_SPEAK_REPLIES: bool(merged[KEY_AUTO_SPEAK_REPLIES]),
+        KEY_COMMAND_ALLOWLIST: _normalize_command_policy(merged[KEY_COMMAND_ALLOWLIST]),
+        KEY_MCP_TOOL_GRANTS: _normalize_mcp_tool_grants(merged[KEY_MCP_TOOL_GRANTS]),
+        KEY_MCP_TOOL_GRANTS_SET: bool(merged[KEY_MCP_TOOL_GRANTS_SET]),
+        KEY_PROFILE: public_profile(profile_raw),
     }
 
 
@@ -307,10 +372,39 @@ def _record_for_disk(public: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _reject_incapable_role(agent_id: str, incoming: dict[str, Any]) -> None:
+    """#1706 D.16 — refuse a role write a seat cannot carry.
+
+    Every agent-settings write (PATCH and PUT) funnels through
+    :func:`update_settings`, so this is the one place the settings API can
+    reject a role. It asks :func:`validate_role_for_kind` — the single
+    decision point — rather than re-deriving which seats are role-capable, so
+    this rejection and the editor's field suppression cannot disagree.
+
+    A patch that does not mention a role is untouched: the gate fires on the
+    *write*, not on the seat's current state, so an ordinary settings save for
+    a team id (voice, folder, …) is not collateral damage.
+    """
+    from swarm.core.roles.registry import role_seat_kind_for, validate_role_for_kind
+
+    profile = incoming.get(KEY_PROFILE)
+    if not isinstance(profile, dict) or KEY_ROLE not in profile:
+        return
+    raw_role = profile.get(KEY_ROLE)
+    if raw_role is None or not str(raw_role).strip():
+        return
+    error = validate_role_for_kind(str(raw_role), role_seat_kind_for(agent_id))
+    if error:
+        raise ValueError(error)
+
+
 def update_settings(agent_id: str, patch: dict[str, Any] | None) -> dict[str, Any]:
     """Merge ``patch`` into one agent's settings and persist."""
     agent = normalize_agent_id(agent_id)
-    incoming = patch if isinstance(patch, dict) else {}
+    incoming = dict(patch) if isinstance(patch, dict) else {}
+    # Derived from a saved grant list. A client must not clear deny-all, or
+    # arm it, by writing this flag on its own.
+    incoming.pop(KEY_MCP_TOOL_GRANTS_SET, None)
     secret_keys = [key for key in incoming if key in _SECRET_PATCH_KEYS]
     if secret_keys:
         raise ValueError(
@@ -319,13 +413,33 @@ def update_settings(agent_id: str, patch: dict[str, Any] | None) -> dict[str, An
     unknown = [key for key in incoming if key not in _ALLOWED_KEYS]
     if unknown:
         raise ValueError(f"Unknown agent setting(s): {', '.join(sorted(unknown))}.")
+    # #1706 D.16 — before any write, so a rejected role leaves the store as it
+    # was. `agent_id` is the RAW id: `normalize_agent_id` slugs a `chat:` /
+    # `team:` row id into something that no longer classifies.
+    _reject_incapable_role(agent_id, incoming)
     current = get_settings(agent)
     for key, value in incoming.items():
-        current[key] = _normalize_value(key, value)
+        if key == KEY_PROFILE:
+            current[key] = apply_profile_patch(current.get(KEY_PROFILE), value)
+        else:
+            current[key] = _normalize_value(key, value)
+    # Saving the list, including [], marks the policy as configured so an
+    # explicit "all off" stays deny-all instead of looking unset.
+    if KEY_MCP_TOOL_GRANTS in incoming:
+        current[KEY_MCP_TOOL_GRANTS_SET] = True
     store = _read_store()
     agents = dict(store.get("agents") or {})
     agents[agent] = _record_for_disk(current)
     _write_store({"schema": SCHEMA, "agents": agents})
+    from swarm.core.activity_log import emit_activity
+
+    emit_activity(
+        action="settings.patched",
+        entity_type="agent",
+        entity_id=agent,
+        agent_id=agent,
+        detail={"keys": sorted(incoming.keys())},
+    )
     return dict(current)
 
 
@@ -375,3 +489,45 @@ def is_auto_speak_replies(agent_id: str | None) -> bool:
     if not (agent_id or "").strip():
         return False
     return bool(get_settings(agent_id)[KEY_AUTO_SPEAK_REPLIES])
+
+
+def get_profile(agent_id: str) -> dict[str, Any]:
+    """Public storefront / rail profile for one agent."""
+    return dict(get_settings(agent_id)[KEY_PROFILE])
+
+
+def update_profile(agent_id: str, patch: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge ``patch`` into one agent's profile and persist."""
+    return update_settings(agent_id, {KEY_PROFILE: patch})[KEY_PROFILE]
+
+
+def replace_profile(agent_id: str, profile: dict[str, Any] | None) -> dict[str, Any]:
+    """Replace one agent's profile (PUT). Missing fields become defaults."""
+    current = get_profile(agent_id)
+    return update_settings(agent_id, {KEY_PROFILE: profile_for_replace(current, profile)})[KEY_PROFILE]
+
+
+def get_command_allowlist(agent_id: str) -> dict[str, list[str]]:
+    """Return this agent's exact-command allowlist (empty dicts = inactive)."""
+    return _normalize_command_policy(get_settings(agent_id)[KEY_COMMAND_ALLOWLIST])
+
+
+def set_command_allowlist(
+    agent_id: str, policy: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Persist this agent's exact-command allowlist policy."""
+    return update_settings(agent_id, {KEY_COMMAND_ALLOWLIST: policy})
+
+
+def get_mcp_tool_grants(agent_id: str) -> list[str]:
+    """Return this agent's persisted MCP tool grant names.
+
+    Empty is deny-all only when ``mcp_tool_grants_set`` is true. Flag false
+    means the operator has never saved a list.
+    """
+    return _normalize_mcp_tool_grants(get_settings(agent_id)[KEY_MCP_TOOL_GRANTS])
+
+
+def set_mcp_tool_grants(agent_id: str, grants: Any) -> dict[str, Any]:
+    """Persist this agent's MCP / connector tool grant list."""
+    return update_settings(agent_id, {KEY_MCP_TOOL_GRANTS: grants})

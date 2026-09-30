@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, CheckCircle2, Clock, GitMerge, Mail, Plus, Timer } from 'lucide-react'
-import { Button, Input, Select, Textarea } from './DaisyUI'
+import { AlertCircle, CheckCircle2, Clock, GitMerge, Mail, Package, Plus, Timer } from 'lucide-react'
+import { Button, Input, Select } from './DaisyUI'
+import { GithubTriggerComposer } from './GithubTriggerComposer'
+import RoutinePackPicker from './RoutinePackPicker'
+import { githubTriggerSaveError, isGithubRoutineTrigger } from '../lib/githubTriggerComposer'
+import {
+  RoutineAgentInstructions,
+  RoutineArmedToggle,
+  RoutineDryRunPreview,
+  resolveRoutinePreview,
+} from './RoutineBuilderChrome'
 import {
   createRoutine,
+  defaultToolsForTrigger,
   deleteRoutine,
   emptyTrigger,
+  effectiveRoutineTools,
   fetchRoutines,
   formatDurationMs,
   formatRoutineHistoryTime,
-  GITHUB_EVENT_TYPES,
   historySucceeded,
-  ROUTINE_ACTOR_ANYONE,
-  ROUTINE_EVENT_MERGED,
+  isDuplicateRoutineError,
+  mergeRoutineSave,
+  previewRoutineDryRun,
+  routineDraftWrite,
   ROUTINE_TRIGGER_CRON,
   ROUTINE_TRIGGER_GITHUB_EVENT,
   ROUTINE_TRIGGER_GITHUB_PR_MERGED,
@@ -21,12 +33,22 @@ import {
   ROUTINE_TRIGGER_ONE_SHOT,
   runNowRoutine,
   testRunRoutine,
+  toggleOpenPullRequestTool,
   triggerSummary,
   updateRoutine,
   type Routine,
+  type RoutineDryRunPreview as DryRunPreview,
   type RoutineTrigger,
   type RoutineTriggerKind,
 } from '../lib/routines'
+import { RoutineToolsFields } from './RoutineToolsFields'
+import {
+  incompleteFillInMessage,
+  unresolvedFillIns,
+  routineEnableGate,
+  routineListStatus,
+  routineStatusLabel,
+} from '../lib/routinePack'
 
 export interface ComputerRoutinesPaneProps {
   agentId: string
@@ -35,9 +57,13 @@ export interface ComputerRoutinesPaneProps {
   hasScreenSession?: boolean
   nowMs?: number
   showThumbnail?: boolean
+  /** Proof harness only — open the + Add Tool or MCP picker (#1406). */
+  toolsPickerOpen?: boolean
+  /** Proof harness only — pre-dismiss instruction-gap suggestions (#1410). */
+  suggestionDismissed?: Record<string, string>
 }
 
-type PaneView = 'list' | 'editor'
+type PaneView = 'list' | 'editor' | 'pack'
 
 function triggerIcon(kind: string | undefined) {
   if (kind === ROUTINE_TRIGGER_MAILBOX_MESSAGE) return Mail
@@ -47,9 +73,9 @@ function triggerIcon(kind: string | undefined) {
   return GitMerge
 }
 
-function ownerRepoOf(trigger: RoutineTrigger): string {
-  if ('owner_repo' in trigger) return trigger.owner_repo || ''
-  return ''
+function commitGithubTrigger(trigger: RoutineTrigger): RoutineTrigger | null {
+  if (!isGithubRoutineTrigger(trigger)) return trigger
+  return githubTriggerSaveError(trigger) ? null : trigger
 }
 
 export function ComputerRoutinesPane({
@@ -60,12 +86,15 @@ export function ComputerRoutinesPane({
   /* #1077: the screen viewport moved above the tab strip (ComputerControlStub);
      the routines pane no longer renders a duplicate. */
   showThumbnail = false,
+  toolsPickerOpen = false,
+  suggestionDismissed,
 }: ComputerRoutinesPaneProps) {
   const [view, setView] = useState<PaneView>('list')
   const [editing, setEditing] = useState<Routine | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<DryRunPreview | null>(null)
   const queryClient = useQueryClient()
   const screenCaption = `${agentName || 'Agent'}'s screen`
 
@@ -104,6 +133,7 @@ export function ComputerRoutinesPane({
     setView('list')
     setEditing(null)
     setConfirmDelete(false)
+    setPreview(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId])
 
@@ -111,6 +141,7 @@ export function ComputerRoutinesPane({
     setEditing(routine)
     setConfirmDelete(false)
     setError(null)
+    setPreview(null)
     setView('editor')
   }
 
@@ -118,6 +149,7 @@ export function ComputerRoutinesPane({
     setView('list')
     setEditing(null)
     setConfirmDelete(false)
+    setPreview(null)
     await load()
   }
 
@@ -126,10 +158,17 @@ export function ComputerRoutinesPane({
     setBusy(true)
     setError(null)
     try {
-      const created = await createRoutine(agentId, { name: 'New routine' })
+      const created = await createRoutine(agentId, { name: 'New routine', active: false })
       refreshRoutines()
       openEditor(created)
     } catch (err) {
+      // #1316 — the server refuses an identical "New routine". Open the one
+      // that already exists rather than mint a twin or show a dead error.
+      if (isDuplicateRoutineError(err) && err.existingRoutine) {
+        refreshRoutines()
+        openEditor(err.existingRoutine)
+        return
+      }
       setError(err instanceof Error ? err.message : 'Could not create routine.')
     } finally {
       setBusy(false)
@@ -138,9 +177,32 @@ export function ComputerRoutinesPane({
 
   const onSaveField = async (patch: Parameters<typeof updateRoutine>[2]) => {
     if (!agentId || !editing) return
+    const routineId = editing.id
+    // `patch` is a partial update whose `trigger` is the loose draft shape, so
+    // spreading it over the stored `Routine` widens the type. The merged row is
+    // the routine being edited (same shape the optimistic `setEditing` write
+    // below already asserts), so narrow it back to `Routine` here rather than
+    // loosening `FillInCarrier` for every caller.
+    const merged = {
+      ...editing,
+      ...patch,
+      active: patch.active !== undefined ? patch.active : editing.active,
+    } as Routine
+    const slots = unresolvedFillIns([merged])
+    const body = { ...patch }
+    if (slots.length > 0 && merged.active) {
+      body.active = false
+      setError(incompleteFillInMessage(slots))
+    }
+    setEditing((current) =>
+      current && current.id === routineId ? ({ ...current, ...body } as Routine) : current,
+    )
     try {
-      const updated = await updateRoutine(agentId, editing.id, patch)
-      setEditing(updated)
+      const updated = await updateRoutine(agentId, routineId, body)
+      setEditing((current) => {
+        if (!current || current.id !== updated.id) return current
+        return mergeRoutineSave(current, updated, body as Partial<Routine>)
+      })
       refreshRoutines()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save routine.')
@@ -150,20 +212,62 @@ export function ComputerRoutinesPane({
   const onChangeKind = async (kind: RoutineTriggerKind) => {
     if (!editing) return
     const next = emptyTrigger(kind)
-    setEditing({ ...editing, trigger: next })
-    await onSaveField({ trigger: next })
+    const tools = editing.tools_explicit
+      ? effectiveRoutineTools(editing)
+      : defaultToolsForTrigger(next)
+    setEditing({ ...editing, trigger: next, tools })
+    // Trigger only — server re-defaults tools when they were not explicit.
+    const committable = commitGithubTrigger(next)
+    if (committable) await onSaveField({ trigger: committable })
   }
 
-  const onTestRun = async () => {
+  const onToggleOpenPullRequest = async (enabled: boolean) => {
+    if (!editing) return
+    const tools = toggleOpenPullRequestTool(effectiveRoutineTools(editing), enabled)
+    setEditing({ ...editing, tools, tools_explicit: true })
+    await onSaveField({ tools })
+  }
+
+  const onChangeTools = async (tools: string[]) => {
+    if (!editing) return
+    setEditing({ ...editing, tools, tools_explicit: true })
+    await onSaveField({ tools })
+  }
+
+  const onSaveDraft = async () => {
     if (!agentId || !editing || busy) return
     setBusy(true)
     setError(null)
     try {
-      const updated = await testRunRoutine(agentId, editing.id)
+      const write = routineDraftWrite(editing)
+      const slots = unresolvedFillIns([editing])
+      if (slots.length > 0 && write.active) {
+        write.active = false
+        setError(incompleteFillInMessage(slots))
+      }
+      const updated = await updateRoutine(agentId, editing.id, write)
       setEditing(updated)
       refreshRoutines()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Test run failed.')
+      setError(err instanceof Error ? err.message : 'Could not save routine.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onTestRun = async () => {
+    if (!editing || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (!agentId || !editing.id) {
+        setPreview(previewRoutineDryRun(editing))
+        return
+      }
+      const result = await testRunRoutine(agentId, editing.id)
+      setPreview(resolveRoutinePreview(editing, result))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test preview failed.')
     } finally {
       setBusy(false)
     }
@@ -208,11 +312,12 @@ export function ComputerRoutinesPane({
   }, [editing])
 
   const trigger = editing?.trigger
+  const enableGate = editing ? routineEnableGate(editing) : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="computer-routines-pane">
       {error ? (
-        <p className="text-sm text-error" role="alert">
+        <p className="text-sm text-error" role="alert" data-testid="computer-routines-error">
           {error}
         </p>
       ) : null}
@@ -234,15 +339,30 @@ export function ComputerRoutinesPane({
 
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-base font-semibold">Routines</h3>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm btn-square"
-              aria-label="Add routine"
-              onClick={() => void onAdd()}
-              disabled={busy || !agentId}
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-square"
+                aria-label="Export or import pack"
+                data-testid="routine-pack-open"
+                onClick={() => {
+                  setError(null)
+                  setView('pack')
+                }}
+                disabled={busy || !agentId}
+              >
+                <Package className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-square"
+                aria-label="Add routine"
+                onClick={() => void onAdd()}
+                disabled={busy || !agentId}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           {routinesQuery.isLoading ? (
@@ -263,10 +383,8 @@ export function ComputerRoutinesPane({
                       <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                       <span className="min-w-0">
                         <span className="block font-medium">
-                          {routine.name}
-                          {!routine.active ? (
-                            <span className="ml-2 text-xs font-normal text-base-content/50">Paused</span>
-                          ) : null}
+                          <span>{routine.name}</span>
+                          <RoutineStatusBadge routine={routine} />
                         </span>
                         <span className="block text-xs text-base-content/60">
                           {routine.when_to_run || triggerSummary(routine.trigger)}
@@ -279,6 +397,22 @@ export function ComputerRoutinesPane({
             </ul>
           )}
         </>
+      ) : view === 'pack' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="routine-pack-pane">
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void backToList()}>
+              Back
+            </button>
+            <h3 className="text-base font-semibold">Routines pack</h3>
+            <span className="w-16" aria-hidden="true" />
+          </div>
+          <RoutinePackPicker
+            agentId={agentId}
+            routines={routines}
+            busy={busy}
+            onImported={refreshRoutines}
+          />
+        </div>
       ) : editing && trigger ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="routine-editor">
           <div className="flex items-center justify-between gap-2">
@@ -289,27 +423,57 @@ export function ComputerRoutinesPane({
             <span className="w-16" aria-hidden="true" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <span>Active</span>
-              <input
-                type="checkbox"
-                className="toggle toggle-sm"
-                role="switch"
-                aria-label="Active"
-                checked={editing.active}
-                onChange={(event) => void onSaveField({ active: event.target.checked })}
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <RoutineArmedToggle
+                active={editing.active}
+                disabled={enableGate?.blocked}
+                onChange={(active) => {
+                  if (active && routineListStatus(editing) === 'pending-fill') {
+                    setError(incompleteFillInMessage(unresolvedFillIns([editing])))
+                    return
+                  }
+                  setError(null)
+                  void onSaveField({ active })
+                }}
               />
-            </label>
-            <Button type="button" size="sm" variant="ghost" onClick={() => void onRunNow()} disabled={busy}>
-              Run now
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => void onTestRun()} disabled={busy}>
-              Test run
-            </Button>
-            <Button type="button" size="sm" color="error" variant="ghost" onClick={() => void onDelete()}>
-              {confirmDelete ? 'Confirm delete' : 'Delete'}
-            </Button>
+              {routineListStatus(editing) === 'pending-fill' ? (
+                <p className="text-xs text-warning" data-testid="routine-editor-pending-fill">
+                  Pending fill — complete required slots before enabling.
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                data-testid="routine-editor-save"
+                onClick={() => void onSaveDraft()}
+                disabled={busy}
+              >
+                Save
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => void onRunNow()} disabled={busy}>
+                Run now
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                data-testid="routine-editor-test"
+                onClick={() => void onTestRun()}
+                disabled={busy}
+              >
+                Test
+              </Button>
+              <Button type="button" size="sm" color="error" variant="ghost" onClick={() => void onDelete()}>
+                {confirmDelete ? 'Confirm delete' : 'Delete'}
+              </Button>
+            </div>
+            {enableGate?.message ? (
+              <p id="routine-enable-gated" className="text-xs text-base-content/60" data-testid="routine-enable-gated">
+                {enableGate.message}
+              </p>
+            ) : null}
           </div>
 
           <Input
@@ -319,14 +483,16 @@ export function ComputerRoutinesPane({
             onChange={(event) => setEditing({ ...editing, name: event.target.value })}
             onBlur={(event) => void onSaveField({ name: event.target.value })}
           />
-          <Textarea
-            label="Instruction"
-            size="sm"
-            rows={4}
-            value={editing.instruction}
-            onChange={(event) => setEditing({ ...editing, instruction: event.target.value })}
-            onBlur={(event) => void onSaveField({ instruction: event.target.value })}
+          <RoutineAgentInstructions
+            instruction={editing.instruction}
+            model={editing.model}
+            onInstructionChange={(instruction) => setEditing({ ...editing, instruction })}
+            onInstructionBlur={(instruction) => void onSaveField({ instruction })}
+            onModelChange={(model) => {
+              void onSaveField({ model })
+            }}
           />
+          <RoutineDryRunPreview preview={preview} />
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">When to run</legend>
@@ -344,121 +510,72 @@ export function ComputerRoutinesPane({
               <option value={ROUTINE_TRIGGER_MAILBOX_MESSAGE}>Mailbox message</option>
             </Select>
 
-            {trigger.kind === ROUTINE_TRIGGER_GITHUB_PR_MERGED ? (
+            {isGithubRoutineTrigger(trigger) ? (
               <>
-                <Input
-                  label="Repository"
-                  size="sm"
-                  placeholder="owner/repo"
-                  value={ownerRepoOf(trigger)}
-                  onChange={(event) =>
-                    setEditing({
-                      ...editing,
-                      trigger: { ...trigger, owner_repo: event.target.value },
-                    })
-                  }
-                  onBlur={(event) =>
-                    void onSaveField({
-                      trigger: { ...trigger, owner_repo: event.target.value },
-                    })
-                  }
+                <GithubTriggerComposer
+                  trigger={trigger}
+                  onChange={(next) => setEditing({ ...editing, trigger: next })}
+                  onCommit={(next) => void onSaveField({ trigger: next })}
                 />
-                <Input label="Event" size="sm" value="Merged" readOnly />
-                <Input
-                  label="Actor"
-                  size="sm"
-                  value={trigger.actor || ROUTINE_ACTOR_ANYONE}
-                  onChange={(event) =>
-                    setEditing({
-                      ...editing,
-                      trigger: { ...trigger, actor: event.target.value || ROUTINE_ACTOR_ANYONE },
-                    })
-                  }
-                  onBlur={(event) =>
-                    void onSaveField({
-                      trigger: {
-                        ...trigger,
-                        actor: event.target.value || ROUTINE_ACTOR_ANYONE,
-                        event: ROUTINE_EVENT_MERGED,
-                      },
-                    })
-                  }
-                />
-              </>
-            ) : null}
-
-            {trigger.kind === ROUTINE_TRIGGER_GITHUB_EVENT ? (
-              <>
-                <Input
-                  label="Repository"
-                  size="sm"
-                  placeholder="owner/repo"
-                  value={trigger.owner_repo}
-                  onChange={(event) =>
-                    setEditing({ ...editing, trigger: { ...trigger, owner_repo: event.target.value } })
-                  }
-                  onBlur={(event) =>
-                    void onSaveField({ trigger: { ...trigger, owner_repo: event.target.value } })
-                  }
-                />
-                <Select
-                  label="Event type"
-                  size="sm"
-                  value={trigger.event_type}
-                  onChange={(event) =>
-                    void onSaveField({ trigger: { ...trigger, event_type: event.target.value } })
-                  }
-                >
-                  {GITHUB_EVENT_TYPES.map((eventType) => (
-                    <option key={eventType} value={eventType}>
-                      {eventType}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  label="Labels"
-                  size="sm"
-                  placeholder="bug, triage"
-                  value={(trigger.filters?.labels || []).join(', ')}
-                  onChange={(event) =>
-                    setEditing({
-                      ...editing,
-                      trigger: {
-                        ...trigger,
-                        filters: {
-                          ...trigger.filters,
-                          labels: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
-                        },
-                      },
-                    })
-                  }
-                  onBlur={(event) => {
-                    const labels = event.target.value
-                      .split(',')
-                      .map((item) => item.trim())
-                      .filter(Boolean)
-                    void onSaveField({
-                      trigger: { ...trigger, filters: { ...trigger.filters, labels } },
-                    })
-                  }}
-                />
-                <Input
-                  label="Branch"
-                  size="sm"
-                  placeholder="main"
-                  value={trigger.filters?.branch || ''}
-                  onChange={(event) =>
-                    setEditing({
-                      ...editing,
-                      trigger: { ...trigger, filters: { ...trigger.filters, branch: event.target.value } },
-                    })
-                  }
-                  onBlur={(event) =>
-                    void onSaveField({
-                      trigger: { ...trigger, filters: { ...trigger.filters, branch: event.target.value } },
-                    })
-                  }
-                />
+                {trigger.kind === ROUTINE_TRIGGER_GITHUB_EVENT ? (
+                  <>
+                    <Input
+                      label="Labels"
+                      size="sm"
+                      placeholder="bug, triage"
+                      value={(trigger.filters?.labels || []).join(', ')}
+                      onChange={(event) =>
+                        setEditing({
+                          ...editing,
+                          trigger: {
+                            ...trigger,
+                            filters: {
+                              ...trigger.filters,
+                              labels: event.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                            },
+                          },
+                        })
+                      }
+                      onBlur={(event) => {
+                        const labels = event.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean)
+                        const next = {
+                          ...trigger,
+                          filters: { ...trigger.filters, labels },
+                        }
+                        if (!githubTriggerSaveError(next)) {
+                          void onSaveField({ trigger: next })
+                        }
+                      }}
+                    />
+                    <Input
+                      label="Branch"
+                      size="sm"
+                      placeholder="main"
+                      value={trigger.filters?.branch || ''}
+                      onChange={(event) =>
+                        setEditing({
+                          ...editing,
+                          trigger: {
+                            ...trigger,
+                            filters: { ...trigger.filters, branch: event.target.value },
+                          },
+                        })
+                      }
+                      onBlur={(event) => {
+                        const next = {
+                          ...trigger,
+                          filters: { ...trigger.filters, branch: event.target.value },
+                        }
+                        if (!githubTriggerSaveError(next)) {
+                          void onSaveField({ trigger: next })
+                        }
+                      }}
+                    />
+                  </>
+                ) : null}
               </>
             ) : null}
 
@@ -551,6 +668,16 @@ export function ComputerRoutinesPane({
             ) : null}
           </fieldset>
 
+          <RoutineToolsFields
+            tools={effectiveRoutineTools(editing)}
+            instruction={editing.instruction}
+            trigger={editing.trigger}
+            onToggleOpenPullRequest={(enabled) => void onToggleOpenPullRequest(enabled)}
+            onChangeTools={(tools) => void onChangeTools(tools)}
+            pickerOpen={toolsPickerOpen || undefined}
+            suggestionDismissed={suggestionDismissed}
+          />
+
           <section aria-label="Routine history" className="space-y-2">
             <h4 className="text-sm font-medium">History</h4>
             {history.length === 0 ? (
@@ -602,6 +729,25 @@ export function ComputerRoutinesPane({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function RoutineStatusBadge({ routine }: { routine: Routine }) {
+  const status = routineListStatus(routine)
+  const tone =
+    status === 'pending-fill'
+      ? 'text-warning'
+      : status === 'enabled'
+        ? 'text-success'
+        : 'text-base-content/50'
+  return (
+    <span
+      className={`ml-2 text-xs font-normal ${tone}`}
+      data-testid={`routine-list-status-${routine.id}`}
+      data-status={status}
+    >
+      {routineStatusLabel(status)}
+    </span>
   )
 }
 

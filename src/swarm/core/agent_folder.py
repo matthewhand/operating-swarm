@@ -104,6 +104,20 @@ def resolve_agent_folder(raw: str | None) -> str | None:
     except OSError as exc:
         raise AgentFolderError(f"Folder {text!r} could not be resolved: {exc}") from exc
     if not resolved.exists():
+        # A bound folder that was an auto-minted per-run workspace
+        # (`<workspaces>/run-<hex>`) has been cleaned up. Resuming a session
+        # must not hard-fail on it — fall back to unset so the caller mints a
+        # fresh confined run dir. A user dir that merely *looks* like run-<hex>
+        # but lives elsewhere still errors (see workdir AUTO_RUN_MARKER note).
+        try:
+            from swarm.core.workdir import get_workspaces_dir, looks_like_auto_run_name
+
+            if looks_like_auto_run_name(resolved.name) and resolved.is_relative_to(
+                get_workspaces_dir()
+            ):
+                return None
+        except (ImportError, OSError, ValueError):
+            pass
         raise AgentFolderError(
             f"Folder {text!r} does not exist. Set a real directory or clear Folder."
         )

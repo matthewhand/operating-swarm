@@ -101,6 +101,15 @@ class SandboxBackend(ABC):
         """Check if the backend and its dependencies/runtimes are available."""
         raise NotImplementedError
 
+    @property
+    def browser_supported(self) -> bool:
+        """True when this backend can drive a persistent browser (#1200).
+
+        Backends that return False expose no ``sandbox_browser_*`` tools —
+        an honest absence, never a fabricated tool.
+        """
+        return False
+
     def cleanup(self) -> None:
         """Clean up any temporary resources, containers, or connections."""
         pass

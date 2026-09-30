@@ -6,10 +6,18 @@ import {
   loadAgentEdit,
   saveAgentEdit,
 } from '../agentEdits'
+import { rememberProfile, resetAgentProfileCache } from '../agentProfile'
 
 describe('agentEdits', () => {
   afterEach(() => {
     localStorage.removeItem(AGENT_EDITS_KEY)
+    resetAgentProfileCache()
+  })
+
+  it('prefers a cached storefront display_name over the editor override', () => {
+    saveAgentEdit('support', { name: 'Desk' })
+    rememberProfile('support', { display_name: 'Honey Bee' })
+    expect(editedAgentLabel({ id: 'support', name: 'Support' })).toBe('Honey Bee')
   })
 
   it('defaults the assigned blueprint to the agent id', () => {

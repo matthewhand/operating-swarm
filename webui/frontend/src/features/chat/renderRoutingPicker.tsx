@@ -5,6 +5,8 @@
  * and renders `renderRoutingPickerImpl(...)`.
  */
 import type * as React from 'react'
+import { selectWebGpuClientModel } from '../../lib/webgpuClientSeat'
+import { applySeatParamPatch, seatParamsForPick } from '../../lib/seatRouting'
 
 type Props = Record<string, any>
 
@@ -21,6 +23,8 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
     applyApiRoutingChange,
     applyCliRoutingChange,
     applyRemoteRoutingChange,
+    capabilityCatalog,
+    warnBeforeEngineSwitch,
     applyTeamMemberSessionParam,
     availableCliModels,
     bindingAgentId,
@@ -30,10 +34,12 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
     composerProviders,
     composerShowProvider,
     composerSources,
+    companyRouteSource,
     configuredRemoteRows,
     currentCli,
     currentCliModel,
     discoveredClis,
+    foreignModelIds,
     isApiAgent,
     isCliAgent,
     isRemoteAction,
@@ -94,8 +100,11 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
           providers: composerProviders,
           getProviderOptions: (provider: string) =>
             composerOptionsForProvider(composerSources, provider),
+          onSelectClientProvider: selectWebGpuClientModel,
         }}
         selectedModel={ombSelectedBotId || sessionFromUrl}
+        capabilityCatalog={capabilityCatalog}
+        onEngineSwitchWarning={warnBeforeEngineSwitch}
         modelWarning={remoteAgentWarning}
         modelWarningAction={
           remoteAgentsQuery.isSuccess && remoteAgentsQuery.data?.ok === false
@@ -130,8 +139,13 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
             })
           }
           setSearchParams((prev: URLSearchParams) => {
-            const params = new URLSearchParams(prev)
-            if (decision.setRemote) params.set('remote', decision.setRemote)
+            let params = new URLSearchParams(prev)
+            if (decision.setRemote) {
+              params = applySeatParamPatch(
+                params,
+                seatParamsForPick('remote', decision.setRemote),
+              )
+            }
             if (decision.setSession) params.set('session', decision.setSession)
             else if (decision.deleteSession) params.delete('session')
             return params
@@ -145,6 +159,8 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
     // seat uses — the legacy navbar <select> is retired. All members is
     // the first row (its id is the send-target sentinel 'all'); Manage
     // Team is the footer action, which never writes a session (#331).
+    // #1445: reached only when remotes chrome is off — leftover AnythingLLM
+    // kind no longer keeps showRemotesControl true on a regular team.
     const members = selectedTeam?.members ?? []
     return (
       <NavbarRoutingPicker
@@ -161,6 +177,8 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
         selectedAgent={memberTarget || ALL_MEMBERS_TARGET}
         models={[]}
         selectedModel=""
+        capabilityCatalog={capabilityCatalog}
+        onEngineSwitchWarning={warnBeforeEngineSwitch}
         placeholder="Team"
         footerAction={{
           id: MANAGE_TEAMS_VALUE,
@@ -198,12 +216,15 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
         agents={discoveredClis.map((cli: any) => ({ id: cli, label: cli, kind: 'cli' as const }))}
         selectedAgent={currentCli}
         models={availableCliModels}
+        foreignModelIds={foreignModelIds}
         selectedModel={currentCliModel}
         modelWarning={cliModelWarning}
         preferredEffort={persistedDropdown.effort}
         allAgents={allPaletteAgents}
         onNavigateAgent={navigateToPaletteAgent}
         onProviderReconfigure={reconfigureProviderForSeat}
+        capabilityCatalog={capabilityCatalog}
+        onEngineSwitchWarning={warnBeforeEngineSwitch}
         loading={isCliAgent && (cliModelsQuery.isFetching || cliModelsQuery.isLoading)}
         onTwoStageOpen={() => setComposerSessionsOpen(true)}
         twoStage={{
@@ -211,6 +232,7 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
           getProviderOptions: (provider: any) =>
             composerOptionsForProvider(composerSources, provider),
           onResumeSession: resumeComposerSession,
+          onSelectClientProvider: selectWebGpuClientModel,
         }}
         footerAction={{
           id: MANAGE_CLI_VALUE,
@@ -236,16 +258,20 @@ export function renderRoutingPickerImpl(props: Props): React.ReactNode {
         ).map((opt: any) => ({ id: opt.id, label: opt.label, kind: 'api' as const }))}
         allAgents={allPaletteAgents}
         onNavigateAgent={navigateToPaletteAgent}
+        capabilityCatalog={capabilityCatalog}
+        onEngineSwitchWarning={warnBeforeEngineSwitch}
         selectedAgent={
           selectedModelId || llmProfilesQuery.data?.default_llm_profile || ''
         }
         models={[]}
         selectedModel=""
+        companyRouteSource={companyRouteSource || ''}
         defaultAgent={llmProfilesQuery.data?.default_llm_profile || ''}
         twoStage={{
           providers: composerProviders,
           getProviderOptions: (provider: any) =>
             composerOptionsForProvider(composerSources, provider),
+          onSelectClientProvider: selectWebGpuClientModel,
         }}
         footerAction={{
           id: '__manage_api__',
