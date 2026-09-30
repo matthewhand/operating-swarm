@@ -54,7 +54,7 @@ def write_index() -> Path:
     )
     text = (
         HEADER
-        + "# Open Swarm SDK reference\n\n"
+        + "# Operating Swarm SDK reference\n\n"
         + "Browsable API reference for the Blueprint SDK surfaces, generated\n"
         + "from the modules in `scripts/gen_sdk_reference.py` (REQ-857 / #857).\n"
         + "Pages render `swarm.core` SDK surfaces (sandbox, roles) plus the\n"

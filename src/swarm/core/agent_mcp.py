@@ -42,6 +42,8 @@ PROGRESSIVE_TOOLS = (LIST_TOOL, INSPECT_TOOL, EXECUTE_TOOL)
 
 KEY_MODE = "mode"
 KEY_SERVERS = "mcp_servers"
+KEY_TOOLS = "mcp_tools"
+STAR = "*"
 
 _MODE_ALIASES = {
     "off": MODE_OFF,
@@ -62,6 +64,7 @@ _MODE_ALIASES = {
 DEFAULTS: dict[str, Any] = {
     KEY_MODE: MODE_OFF,
     KEY_SERVERS: [],
+    KEY_TOOLS: {},
 }
 
 _cache: dict[str, Any] | None = None
@@ -125,28 +128,92 @@ def normalize_mcp_servers(value: Any) -> list[str]:
     return out
 
 
+def normalize_mcp_tools(value: Any) -> dict[str, list[str] | str]:
+    """Normalize ``{server: [tool, ...] | "*"}``.
+
+    ``None`` and ``{}`` are an omitted map (server-level behaviour). A server
+    value of ``"*"`` keeps every tool on that server. A list is an explicit
+    grant, including ``[]`` (the server is granted and none of its tools).
+    """
+    if value is None or value == "" or value == {}:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("mcp_tools must be an object mapping server names to tool lists or '*'.")
+    out: dict[str, list[str] | str] = {}
+    for raw_server, raw_tools in value.items():
+        server = str(raw_server).strip()[:80]
+        if not server:
+            continue
+        if isinstance(raw_tools, str) and raw_tools.strip() == STAR:
+            out[server] = STAR
+            continue
+        if isinstance(raw_tools, str):
+            raw_tools = [part.strip() for part in raw_tools.split(",") if part.strip()]
+        if not isinstance(raw_tools, (list, tuple)):
+            raise ValueError(f"mcp_tools[{server}] must be a list of tool names or '*'.")
+        names: list[str] = []
+        seen: set[str] = set()
+        for item in raw_tools:
+            if not isinstance(item, str):
+                raise ValueError(f"mcp_tools[{server}] entries must be tool name strings.")
+            name = item.strip()
+            if not name or name in seen:
+                continue
+            if len(name) > 120:
+                raise ValueError("mcp_tools entry exceeds 120 characters.")
+            seen.add(name)
+            names.append(name)
+        out[server] = names
+    return out
+
+
 def mcp_fields_from_raw(raw: Mapping[str, Any] | None, *, kind: str = "") -> dict[str, Any]:
     """Extract MCP registration fields. Empty when the payload omits them."""
     incoming = raw if isinstance(raw, Mapping) else {}
     has_mode = "mcp_mode" in incoming
     has_servers = "mcp_servers" in incoming
-    if not has_mode and not has_servers:
+    has_tools = "mcp_tools" in incoming or KEY_TOOLS in incoming
+    if not has_mode and not has_servers and not has_tools:
         return {}
-    default = MODE_ALL if has_servers and not has_mode else MODE_OFF
-    mode = normalize_mcp_mode(incoming.get("mcp_mode"), default=default)
-    if kind in ("cli", "remote") and mode != MODE_OFF:
-        raise ValueError(
-            "MCP tool modes apply to API managed agents, not CLI or remote teams."
+    if kind in ("cli", "remote") and (has_mode or has_servers or has_tools):
+        # An off mode and an empty map are not a grant. Only a live mode or a
+        # non-empty tool list is rejected, matching the pre-#1571 check.
+        default = MODE_ALL if has_servers and not has_mode else MODE_OFF
+        mode = (
+            normalize_mcp_mode(incoming.get("mcp_mode"), default=default)
+            if has_mode or has_servers
+            else MODE_OFF
         )
-    return {
-        "mcp_mode": mode,
-        "mcp_servers": normalize_mcp_servers(incoming.get("mcp_servers")),
-    }
+        tools = (
+            normalize_mcp_tools(incoming.get("mcp_tools", incoming.get(KEY_TOOLS)))
+            if has_tools
+            else {}
+        )
+        tools_on = any(
+            entry == STAR or (isinstance(entry, list) and len(entry) > 0)
+            for entry in tools.values()
+        )
+        if mode != MODE_OFF or tools_on:
+            raise ValueError(
+                "MCP tool modes apply to API managed agents, not CLI or remote teams."
+            )
+    fields: dict[str, Any] = {}
+    if has_mode or has_servers:
+        default = MODE_ALL if has_servers and not has_mode else MODE_OFF
+        mode = normalize_mcp_mode(incoming.get("mcp_mode"), default=default)
+        fields["mcp_mode"] = mode
+        fields["mcp_servers"] = normalize_mcp_servers(incoming.get("mcp_servers"))
+    if has_tools:
+        fields["mcp_tools"] = normalize_mcp_tools(
+            incoming.get("mcp_tools", incoming.get(KEY_TOOLS))
+        )
+    return fields
 
 
 def public_mcp(raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
     mode = MODE_OFF
     servers: list[str] = []
+    tools: dict[str, list[str] | str] = {}
     if isinstance(raw, Mapping):
         try:
             mode = normalize_mcp_mode(raw.get(KEY_MODE, raw.get("mcp_mode")), default=MODE_OFF)
@@ -156,7 +223,16 @@ def public_mcp(raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
             servers = normalize_mcp_servers(raw.get(KEY_SERVERS, raw.get("mcp_servers")))
         except ValueError:
             servers = []
-    return {KEY_MODE: mode, KEY_SERVERS: list(servers), "enabled": mode != MODE_OFF}
+        try:
+            tools = normalize_mcp_tools(raw.get(KEY_TOOLS, raw.get("mcp_tools")))
+        except ValueError:
+            tools = {}
+    return {
+        KEY_MODE: mode,
+        KEY_SERVERS: list(servers),
+        KEY_TOOLS: tools,
+        "enabled": mode != MODE_OFF,
+    }
 
 
 def _empty_store() -> dict[str, Any]:
@@ -223,9 +299,13 @@ def register_mcp(
     *,
     mode: Any = MODE_ALL,
     mcp_servers: Any = None,
+    mcp_tools: Any = None,
 ) -> dict[str, Any]:
     """Persist MCP capability for a newly registered API agent."""
-    return update_mcp(agent_id, {KEY_MODE: mode, KEY_SERVERS: mcp_servers})
+    patch: dict[str, Any] = {KEY_MODE: mode, KEY_SERVERS: mcp_servers}
+    if mcp_tools is not None:
+        patch[KEY_TOOLS] = mcp_tools
+    return update_mcp(agent_id, patch)
 
 
 def update_mcp(agent_id: str, patch: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -242,17 +322,25 @@ def update_mcp(agent_id: str, patch: Mapping[str, Any] | None) -> dict[str, Any]
         current[KEY_SERVERS] = normalize_mcp_servers(
             incoming.get(KEY_SERVERS, incoming.get("servers"))
         )
+    if KEY_TOOLS in incoming or "mcp_tools" in incoming:
+        current[KEY_TOOLS] = normalize_mcp_tools(
+            incoming.get(KEY_TOOLS, incoming.get("mcp_tools"))
+        )
     unknown = [
         key
         for key in incoming
-        if key not in {KEY_MODE, KEY_SERVERS, "mcp_mode", "servers"}
+        if key not in {KEY_MODE, KEY_SERVERS, KEY_TOOLS, "mcp_mode", "mcp_tools", "servers"}
     ]
     if unknown:
         raise ValueError(f"Unknown MCP setting(s): {', '.join(sorted(unknown))}.")
     public = public_mcp(current)
     store = _read_store()
     agents = dict(store.get("agents") or {})
-    agents[agent] = {KEY_MODE: public[KEY_MODE], KEY_SERVERS: list(public[KEY_SERVERS])}
+    agents[agent] = {
+        KEY_MODE: public[KEY_MODE],
+        KEY_SERVERS: list(public[KEY_SERVERS]),
+        KEY_TOOLS: public[KEY_TOOLS],
+    }
     _write_store({"schema": SCHEMA, "agents": agents})
     _mirror_to_design(agent, public)
     return public
@@ -268,6 +356,7 @@ def _mirror_to_design(agent_id: str, mcp: Mapping[str, Any]) -> None:
             if row.get("agent_id") == agent_id:
                 row["mcp_mode"] = mcp[KEY_MODE]
                 row["mcp_servers"] = list(mcp[KEY_SERVERS])
+                row["mcp_tools"] = dict(mcp.get(KEY_TOOLS) or {})
                 changed = True
                 break
         if changed:
@@ -281,17 +370,53 @@ def _allowed_servers(mcp: Mapping[str, Any]) -> list[str] | None:
     return names or None
 
 
+def _tool_map(mcp: Mapping[str, Any] | None) -> dict[str, Any]:
+    raw = (mcp or {}).get(KEY_TOOLS) if isinstance(mcp, Mapping) else None
+    if not isinstance(raw, Mapping) or not raw:
+        return {}
+    return dict(raw)
+
+
+def _allowed_tools(server: str, mcp: Mapping[str, Any] | None = None) -> list[str] | None:
+    """Tool grant for one server.
+
+    ``None`` means no tool-level restriction: the map is omitted, or this
+    server is granted ``"*"`` (today's select behaviour). An active map that
+    does not name ``server`` returns ``[]``. An explicit list is that grant.
+    """
+    mapping = _tool_map(mcp)
+    if not mapping:
+        return None
+    if server not in mapping:
+        return []
+    entry = mapping[server]
+    if entry == STAR:
+        return None
+    if isinstance(entry, list):
+        return list(entry)
+    return []
+
+
 def catalog_tools(
     agent_id: str,
     *,
     config: Mapping[str, Any] | None = None,
     spec: Mapping[str, Any] | None = None,
+    scope: str = "effective",
 ) -> list[dict[str, Any]]:
-    """Tools this agent may list / inspect / execute."""
+    """Tools this agent may list / inspect / execute.
+
+    ``scope="effective"`` honours ``mcp_tools`` when present, otherwise
+    ``mcp_servers``, otherwise every enabled server. ``scope="all"`` is the
+    enabled catalog with no per-bot filter (used to detach a revoked tool).
+    """
     from swarm.core import mcp_plugins as plugins
 
     mcp = get_mcp(agent_id, spec=spec)
-    allow = _allowed_servers(mcp)
+    if scope not in {"effective", "servers", "all"}:
+        scope = "effective"
+    tool_map = _tool_map(mcp) if scope == "effective" else {}
+    allow = None if scope == "all" or tool_map else _allowed_servers(mcp)
     rows: list[dict[str, Any]] = []
     cfg = config if isinstance(config, dict) else plugins.swarm_config()
     enabled = plugins.enabled_mcp_servers(cfg)
@@ -299,6 +424,13 @@ def catalog_tools(
     for name, spec_row in enabled.items():
         if allow is not None and name not in allow:
             continue
+        granted: list[str] | None = None
+        if tool_map:
+            if name not in tool_map:
+                continue
+            granted = _allowed_tools(name, mcp)
+            if granted is not None and not granted:
+                continue
         merged = {**saved.get(name, {}), **spec_row}
         metas = merged.get("discovered_tools")
         if not isinstance(metas, list) or not metas:
@@ -321,6 +453,8 @@ def catalog_tools(
                 schema = {}
             if not tool_name:
                 continue
+            if granted is not None and tool_name not in granted:
+                continue
             rows.append(
                 {
                     "name": tool_name,
@@ -329,7 +463,9 @@ def catalog_tools(
                     "input_schema": schema if isinstance(schema, dict) else {},
                 }
             )
-    return rows
+    from swarm.core.mcp_tool_grants import filter_catalog_rows
+
+    return filter_catalog_rows(rows, agent_id)
 
 
 def _require_enabled(agent_id: str, *, spec: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -507,13 +643,14 @@ def _all_mode_tools(
     *,
     config: Mapping[str, Any] | None,
     spec: Mapping[str, Any] | None,
+    scope: str = "effective",
 ) -> list[Any]:
     from swarm.core.mcp_plugins import tools_from_server
 
     tools: list[Any] = []
     seen: set[str] = set()
     cfg = config
-    for row in catalog_tools(agent_id, config=cfg, spec=spec):
+    for row in catalog_tools(agent_id, config=cfg, spec=spec, scope=scope):
         if row["name"] in seen:
             continue
         seen.add(row["name"])
@@ -592,21 +729,42 @@ def apply_mcp_to_agent(
     config: Mapping[str, Any] | None = None,
     spec: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    """Attach MCP tools for ``agent_id``'s current mode. Idempotent."""
+    """Attach MCP tools for ``agent_id``'s current mode. Idempotent.
+
+    A persisted ``mcp_tools`` map is the tool grant for every turn. A client
+    ``enabled_tools`` list is not an override: it cannot add a tool the map
+    omitted, and an empty list cannot clear the grant. Tools dropped from the
+    grant are stripped on this call — no process restart. An omitted map
+    keeps server-level ``mcp_servers`` behaviour.
+    """
+    from swarm.core.chat_plugin_tools import filter_plugin_tools_for_chat
+
     mcp = get_mcp(agent_id, spec=spec)
-    catalog_names = {row["name"] for row in catalog_tools(agent_id, config=config, spec=spec)}
-    _strip_mcp_tools(agent, catalog_names)
+    detach_names = {
+        row["name"]
+        for row in catalog_tools(agent_id, config=config, spec=spec, scope="all")
+    }
+    _strip_mcp_tools(agent, detach_names)
     if mcp[KEY_MODE] == MODE_OFF:
         return []
-    allow = _allowed_servers(mcp)
-    if allow:
+    tool_map = _tool_map(mcp)
+    allow = None if tool_map else _allowed_servers(mcp)
+    server_names = list(tool_map) if tool_map else list(allow or [])
+    if server_names:
         try:
-            agent.mcp_servers = list(allow)
+            agent.mcp_servers = server_names
         except Exception:
             pass
     if mcp[KEY_MODE] == MODE_PROGRESSIVE:
         return _append_tools(agent, _progressive_tools(agent_id))
-    return _append_tools(agent, _all_mode_tools(agent_id, config=config, spec=spec))
+    tools = _all_mode_tools(agent_id, config=config, spec=spec, scope="effective")
+    if tool_map:
+        allowed = [
+            row["name"]
+            for row in catalog_tools(agent_id, config=config, spec=spec, scope="effective")
+        ]
+        tools = filter_plugin_tools_for_chat(tools, allowed, catalog_ids=detach_names)
+    return _append_tools(agent, tools)
 
 
 def install_mcp_for_runtime(
@@ -636,5 +794,61 @@ def install_mcp_for_runtime(
     if not targets and blueprint is not None:
         targets = [blueprint]
     for agent in targets:
-        attached.extend(apply_mcp_to_agent(agent, agent_id, config=cfg, spec=spec))
+        attached.extend(
+            apply_mcp_to_agent(
+                agent,
+                agent_id,
+                config=cfg,
+                spec=spec,
+            )
+        )
     return attached
+
+
+def apply_turn_plugin_tools(
+    blueprint: Any,
+    agent_id: str,
+    params: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> None:
+    """Attach plugin MCP tools for one turn.
+
+    A persisted ``mcp_tools`` map is the grant on every turn, including when
+    the client still sends ``params.enabled_tools`` (the SPA's per-chat list,
+    often ``[]``). That list cannot replace or widen the map. An omitted map
+    leaves the existing grant-list / per-turn allowlist path, which is today's
+    server-level behaviour.
+
+    A saved ``mcp_tool_grants`` policy still caps every path, including an
+    explicit empty list (deny-all). ``grants_active`` is the wrong check
+    for that: it is false for ``[]``.
+    """
+    from swarm.core.chat_plugin_tools import allowlist_from_persistent_tools
+    from swarm.core.mcp_plugins import (
+        apply_plugin_mcp_runtime,
+        server_tool_index,
+        swarm_config,
+    )
+    from swarm.core.mcp_tool_grants import (
+        intersect_with_grants,
+        load_grant_state,
+        resolve_enabled_tools,
+    )
+
+    incoming = params if isinstance(params, Mapping) else {}
+    cfg = config if isinstance(config, dict) else getattr(blueprint, "config", None)
+    if not isinstance(cfg, dict):
+        cfg = swarm_config()
+    record = get_mcp(str(agent_id or ""))
+    persistent = record.get(KEY_TOOLS) or {}
+    policy, configured = load_grant_state(str(agent_id or ""))
+    enforced = configured or bool(policy)
+    if persistent:
+        expanded = allowlist_from_persistent_tools(persistent, server_tool_index(cfg)) or []
+        if enforced:
+            expanded = intersect_with_grants(expanded, policy)
+        apply_plugin_mcp_runtime(blueprint, cfg, expanded)
+        return
+    resolved = resolve_enabled_tools(str(agent_id or ""), incoming)
+    if resolved is not None:
+        apply_plugin_mcp_runtime(blueprint, cfg, resolved)

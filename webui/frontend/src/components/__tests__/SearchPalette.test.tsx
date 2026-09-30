@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import SearchPalette, { SEARCH_PALETTE_TABS } from '../SearchPalette'
+import SearchPalette, { SEARCH_PALETTE_TABS, searchPaletteTabLabel } from '../SearchPalette'
 import { THEME_TOGGLE_EVENT } from '../../lib/theme'
 import { OPEN_TECH_SUPPORT_EVENT } from '../TechSupportModal'
 import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '../SettingsSheet'
@@ -106,13 +106,14 @@ describe('SearchPalette', () => {
     expect(document.querySelector('.os-search-palette__kbd')).toBeTruthy()
 
     for (const tab of SEARCH_PALETTE_TABS) {
-      expect(screen.getByRole('tab', { name: tab })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: searchPaletteTabLabel(tab) })).toBeInTheDocument()
     }
     expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true')
 
     const first = await screen.findByRole('option', { name: /^Support/i })
     expect(first).toHaveAttribute('aria-selected', 'true')
-    expect(first.textContent).toMatch(/⌃1/)
+    // #1218: the ⌃N slot chips are gone — sequential ↑↓ is the affordance.
+    expect(first.querySelector('.os-search-shortcut')).toBeNull()
 
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     await waitFor(() => {
@@ -282,8 +283,9 @@ describe('SearchPalette', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Actions' }))
     expect(screen.getByRole('option', { name: /Toggle theme/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /Blueprints/ })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Teams/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Rigs/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /^Settings/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^Templates/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /Rail settings/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /System settings/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /Show LLM profiles/ })).toBeInTheDocument()
@@ -509,6 +511,21 @@ describe('SearchPalette choose + actions (REQ-5c #322)', () => {
     expect(screen.getByTestId('palette-loc')).toHaveTextContent('/')
   })
 
+  it('Actions Templates opens the gallery overlay without leaving chat', async () => {
+    const opened: string[] = []
+    window.addEventListener('swarm:open-templates', () => opened.push('templates'))
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    const { onClose } = renderRoutedPalette()
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }))
+    fireEvent.click(await screen.findByRole('option', { name: /^Templates/i }))
+    expect(onClose).toHaveBeenCalled()
+    expect(opened).toEqual(['templates'])
+    expect(assign).not.toHaveBeenCalled()
+    expect(screen.getByTestId('palette-loc')).toHaveTextContent('/')
+    window.removeEventListener('swarm:open-templates', () => opened.push('templates'))
+  })
+
   it('renders real agent avatars in search results instead of default bot icon (REQ-199)', async () => {
     renderPalette()
     const codeyRow = await screen.findByRole('option', { name: /Codey/i })
@@ -588,7 +605,7 @@ describe('#677 search covers every seat kind', () => {
     renderPalette()
     expect(screen.queryByRole('tab', { name: 'Bots' })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Agents' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Rigs' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Groups' })).not.toBeInTheDocument()
   })
 
@@ -601,9 +618,9 @@ describe('#677 search covers every seat kind', () => {
     expect(screen.getByRole('option', { name: /pane-one/ })).toBeInTheDocument()
   })
 
-  it('Teams tab lists team compositions and navigates to the team chat', async () => {
+  it('Rigs tab lists rig compositions and navigates to the rig chat', async () => {
     const { onClose } = renderRoutedPalette()
-    fireEvent.click(await screen.findByRole('tab', { name: 'Teams' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Rigs' }))
     const crew = await screen.findByRole('option', { name: /Crew/ })
     fireEvent.click(crew)
     expect(onClose).toHaveBeenCalled()

@@ -214,6 +214,20 @@ describe('#505 overlay CSS contract', () => {
     // hover-scoped, never a hard position on touch
     expect(css).toMatch(/@media \(min-width: 48rem\) and \(hover: hover\)/)
     expect(css).toContain('[data-action-row-placement="overlay"]')
+    // #1288 follow-up: the overlay anchor rule must survive minification. A
+    // double-backslashed class escape (`group\\/osrow`) makes cssnano DROP the
+    // whole rule in the production bundle, leaving the action row anchored to
+    // the transcript instead of the hovered message row.
+    const anchorLine = css
+      .split('\n')
+      .find(
+        (line) =>
+          line.includes('[data-action-row-placement="overlay"]') && line.includes('osrow'),
+      )
+    expect(anchorLine, 'overlay .group\\/osrow anchor rule present').toBeTruthy()
+    expect((anchorLine!.match(/\\/g) || []).length, 'single backslash escape').toBe(1)
+    const anchorIdx = css.indexOf(anchorLine!)
+    expect(css.slice(anchorIdx, anchorIdx + 140)).toContain('position: relative')
   })
 
   it('overlay reveal stays wired to hover/focus-within semantics', () => {

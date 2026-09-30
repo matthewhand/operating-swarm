@@ -270,7 +270,7 @@ Intentional on that PR. If H1 becomes Django prefs / chat API, it is a **follow-
 
 **Constraints:** Look-only audit found this; implement in a later PR. Do not fight #579 (it leaves retention local on purpose). No secrets. No Neon. Own-diff CI.
 
-**Owner:** Cursor. CoS: Open Swarm.
+**Owner:** Cursor. CoS: Operating Swarm.
 
 ### Draft 2 — REQ-188B-2: Settings Hostname and rail must share one live SoT (fold into #592 / #579)
 
@@ -288,7 +288,7 @@ Intentional on that PR. If H1 becomes Django prefs / chat API, it is a **follow-
 
 **Constraints:** Rebase/fold #579 first if CONFLICTING. No secrets in the override (display label). No Neon.
 
-**Owner:** Cursor (prefs wave). CoS: Open Swarm.
+**Owner:** Cursor (prefs wave). CoS: Operating Swarm.
 
 ### Draft 3 — REQ-188B-3: LLM profiles Save must not wipe the default when the catalog failed or is empty
 
@@ -305,7 +305,7 @@ Intentional on that PR. If H1 becomes Django prefs / chat API, it is a **follow-
 
 **Constraints:** Own-diff CI. No secrets in the pane. Do not invent a second model list. Docker `:ro` 500 is M2 / ADR-002, not this Issue.
 
-**Owner:** Cursor. CoS: Open Swarm.
+**Owner:** Cursor. CoS: Operating Swarm.
 
 ### Draft 4 — REQ-188B-4: Refresh `AppConfig.config` after Settings LLM persist
 
@@ -321,7 +321,7 @@ Intentional on that PR. If H1 becomes Django prefs / chat API, it is a **follow-
 
 **Constraints:** No sync daemon. No second DB copy of topology. Compose `:ro` remains a separate Issue (ADR-002 follow-up 2).
 
-**Owner:** Cursor. CoS: Open Swarm.
+**Owner:** Cursor. CoS: Operating Swarm.
 
 ---
 

@@ -76,6 +76,20 @@ if not logger.handlers:
 # Standard name used for injecting context variables into tool calls
 __CTX_VARS_NAME__ = "context_variables"
 
+# --- Terminal-sentinel vocabulary -------------------------------------------
+# These are the *existing* strings this module (and its two siblings,
+# ``core.safety._wrap_callable`` / ``core.tool_gate.gate_wrap_callable``) write
+# into tool results. They are declared once here, next to the code that writes
+# them, so :mod:`swarm.core.turn_phase` can classify a finished tool call
+# without re-typing — and silently drifting from — the producers.
+#
+#   DENIED_RESULT_PREFIX          -> f"DENIED: tool call {name!r} was not approved"
+#   COMMAND_DENIED_RESULT_PREFIX  -> the #1312 command-allowlist denial
+#   ERROR_RESULT_KEY              -> every failure result is ``{"error": ...}``
+DENIED_RESULT_PREFIX = "DENIED: "
+COMMAND_DENIED_RESULT_PREFIX = "COMMAND_DENIED: "
+ERROR_RESULT_KEY = "error"
+
 
 def handle_function_result(result: Any, debug: bool) -> Result:
     """
@@ -192,7 +206,7 @@ async def handle_tool_calls(
             # Optionally add an error message to the response
             aggregated_response.messages.append({
                 "role": "tool", "tool_call_id": tool_call_id or "missing_id", "name": tool_name or "missing_name",
-                "content": json.dumps({"error": "Invalid tool call data received from LLM."})
+                "content": json.dumps({ERROR_RESULT_KEY: "Invalid tool call data received from LLM."})
             })
             continue
 
@@ -203,7 +217,7 @@ async def handle_tool_calls(
             # Add error message to history
             aggregated_response.messages.append({
                 "role": "tool", "tool_call_id": tool_call_id, "name": tool_name,
-                "content": json.dumps({"error": f"Tool '{tool_name}' is not available."}) # Use JSON for content
+                "content": json.dumps({ERROR_RESULT_KEY: f"Tool '{tool_name}' is not available."}) # Use JSON for content
             })
             continue
 
@@ -256,7 +270,7 @@ async def handle_tool_calls(
                 "name": tool_name,
                 "content": result_content_json
             })
-            await _emit_tool_status(tool_call_id, tool_name, "done")
+            await emit_tool_status(tool_call_id, tool_name, "done")
             await _emit_pr_opened_if_any(result_content_json)
 
             # Update context variables from the result
@@ -298,9 +312,9 @@ async def handle_tool_calls(
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "name": tool_name,
-                "content": json.dumps({"error": f"Execution failed: {str(e)}"}) # Provide error in JSON content
+                "content": json.dumps({ERROR_RESULT_KEY: f"Execution failed: {str(e)}"}) # Provide error in JSON content
             })
-            await _emit_tool_status(tool_call_id, tool_name, "error")
+            await emit_tool_status(tool_call_id, tool_name, "error")
 
     # Return the aggregated response containing all tool result messages and potential updates
     logger.debug(f"Finished handling tool calls. {len(aggregated_response.messages)} result messages generated.")
@@ -308,27 +322,60 @@ async def handle_tool_calls(
 
 
 async def _maybe_deny_tool(tool_name: str, tool_call_id: str, args: dict) -> dict | None:
-    """API-agent Safety pause. CLI/remote sessions skip swarm approval."""
+    """API-agent Safety pause. CLI/remote sessions skip swarm approval.
+
+    #1312: the per-bot exact-command allowlist is enforced here, before any
+    dispatch. A policy ``deny`` is final and channel-independent (it also
+    covers CLI/remote tool paths that never elicit).
+    """
     try:
-        from swarm.core.safety import current_safety_session, maybe_await
+        from swarm.core import command_allowlist
+        from swarm.core.safety import current_safety_session
     except Exception:
         return None
     session = current_safety_session()
+    agent_id = str(getattr(session, "agent_id", "") or "") if session is not None else ""
+    command_verdict = command_allowlist.evaluate_tool_call(tool_name, args, agent_id=agent_id)
+    if command_verdict.outcome == command_allowlist.OUTCOME_DENY:
+        await emit_tool_status(tool_call_id, tool_name, "denied")
+        return {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": json.dumps(
+                {
+                    ERROR_RESULT_KEY: f"{COMMAND_DENIED_RESULT_PREFIX}{command_verdict.reason or 'command not in allowlist'}",
+                    "code": command_verdict.code or command_allowlist.CODE_DENIED,
+                    "command": list(command_verdict.argv),
+                    "agent_id": agent_id,
+                    "rule": command_verdict.matched_rule,
+                }
+            ),
+        }
     if session is None or not session.uses_swarm_approval():
         return None
-    await _emit_tool_status(tool_call_id, tool_name, "running")
+    await emit_tool_status(tool_call_id, tool_name, "running")
     verdict = await session.approve_async(tool_name, args)
     if verdict.approved:
         status = "allowed" if (verdict.concerned or verdict.always_allowed) else "running"
         if status == "allowed":
-            await _emit_tool_status(tool_call_id, tool_name, "allowed")
+            await emit_tool_status(tool_call_id, tool_name, "allowed")
         return None
-    await _emit_tool_status(tool_call_id, tool_name, "denied")
+    await emit_tool_status(tool_call_id, tool_name, "denied")
+    detail: dict[str, Any] = {
+        ERROR_RESULT_KEY: f"{DENIED_RESULT_PREFIX}tool call {tool_name!r} was not approved"
+    }
+    if verdict.code:
+        detail["code"] = verdict.code
+    if verdict.reason:
+        detail["reason"] = verdict.reason
+    if verdict.command_outcome:
+        detail["command_outcome"] = verdict.command_outcome
     return {
         "role": "tool",
         "tool_call_id": tool_call_id,
         "name": tool_name,
-        "content": json.dumps({"error": f"DENIED: tool call {tool_name!r} was not approved"}),
+        "content": json.dumps(detail),
     }
 
 
@@ -351,13 +398,29 @@ async def _emit_pr_opened_if_any(result_content: str) -> None:
     await maybe_await(session.emit_fn(payload))
 
 
-async def _emit_tool_status(tool_call_id: str, tool_name: str, status: str) -> None:
+async def emit_tool_status(tool_call_id: str, tool_name: str, status: str) -> None:
+    """Send one ``tool_status`` frame on the current session's ``emit_fn``.
+
+    Renamed from ``_emit_tool_status`` in #1684: the turn-phase hooks
+    (:mod:`swarm.core.turn_phase`) are now a second, *live* producer, so the
+    frame builder is shared API rather than a module-private detail. Keeping
+    one builder is what guarantees the approval path and the hook path cannot
+    drift into two different payload shapes for the same client parser.
+
+    #1684: the emit gate is **not** ``uses_swarm_approval()``. That predicate
+    answers "may this seat *ask a human to approve* a tool?" — a safety
+    question, and it stays on the approval gate in :func:`_maybe_deny_tool`.
+    Emitting a status frame answers a different question: "may we tell the UI
+    what this tool is doing?" Gating that on approval meant CLI and remote
+    seats — the seats with no approval flow at all — could never report a tool
+    in flight, which is exactly the gap #1684 closes.
+    """
     try:
         from swarm.core.safety import current_safety_session, maybe_await
     except Exception:
         return
     session = current_safety_session()
-    if session is None or session.emit_fn is None or not session.uses_swarm_approval():
+    if session is None or session.emit_fn is None:
         return
     await maybe_await(
         session.emit_fn(

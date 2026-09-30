@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
+from swarm.core.config_loader import load_config
+
 logger = logging.getLogger("swarm.provider_rate_limit")
 
 RULE_KEYS: tuple[str, ...] = (
@@ -445,13 +447,6 @@ def resolve_provider_key(
     if model and model.strip() and model.strip() != "default":
         return infer_provider_key(model.strip(), config)
     return ""
-
-
-def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
-    from swarm.core.remotes import load_raw_config
-
-    cfg, _path = load_raw_config(config_path)
-    return cfg if isinstance(cfg, dict) else {}
 
 
 def rules_from_entry(entry: Any) -> RateLimitRules:

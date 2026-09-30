@@ -41,6 +41,11 @@ logger = logging.getLogger(__name__)
 
 def _catalog_error(exc: Exception) -> Response:
     if isinstance(exc, MarketplaceCatalogError):
+        # #1327: a stalled source that already assembled items must not hide
+        # them behind an error status — return the partial catalog with 200.
+        partial = getattr(exc, "partial", None)
+        if isinstance(partial, dict) and partial.get("items"):
+            return Response(partial, status=status.HTTP_200_OK)
         return Response({"error": str(exc), "code": exc.code}, status=exc.status)
     logger.exception("Marketplace request failed")
     return Response(

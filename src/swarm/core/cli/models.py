@@ -118,6 +118,9 @@ MODEL_FLAG: dict[str, str] = {
     "grok": "-m",          # grok -m/--model <id> (verified: grok-4.6, grok-4.5)
     "qwen": "-m",          # qwen -m/--model <id> (verified live: gateway slug auxiliary)
     "pi": "--model",       # pi --model <provider/id> (docs + --help; no --provider needed)
+    # ocr review --model <id> is in the upstream cobra Example (review_cmd.go).
+    # No CLI_MODELS presets: the ids belong to the operator's endpoint.
+    "ocr": "--model",
 }
 
 # Suggested model ids for the Agent Router CLI-model dropdown, and the
@@ -137,11 +140,27 @@ CLI_MODELS: dict[str, list[str]] = {
         "gpt-oss-120b-medium",
     ],
     "gemini": ["gemini-3-flash-preview", "gemini-3-pro-preview"],
-    "claude": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+    "claude": [
+        "claude-opus-5-5",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+    ],
     "codex": ["gpt-5.6-terra", "gpt-5.4-mini"],
-    "opencode": ["litellm/orchestration"],
+    "opencode": [
+        "opencode/space-bunny-free",
+        "opencode-go/deepseek-v4.1-flash",
+        "opencode-go/deepseek-v4-flash",
+        "opencode-go/deepseek-v4-pro",
+        "litellm/orchestration",
+    ],
     "omp": ["litellm/orchestration", "gemini-2.5-flash", "claude-3-5-sonnet"],
-    "qwen": ["qwen2.5-coder:32b", "qwen2.5-coder:7b", "qwen2.5:72b"],
+    # qwen has no list-models probe (#1142-style), so these presets are the
+    # dropdown fallback. They must name ids the operator gateway actually
+    # serves: the old Ollama/Docker tags (qwen2.5-coder:32b, …) are rejected
+    # by the live gateway as "400 Invalid model name". These mirror the
+    # operator-pinned model in cli_agents.qwen.
+    "qwen": ["qwen3.8-27b-cf", "qwen3.8-27b"],
 }
 
 
@@ -152,6 +171,7 @@ CLI_MODELS: dict[str, list[str]] = {
 MODEL_TRAITS: dict[str, dict[str, float]] = {
     "gemini-3-pro-preview":   {"intelligence": 0.92, "speed": 0.35, "cost": 0.30},
     "gemini-3-flash-preview": {"intelligence": 0.62, "speed": 0.95, "cost": 0.92},
+    "claude-opus-5-5":        {"intelligence": 0.98, "speed": 0.45, "cost": 0.20},
     "claude-opus-4-8":        {"intelligence": 0.98, "speed": 0.45, "cost": 0.20},
     "claude-sonnet-4-6":      {"intelligence": 0.90, "speed": 0.70, "cost": 0.55},
     "claude-haiku-4-5":       {"intelligence": 0.70, "speed": 0.92, "cost": 0.85},

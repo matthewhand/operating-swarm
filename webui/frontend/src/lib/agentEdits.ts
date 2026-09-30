@@ -11,6 +11,7 @@
  */
 
 import type { AgentRole, BlueprintWorkflow } from './api'
+import { profileDisplayName } from './agentProfile'
 import {
   normalizeInferenceList,
   serializeInferenceList,
@@ -237,8 +238,10 @@ export function assignedBlueprintId(agentId: string): string {
   return assigned || agentId
 }
 
-/** Display name: editor override, then catalog name, then id. */
+/** Display name: storefront profile, then editor override, then catalog name, then id. */
 export function editedAgentLabel(agent: { id: string; name?: string | null }): string {
+  const fromProfile = profileDisplayName(agent)
+  if (fromProfile) return fromProfile
   const override = loadAgentEdit(agent.id).name?.trim()
   if (override) return override
   return agent.name || agent.id

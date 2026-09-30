@@ -77,7 +77,7 @@ class CliPlannerBlueprint(CliKindBase):
             "synthesizes. The iterative cousin of cli_map."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "planner", "magentic", "multi-agent", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],

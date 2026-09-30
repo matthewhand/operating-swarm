@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Flow · Sequence</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1120px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Operating Swarm</p>
+    <h1>Primary Request Flow · /v1/chat/completions</h1>
+
+    <svg viewBox="0 0 1000 672" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="reqflow-title reqflow-desc">
+      <title id="reqflow-title">Primary chat completions request flow</title>
+      <desc id="reqflow-desc">Sequence diagram of a streaming chat completion: an API client posts to the Django edge, which rate-limits, validates model access and resolves the blueprint id, obtains a seat runtime instance, executes a turn against a CLI subprocess or provider, normalizes and streams chunks back as server-sent events, and persists the assistant turn.</desc>
+      <defs>
+        <pattern id="dots-req" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="req-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="req-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-req)" opacity="0.55"/>
+
+      <!-- Lifelines -->
+      <line x1="110" y1="112" x2="110" y2="572" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="330" y1="112" x2="330" y2="572" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="560" y1="112" x2="560" y2="572" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="780" y1="112" x2="780" y2="572" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="920" y1="112" x2="920" y2="572" stroke="rgba(245,245,245,0.22)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Activation bars -->
+      <rect x="106" y="140" width="8" height="52" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="326" y="140" width="8" height="412" fill="rgba(240,138,89,0.12)" stroke="#f08a59" stroke-width="1"/>
+      <rect x="556" y="192" width="8" height="264" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="776" y="232" width="8" height="164" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+      <rect x="916" y="452" width="8" height="48" fill="rgba(245,245,245,0.06)" stroke="#bfc0c0" stroke-width="0.8"/>
+
+      <!-- 1 client -> edge -->
+      <line x1="114" y1="148" x2="326" y2="148" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <rect x="140" y="132" width="188" height="14" rx="2" fill="#2d3142"/>
+      <text x="234" y="143" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">POST /v1/chat/completions · stream</text>
+
+      <!-- 2 edge self -->
+      <path d="M 334 168 L 380 168 L 380 188 L 334 188" fill="none" stroke="#f08a59" stroke-width="1.2" marker-end="url(#req-arrow-accent)"/>
+      <rect x="388" y="170" width="220" height="14" rx="2" fill="#2d3142"/>
+      <text x="498" y="181" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">rate-limit · validate_model_access · resolve id</text>
+
+      <!-- 3 edge -> runtime -->
+      <line x1="334" y1="216" x2="556" y2="216" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <rect x="372" y="200" width="148" height="14" rx="2" fill="#2d3142"/>
+      <text x="446" y="211" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">get_blueprint_instance()</text>
+
+      <!-- 4 runtime -> target -->
+      <line x1="564" y1="256" x2="776" y2="256" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <rect x="606" y="240" width="136" height="14" rx="2" fill="#2d3142"/>
+      <text x="674" y="251" fill="#f5f5f5" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">run() turn · stream_run()</text>
+
+      <!-- 5 target -> runtime -->
+      <line x1="776" y1="304" x2="564" y2="304" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#req-arrow)"/>
+      <rect x="608" y="288" width="132" height="14" rx="2" fill="#2d3142"/>
+      <text x="674" y="299" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">stdout / provider chunks</text>
+
+      <!-- 6 runtime self -->
+      <path d="M 564 336 L 612 336 L 612 356 L 564 356" fill="none" stroke="#bfc0c0" stroke-width="1" marker-end="url(#req-arrow)"/>
+      <rect x="620" y="338" width="150" height="14" rx="2" fill="#2d3142"/>
+      <text x="695" y="349" fill="#bfc0c0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">normalize → OpenAI chunk</text>
+
+      <!-- 7 runtime -> edge -->
+      <line x1="560" y1="392" x2="334" y2="392" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <rect x="376" y="376" width="144" height="14" rx="2" fill="#2d3142"/>
+      <text x="448" y="387" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">async generator yields</text>
+
+      <!-- 8 edge -> client -->
+      <line x1="326" y1="432" x2="114" y2="432" stroke="#f08a59" stroke-width="1.6" marker-end="url(#req-arrow-accent)"/>
+      <rect x="138" y="416" width="176" height="14" rx="2" fill="#2d3142"/>
+      <text x="226" y="427" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SSE data: {…} … [DONE]</text>
+
+      <!-- 9 edge -> store -->
+      <line x1="334" y1="476" x2="916" y2="476" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <rect x="560" y="460" width="180" height="14" rx="2" fill="#2d3142"/>
+      <text x="650" y="471" fill="#bfc0c0" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">persist assistant turn</text>
+
+      <!-- 10 edge -> client -->
+      <line x1="326" y1="520" x2="114" y2="520" stroke="#f08a59" stroke-width="1.6" stroke-dasharray="4,4" marker-end="url(#req-arrow-accent)"/>
+      <rect x="140" y="504" width="172" height="14" rx="2" fill="#2d3142"/>
+      <text x="226" y="515" fill="#f08a59" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">finish_reason · usage</text>
+
+      <!-- Actor boxes -->
+      <g transform="translate(30,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">API client</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Bearer token</text>
+      </g>
+      <g transform="translate(250,48)">
+        <rect width="160" height="52" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">ChatCompletionsView</text>
+        <text x="80" y="40" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">Django edge</text>
+      </g>
+      <g transform="translate(480,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Seat runtime</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">blueprint instance</text>
+      </g>
+      <g transform="translate(700,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Target / provider</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">CLI subprocess · LLM API</text>
+      </g>
+      <g transform="translate(840,48)">
+        <rect width="160" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.25)" stroke-width="1"/>
+        <text x="80" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600" text-anchor="middle">Store</text>
+        <text x="80" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">chat_store · DB</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="40" y1="608" x2="960" y2="608" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="40" y="628" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="126" y1="624" x2="162" y2="624" stroke="#f08a59" stroke-width="1.6" marker-end="url(#req-arrow-accent)"/>
+      <text x="174" y="628" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Client-facing stream</text>
+      <line x1="380" y1="624" x2="416" y2="624" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#req-arrow)"/>
+      <text x="428" y="628" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Internal call</text>
+      <line x1="600" y1="624" x2="636" y2="624" stroke="#bfc0c0" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#req-arrow)"/>
+      <text x="648" y="628" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Return / persistence</text>
+      <text x="40" y="660" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/views/chat_views.py · src/swarm/views/utils.py · src/swarm/core/agent_kind.py · docs/DEPLOYMENT.md</text>
+    </svg>
+  </div>
+</body>
+</html>

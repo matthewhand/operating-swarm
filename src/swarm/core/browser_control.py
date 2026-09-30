@@ -1,6 +1,6 @@
 """Local Playwright browser control (this machine).
 
-Open Swarm is a harness-of-harnesses. The **default** browser target is
+Operating Swarm is a harness-of-harnesses. The **default** browser target is
 Playwright launching or attaching Chrome on the machine that runs the agent
 (CLI, API, or remote seat — same module). OMB/Rakazo Docker sandboxes and
 SaaS browsers are future providers (UI rows stay grey TODO). Desktop/OS

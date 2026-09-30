@@ -8,8 +8,15 @@ Regression: previously XDG was checked before the user-specified path, so
 from __future__ import annotations
 
 import json
+import sys
 
 from swarm.core.config_loader import find_config_file
+
+
+def _pin_unix_config_root(monkeypatch) -> None:
+    """These tests assert the XDG root. Windows uses %APPDATA% instead."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("SWARM_CONFIG_DIR", raising=False)
 
 
 def _write(path, data=None):
@@ -29,6 +36,7 @@ def test_explicit_path_beats_xdg(monkeypatch, tmp_path):
 
 
 def test_falls_back_to_xdg_when_no_explicit(monkeypatch, tmp_path):
+    _pin_unix_config_root(monkeypatch)
     xdg = _write(tmp_path / "cfg" / "swarm" / "swarm_config.json", {"src": "xdg"})
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
 
@@ -36,6 +44,7 @@ def test_falls_back_to_xdg_when_no_explicit(monkeypatch, tmp_path):
 
 
 def test_nonexistent_explicit_falls_through_to_xdg(monkeypatch, tmp_path):
+    _pin_unix_config_root(monkeypatch)
     xdg = _write(tmp_path / "cfg" / "swarm" / "swarm_config.json", {"src": "xdg"})
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
 

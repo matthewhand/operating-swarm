@@ -99,7 +99,7 @@ def test_json_lists_configured_agents(tmp_path):
 def test_json_suggest_includes_suggestions(tmp_path, monkeypatch):
     from swarm.core import cli_catalog
 
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe: "/usr/bin/" + exe)
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe: "/usr/bin/" + exe)
     cfg = _write_config(tmp_path, {})
     result = runner.invoke(app, ["cli-agents", "--json", "--suggest", "--config", cfg])
     assert result.exit_code == 0

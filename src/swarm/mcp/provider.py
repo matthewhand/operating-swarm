@@ -1,5 +1,5 @@
 """
-MCP Provider (skeleton) for exposing Open Swarm blueprints as tools.
+MCP Provider (skeleton) for exposing Operating Swarm blueprints as tools.
 
 This module is framework-agnostic and can be used by a Django MCP server
 integration (e.g., `django-mcp-server`) to enumerate tools and execute calls.

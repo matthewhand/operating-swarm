@@ -1,6 +1,6 @@
 # Examples & Recipes
 
-Everything Open Swarm can do, as copy-paste recipes. Two parts:
+Everything Operating Swarm can do, as copy-paste recipes. Two parts:
 
 1. **[Team examples](#part-1--team-examples)** — the consensus/persona *teams* you call as a `model`.
 2. **[CLI + REST config](#part-2--cli--rest-config)** — how to wire the backends those teams run on.
@@ -138,7 +138,7 @@ refs — never inline. Full reference: [CONFIGURATION.md](../CONFIGURATION.md).
 
 ### A. CLI agents (`cli_agents`)
 Wrap installed agentic CLIs. Each is an argv with a `{prompt}` token and a parse
-rule. The CLIs carry **their own** auth — Open Swarm passes no key.
+rule. The CLIs carry **their own** auth — Operating Swarm passes no key.
 ```jsonc
 {
   "cli_agents": {

@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-swarm.local/schemas/agent_template.schema.json",
+  "title": "Open Swarm agent template pack",
+  "description": "Version 1 agent template. Composes secret-free profile, memories, skills, routines, plugins, and gettingStarted. Routines are the #1394 pack (inactive on import, {{fill_ins}} pending). Plugins are #1396 ids only. This schema does not carry credentials, connection strings, or binary payloads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object",
+    "schema",
+    "kind",
+    "profile",
+    "memories",
+    "skills",
+    "gettingStarted",
+    "routines",
+    "plugins",
+    "fill_ins"
+  ],
+  "properties": {
+    "object": {"const": "agent_template"},
+    "schema": {"const": 1},
+    "kind": {"const": "agent_template"},
+    "profile": {"$ref": "#/$defs/profile"},
+    "memories": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/memory"}
+    },
+    "skills": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skill"}
+    },
+    "gettingStarted": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/gettingStarted"}
+      ]
+    },
+    "routines": {
+      "type": "array",
+      "description": "Routine fragments: name, instruction, trigger, and fill-in slots. History and live ids stay off the pack.",
+      "items": {"$ref": "#/$defs/routine"}
+    },
+    "plugins": {
+      "type": "array",
+      "description": "Plugin fragments are ids plus display text. url, command, args, headers, and env are not part of this schema.",
+      "items": {"$ref": "#/$defs/plugin"}
+    },
+    "fill_ins": {
+      "type": "array",
+      "description": "Required slots still written as {{key}} tokens. Import leaves them pending.",
+      "items": {"$ref": "#/$defs/fillIn"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"skills": {"minItems": 1}},
+        "required": ["skills"]
+      },
+      "then": {
+        "properties": {
+          "gettingStarted": {"$ref": "#/$defs/gettingStarted"}
+        },
+        "required": ["gettingStarted"]
+      }
+    }
+  ],
+  "x-grok-mapper": {
+    "transport": "file-only",
+    "live_call": "skipped unless XAI_API_KEY or GROK_API_KEY is set; this spike still does not call out",
+    "share_id": "not-used",
+    "deep_link": "not-used",
+    "fields": {
+      "name": "profile.display_name",
+      "description": "profile.description",
+      "title": "profile.title",
+      "role": "profile.role",
+      "avatar.shape": "profile.avatar_shape",
+      "avatar.color": "profile.avatar_color",
+      "avatar.path": "profile.avatar_path",
+      "memories": "memories",
+      "skills": "skills",
+      "gettingStarted": "gettingStarted",
+      "routines": "routines",
+      "plugins": "plugins",
+      "fill_ins": "fill_ins"
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "display_name",
+        "description",
+        "title",
+        "role",
+        "avatar_shape",
+        "avatar_color",
+        "avatar_path"
+      ],
+      "properties": {
+        "display_name": {"type": "string"},
+        "description": {"type": "string"},
+        "title": {"type": "string"},
+        "role": {"type": "string"},
+        "avatar_shape": {"type": "string"},
+        "avatar_color": {"type": "string"},
+        "avatar_path": {"type": ["string", "null"]}
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title", "body"],
+      "properties": {
+        "kind": {"enum": ["profile", "log"]},
+        "title": {"type": "string"},
+        "body": {"type": "string"}
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "instructions"],
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "instructions": {"type": "string"}
+      }
+    },
+    "gettingStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill"],
+      "properties": {
+        "skill": {"type": "string", "minLength": 1}
+      }
+    },
+    "fillIn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "required", "status"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "label": {"type": "string"},
+        "required": {"type": "boolean"},
+        "locations": {"type": "array", "items": {"type": "string"}},
+        "status": {"enum": ["pending", "filled"]}
+      }
+    },
+    "routine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "instruction", "trigger", "fill_ins"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "instruction": {"type": "string"},
+        "description": {"type": "string"},
+        "key": {"type": "string"},
+        "role": {"type": "string"},
+        "trigger": {"$ref": "#/$defs/trigger"},
+        "fill_ins": {"type": "array", "items": {"$ref": "#/$defs/fillIn"}}
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "owner_repo": {"type": "string"},
+        "event": {"type": "string"},
+        "event_type": {"type": "string"},
+        "actor": {"type": "string"},
+        "filters": {"type": "object"},
+        "seconds": {"type": "integer", "minimum": 1},
+        "expression": {"type": "string"},
+        "run_at": {"type": "string"},
+        "sender": {"type": "string"},
+        "pattern": {"type": "string"},
+        "cron": {"type": "string"},
+        "schedule": {"type": "string"},
+        "timezone": {"type": "string"}
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pluginId", "name", "description"],
+      "properties": {
+        "pluginId": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    }
+  }
+}

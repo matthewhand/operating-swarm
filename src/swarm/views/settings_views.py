@@ -1,5 +1,5 @@
 """
-Settings Views for Open Swarm
+Settings Views for Operating Swarm
 Web views for displaying and managing configuration settings
 """
 import logging
@@ -52,16 +52,15 @@ def settings_dashboard(request):
 
         chat_stats = {}
         try:
-            from swarm.core import chat_store
+            from swarm.core import chat_repository
 
-            user_key = chat_store.user_key_for(request.user)
-            chat_store.prune_expired(user_key)
-            chat_stats = chat_store.stats(user_key)
+            chat_repository.prune_expired(request.user)
+            chat_stats = chat_repository.stats_for(request.user)
         except Exception:
             logger.exception("Failed to collect chat persistence stats")
             chat_stats = {
                 "store_dir": "",
-                "format": "json",
+                "format": "db",
                 "active_count": 0,
                 "trash_count": 0,
                 "bytes_used": 0,
@@ -163,7 +162,7 @@ def settings_api(_request):
 @login_required
 @require_http_methods(["GET"])
 def environment_variables(_request):
-    """Get all environment variables related to Open Swarm (authenticated)."""
+    """Get all environment variables related to Operating Swarm (authenticated)."""
     from swarm.utils.redact import is_sensitive_key
 
     try:

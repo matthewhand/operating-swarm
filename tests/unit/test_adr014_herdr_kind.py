@@ -6,6 +6,7 @@ cannot silently invalidate the record without touching this file.
 """
 
 from pathlib import Path
+from helpers.private_net import assert_no_private_ip
 
 REPO = Path(__file__).resolve().parents[2]
 ADR = REPO / "docs" / "adr" / "014-herdr-kind-cli-vs-remote.md"
@@ -29,7 +30,7 @@ def test_adr014_exists_and_states_the_decision():
 def test_adr014_keeps_the_repo_free_of_lan_ips_and_secrets():
     """Tracked docs stay sanitized — same rule ADR-011's lock enforces."""
     lowered = ADR.read_text(encoding="utf-8").lower()
-    assert "10.0.0." not in lowered
+    assert_no_private_ip(lowered)
     assert "198.51.100." not in lowered
     for needle in ("sk-", "github_pat_", "ghp_", "better-auth.session_token="):
         assert needle not in lowered

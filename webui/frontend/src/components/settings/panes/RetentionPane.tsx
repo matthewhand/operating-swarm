@@ -46,22 +46,8 @@ export function RetentionPane() {
       <div>
         <h4 className="text-lg font-semibold">Retention</h4>
         <p className="mt-1 text-sm text-base-content/70">
-          Chat retention, archiving, and trash pruning are managed by the server storage engine. One JSON file per agent thread. Active threads restore automatically when reloading or switching agents.
+          Chat retention, archiving, and trash pruning run on the database. Reloading Chat or switching agents restores the active thread.
         </p>
-      </div>
-
-      <div className="rounded-box border border-base-300 bg-base-200/50 p-4 space-y-3">
-        <p className="text-sm text-base-content/80">
-          To inspect chat disk usage, archive old sessions, or empty trash, open the server retention dashboard.
-        </p>
-        <div>
-          <a
-            href="/settings/#chat-retention-title"
-            className="btn btn-sm btn-outline gap-2"
-          >
-            Server retention dashboard
-          </a>
-        </div>
       </div>
 
       {statsQuery.isPending ? (

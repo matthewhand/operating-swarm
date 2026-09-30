@@ -7,13 +7,15 @@
 
 import {
   LLM_TASK_CLASSES,
+  type LlmModelType,
   type LlmProfile,
   type LlmProfilesSettings,
   type LlmTaskClass,
 } from './api'
+import { providerPresetById } from './providerSetupCard'
 
 export { LLM_TASK_CLASSES }
-export type { LlmProfile, LlmProfilesSettings, LlmTaskClass }
+export type { LlmModelType, LlmProfile, LlmProfilesSettings, LlmTaskClass }
 
 export const TASK_CLASS_LABELS: Record<LlmTaskClass, string> = {
   orchestration: 'User chat / orchestration',
@@ -79,6 +81,14 @@ export function effectiveTaskProfile(
   return settings.task_llm_profiles?.[taskClass] || fallback
 }
 
+// --- #1745 — System1 is a model type, not a hidden OpenAI-compat base URL ---
+
+/** The OpenRig vendor id. A first-class entry, not a custom-endpoint hack. */
+export const SYSTEM1_PROVIDER_ID = 'system1'
+/** Env *names* only. The System1 Service owns reachability and credentials. */
+export const SYSTEM1_BASE_URL_ENV = 'SYSTEM1_BASE_URL'
+export const SYSTEM1_API_KEY_ENV = 'SYSTEM1_API_KEY'
+
 /** Short add-profile form. Advanced (temperature / max tokens / timeout) stays collapsed. */
 export const LLM_PROFILE_PROVIDERS = [
   'openai',
@@ -87,7 +97,108 @@ export const LLM_PROFILE_PROVIDERS = [
   'groq',
   'ollama',
   'openrouter',
+  'mistral',
+  SYSTEM1_PROVIDER_ID,
 ] as const
+
+export const LLM_MODEL_TYPES: readonly LlmModelType[] = ['chat', 'categorizer']
+
+/**
+ * Operator-facing copy. "System1" and "categorizer / gate" both appear, so the
+ * row is recognisable whether the operator thinks in OpenRig or in seats.
+ */
+export const MODEL_TYPE_LABELS: Record<LlmModelType, string> = {
+  chat: 'Chat LLM',
+  categorizer: 'System1 (categorizer / gate)',
+}
+
+export const MODEL_TYPE_DESCRIPTIONS: Record<LlmModelType, string> = {
+  chat: 'Emits chat tokens. Serves user chat and task-class jobs.',
+  categorizer:
+    'Answers a gate question (allow / deny) for filter-in / filter-out seats. Never offered as a chat model.',
+}
+
+/** Unknown / missing ⇒ `chat`, mirroring the backend normaliser. */
+export function normalizeModelType(value: unknown): LlmModelType {
+  const key = String(value ?? '').trim().toLowerCase()
+  if (!key) return 'chat'
+  if (
+    key === 'categorizer' ||
+    key === 'system1' ||
+    key === 'system-1' ||
+    key === 'system_1' ||
+    key === 'classifier' ||
+    key === 'classify' ||
+    key === 'gate' ||
+    key === 'gating' ||
+    key === 'filter'
+  ) {
+    return 'categorizer'
+  }
+  return 'chat'
+}
+
+export function isCategorizerModelType(value: unknown): boolean {
+  return normalizeModelType(value) === 'categorizer'
+}
+
+/** The model type of a `/v1/llm-profiles/` row. */
+export function profileModelType(
+  profile: { model_type?: unknown; owned_by?: string } | null | undefined,
+): LlmModelType {
+  if (!profile) return 'chat'
+  if (String(profile.model_type ?? '').trim()) {
+    return normalizeModelType(profile.model_type)
+  }
+  // Older servers omit the key; the System1 vendor still means categorizer.
+  return String(profile.owned_by ?? '').trim().toLowerCase() === SYSTEM1_PROVIDER_ID
+    ? 'categorizer'
+    : 'chat'
+}
+
+export function isCategorizerProfile(
+  profile: { model_type?: unknown; owned_by?: string } | null | undefined,
+): boolean {
+  return profileModelType(profile) === 'categorizer'
+}
+
+/**
+ * Every chat surface routes through here: a System1 gate must never be offered
+ * as a chat model, not in the composer picker and not in AgentEditor.
+ */
+export function chatSelectableProfiles<T extends { model_type?: unknown; owned_by?: string }>(
+  profiles: readonly T[] | null | undefined,
+): T[] {
+  return (profiles ?? []).filter((profile) => !isCategorizerProfile(profile))
+}
+
+/** Categorizer rows, for the Settings System1 list. */
+export function categorizerProfiles(
+  profiles: readonly LlmProfile[] | null | undefined,
+): LlmProfile[] {
+  return (profiles ?? []).filter((profile) => isCategorizerProfile(profile))
+}
+
+export function chatProfiles(
+  profiles: readonly LlmProfile[] | null | undefined,
+): LlmProfile[] {
+  return (profiles ?? []).filter((profile) => !isCategorizerProfile(profile))
+}
+
+/** Shared preset defaults (base URL + env var name, never a live key). */
+export function defaultsForLlmProvider(provider: string): {
+  baseUrl: string
+  apiKeyEnv: string
+} | null {
+  const id = (provider || '').trim().toLowerCase()
+  if (id === SYSTEM1_PROVIDER_ID) {
+    // The endpoint is an env name too: Open Swarm never stores the URL itself.
+    return { baseUrl: `\${${SYSTEM1_BASE_URL_ENV}}`, apiKeyEnv: SYSTEM1_API_KEY_ENV }
+  }
+  const preset = providerPresetById(provider)
+  if (!preset) return null
+  return { baseUrl: preset.baseUrl, apiKeyEnv: preset.apiKeyEnv }
+}
 
 export type LlmProbeErrorClass =
   | 'auth'
@@ -138,6 +249,8 @@ export interface LlmProfileDraft {
   name: string
   provider: string
   model: string
+  /** #1745 omit ⇒ `chat`. `categorizer` registers a System1 gate. */
+  modelType?: LlmModelType
   apiKeyEnv?: string
   baseUrl?: string
   temperature?: string
@@ -162,6 +275,9 @@ export function buildLlmProfileEntry(
   const entry: Record<string, unknown> = {
     provider,
     model,
+    // #1745: the type is stored with the profile, so the operator's choice
+    // survives a reload instead of being re-derived from the vendor alone.
+    model_type: normalizeModelType(draft.modelType),
     api_key: `\${${envName}}`,
   }
   const base = (draft.baseUrl || '').trim()

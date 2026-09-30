@@ -76,10 +76,10 @@ def support_turn_context(session_kind: str = "api", task: str = "") -> str:
     """System/prompt Support sees this turn (skill attach + session kind)."""
     kind = normalize_session_kind(session_kind)
     note = (
-        "Current session kind: API. Open Swarm owns this thread; bubbles are editable."
+        "Current session kind: API. Operating Swarm owns this thread; bubbles are editable."
         if kind == "api"
         else (
-            f"Current session kind: {kind}. The live session is outside Open Swarm. "
+            f"Current session kind: {kind}. The live session is outside Operating Swarm. "
             "Do not tell the user to click the bubble to edit."
         )
     )
@@ -103,7 +103,7 @@ def support_turn_reply(
     kind = normalize_session_kind(session_kind)
     if kind in ("cli", "remote"):
         return (
-            "That session lives outside Open Swarm — I cannot edit those bubbles. "
+            "That session lives outside Operating Swarm — I cannot edit those bubbles. "
             "What are you trying to change?"
         )
     return (

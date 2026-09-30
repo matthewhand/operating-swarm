@@ -16,6 +16,8 @@ describe('remotes catalog (REQ-59)', () => {
     expect(remoteKindLabel('openmousbot')).toBe('OpenMousBot')
     expect(remoteKindLabel('hermes')).toBe('Hermes')
     expect(remoteKindLabel('open-swarm')).toBe('open-swarm')
+    expect(remoteKindLabel('octop')).toBe('Tencent Octop')
+    expect(remoteKindLabel('tencent-octop')).toBe('Tencent Octop')
     expect(remoteKindLabel('omb')).not.toMatch(/\bOMB\b/)
   })
 
@@ -112,6 +114,7 @@ describe('remotes catalog (REQ-59)', () => {
     expect(ids).toContain('omb')
     expect(ids).toContain('rakazo')
     expect(ids).toContain('herdr')
+    expect(ids).toContain('octop')
     expect(impls.every((kind) => kind.kind === 'remote')).toBe(true)
     expect(impls.find((kind) => kind.id === 'herdr')?.impl).toBe('herdr')
   })

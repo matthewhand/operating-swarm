@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from typing import Any, ClassVar
 
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.core.kind_bases import TeamKindBase
 from swarm.core.moa.config import resolve_moa_preset
 from swarm.core.persona_swarm import run_hybrid_scripted
@@ -33,7 +34,7 @@ class HybridMoABlueprint(TeamKindBase):
             "default when configured; fake for CI."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["moa", "hybrid", "persona", "consensus", "readonly-panel"],
         "aliases": ["moa_hybrid", "hybrid-consensus"],
         "required_mcp_servers": [],
@@ -60,6 +61,16 @@ class HybridMoABlueprint(TeamKindBase):
             if key in self._params:
                 moa_cfg[key] = self._params[key]
         return moa_cfg
+
+    def _fake_was_explicit(self) -> bool:
+        """True when ``fake`` was asked for, not merely inherited as a default."""
+        moa_cfg = (self._config or {}).get("moa") or {}
+        return bool(
+            self._params.get("fake_responses")
+            or "backend" in self._params
+            or moa_cfg.get("backend") is not None
+            or self._params.get("preset")
+        )
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
         parts = []
@@ -125,14 +136,43 @@ class HybridMoABlueprint(TeamKindBase):
                 moa_participants=list(participants),
                 moa_fake_responses=dict(fake) if isinstance(fake, dict) else None,
             )
-            content = result.final or (result.steps[0].output if result.steps else "")
+            # `result.final` is the `decision.md` body the implementer persona
+            # *wrote to the workspace* — an artifact, headed "Decision / Context",
+            # with the user's own turn quoted back under "Context". Presented as
+            # the chat bubble it is indistinguishable from an answer, which is
+            # exactly how the sweep read it ("Decision / Context / USER: <ask>").
+            # The chat reply is the determination; the artifact stays in the
+            # workspace and is named in the provenance line below it.
+            determination = (result.steps[0].output if result.steps else "").strip()
+            body = determination or (
+                result.final or "(no determination)"
+            ).strip()
+            if backend == "fake":
+                content = "\n\n".join(
+                    [
+                        unavailable.simulated_panel_notice(
+                            seats=participants,
+                            explicit=self._fake_was_explicit(),
+                        ),
+                        body,
+                    ]
+                )
+            else:
+                content = body
             meta = {
                 "hybrid_moa": True,
                 "moa": True,
                 "backends": list(participants),
                 "writes": list(result.writes),
                 "steps": [s.persona for s in result.steps],
+                "backend": backend,
+                "simulated_panel": backend == "fake",
             }
+            if backend == "fake":
+                unavailable.mark_unusable(
+                    self.blueprint_id or "hybrid_moa",
+                    "ran the deterministic MoA panel; no live participants",
+                )
             yield {
                 "messages": [{"role": "assistant", "content": content}],
                 "role": "assistant",

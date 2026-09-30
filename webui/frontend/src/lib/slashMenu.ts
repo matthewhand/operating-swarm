@@ -105,6 +105,15 @@ export const DEFAULT_SKILLS: SlashItem[] = [
     iconName: 'FileText',
   },
   {
+    id: 'orca-cli',
+    kind: 'skill',
+    name: 'orca-cli',
+    command: '/skill orca-cli',
+    title: 'Orca CLI',
+    description: 'Drive Orca ADE worktrees and terminals through the JSON orca CLI',
+    iconName: 'Terminal',
+  },
+  {
     id: 'reviewing-code',
     kind: 'skill',
     name: 'reviewing-code',

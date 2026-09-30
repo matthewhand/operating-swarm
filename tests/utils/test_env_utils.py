@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 from unittest.mock import patch
 
 import httpx
@@ -146,30 +148,116 @@ def test_get_django_csrf_trusted_origins_debug_includes_listen_port():
     assert "http://198.51.100.30:8002" in origins
 
 
-def test_build_mcp_stdio_env_does_not_leak_parent_secrets():
-    """MCP stdio children must not inherit ambient API keys/tokens."""
+def test_build_mcp_stdio_env_does_not_leak_parent_secrets(tmp_path):
+    """MCP stdio children must not inherit ambient API keys/tokens (#1328)."""
+    user_bin = tmp_path / "bin"
+    user_bin.mkdir()
     parent = {
         "PATH": "/usr/bin:/bin",
         "HOME": "/home/test",
         "OPENAI_API_KEY": "sk-leak-me",
         "GITHUB_TOKEN": "ghp_leak",
         "SECRET_UNRELATED": "nope",
+        "SWARM_CLI_PATH_DIRS": str(user_bin),
     }
     with patch.dict(os.environ, parent, clear=True):
         env = build_mcp_stdio_env({"MIRO-OAUTH-KEY": "miro-ok"})
-    assert env["PATH"] == "/usr/bin:/bin"
+    # PATH is widened: host CLI bin dirs prepended, original entries preserved.
+    assert env["PATH"].split(os.pathsep)[0] == str(user_bin)
+    assert "/usr/bin" in env["PATH"].split(os.pathsep)
+    assert "/bin" in env["PATH"].split(os.pathsep)
     assert env["HOME"] == "/home/test"
     assert env["MIRO-OAUTH-KEY"] == "miro-ok"
     assert "OPENAI_API_KEY" not in env
     assert "GITHUB_TOKEN" not in env
     assert "SECRET_UNRELATED" not in env
+    assert "SWARM_CLI_PATH_DIRS" not in env
+
+
+def test_build_mcp_stdio_env_widens_path_with_host_cli_dirs(tmp_path):
+    """A stripped Daphne PATH must still expose user-local CLI runtimes (#1328)."""
+    user_bin = tmp_path / "local-bin"
+    user_bin.mkdir()
+    with patch.dict(
+        os.environ,
+        {"PATH": "/usr/bin:/bin", "SWARM_CLI_PATH_DIRS": str(user_bin)},
+        clear=True,
+    ):
+        env = build_mcp_stdio_env(None)
+    path_dirs = env["PATH"].split(os.pathsep)
+    assert str(user_bin) in path_dirs
+    # Original entries survive the widening.
+    assert path_dirs[-2:] == ["/usr/bin", "/bin"]
 
 
 def test_build_mcp_stdio_env_empty_server_env_is_essentials_only():
     with patch.dict(os.environ, {"PATH": "/bin", "OPENAI_API_KEY": "sk-x"}, clear=True):
         env = build_mcp_stdio_env(None)
-    assert env == {"PATH": "/bin"}
+    # PATH is widened but still the only essential present (no secrets).
+    assert "/bin" in env["PATH"].split(os.pathsep)
     assert "OPENAI_API_KEY" not in env
+    assert set(env) == {"PATH"}
+
+
+def test_build_mcp_stdio_env_preserves_original_path_and_is_idempotent(tmp_path):
+    extra = tmp_path / "cli-bins"
+    extra.mkdir()
+    parent = {"PATH": "/usr/bin:/bin", "SWARM_CLI_PATH_DIRS": str(extra)}
+    with patch.dict(os.environ, parent, clear=True):
+        first = build_mcp_stdio_env()
+        already = first["PATH"]
+    with patch.dict(os.environ, {**parent, "PATH": already}, clear=True):
+        second = build_mcp_stdio_env()
+    assert first["PATH"] == second["PATH"]
+    parts = first["PATH"].split(os.pathsep)
+    assert parts.count(str(extra)) == 1
+    assert parts.index(str(extra)) < parts.index("/usr/bin")
+    assert parts.index("/usr/bin") < parts.index("/bin")
+
+
+def test_build_mcp_stdio_env_server_env_path_wins_over_widening(tmp_path):
+    extra = tmp_path / "cli-bins"
+    extra.mkdir()
+    with patch.dict(
+        os.environ,
+        {"PATH": "/usr/bin:/bin", "SWARM_CLI_PATH_DIRS": str(extra)},
+        clear=True,
+    ):
+        env = build_mcp_stdio_env({"PATH": "/explicit/only"})
+    assert env["PATH"] == "/explicit/only"
+    assert str(extra) not in env["PATH"]
+
+
+def test_build_mcp_stdio_env_does_not_import_cli_catalog():
+    """Widening PATH must not import the catalog (Django / openai-agents).
+
+    A failed catalog import used to be swallowed, which left MCP children on
+    the raw PATH — the bug this widening exists to fix — and a successful
+    import disabled agent tracing as a side effect of building an env dict.
+    """
+    code = (
+        "import sys\n"
+        "from swarm.utils.env_utils import build_mcp_stdio_env\n"
+        "build_mcp_stdio_env()\n"
+        "assert 'swarm.core.cli_catalog' not in sys.modules\n"
+        "assert 'swarm.core.blueprint_base' not in sys.modules\n"
+        "assert 'django' not in sys.modules\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_cli_catalog_reexports_path_helpers():
+    from swarm.core import cli_catalog
+    from swarm.utils import cli_path
+
+    assert cli_catalog.host_cli_path is cli_path.host_cli_path
+    assert cli_catalog.extra_cli_path_dirs is cli_path.extra_cli_path_dirs
 
 
 def test_openai_client_kwargs_prefers_litellm_proxy():

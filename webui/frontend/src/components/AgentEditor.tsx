@@ -6,7 +6,6 @@ import InferenceOrderList, { type InferenceCatalogOption } from './InferenceOrde
 import {
   fetchBlueprints,
   fetchBlueprintPersonas,
-  fetchSkills,
   fetchCliAgents,
   fetchCliModels,
   fetchLlmProfiles,
@@ -31,7 +30,12 @@ import {
   saveAgentEdit,
   saveInferenceList,
 } from '../lib/agentEdits'
-import { apiModelOptionsFromProfiles } from '../lib/cliAgentContext'
+import {
+  apiModelOptionsFromProfiles,
+  cliModelOptionsFor,
+  isApiBlueprintId,
+  isApiNamespaceProfile,
+} from '../lib/cliAgentContext'
 import { FOLDER_FORMAT_ERROR, isValidFolderPath } from '../lib/agentFolder'
 import {
   GITHUB_REPO_FORMAT_ERROR,
@@ -42,13 +46,19 @@ import {
 import AgentWorkspaceBinding from './AgentWorkspaceBinding'
 import type { InferenceSeat } from '../lib/inferenceList'
 import {
+  EMPTY_COMMAND_ALLOWLIST,
   NEW_CHAT_PER_TASK_LABEL,
   NEW_CHAT_PER_TASK_TOOLTIP,
   USE_SUGGESTIONS_LABEL,
   USE_SUGGESTIONS_TOOLTIP,
   fetchAgentSettings,
+  parseCommandAllowlist,
   saveAgentSettings,
+  type CommandAllowlist,
 } from '../lib/agentSettings'
+import CommandAllowlistEditor from './settings/CommandAllowlistEditor'
+import AgentMcpToolTree from './AgentMcpToolTree'
+import AgentSkillsPanel from './AgentSkillsPanel'
 import {
   EMPTY_VOICE_BIND,
   parseSpeechMode,
@@ -70,6 +80,10 @@ import {
   assignableBlueprints,
   catalogPickerLabel,
   exampleRoleAgents,
+  // #1706 D.14/D.15 — the single "may this seat carry a role?" decision.
+  roleEditableForSeat,
+  roleAllowedOnSeatKind,
+  ROLE_FIELD_UNAVAILABLE_REASON,
 } from '../lib/agentRoles'
 import { displayNameMatchesBlueprint } from '../lib/railSeats'
 import { ROLE_BRIEFS } from '../lib/definitionExplain'
@@ -77,8 +91,25 @@ import { agentLabel, sessionKindForAgent } from '../lib/supportAgent'
 import { isCliBlueprintId } from '../lib/cliAgentContext'
 import { rememberGeneratedAvatar } from '../lib/agentAvatars'
 import { defaultAvatarPrompt, isImageGenConfigured, parseImageGenSettings } from '../lib/imageGenSettings'
+import {
+  AVATAR_SHAPES,
+  DEFAULT_AVATAR_SHAPE,
+  MAX_DESCRIPTION,
+  MAX_DISPLAY_NAME,
+  MAX_TITLE,
+  defaultProfile,
+  fetchAgentProfile,
+  normalizeAvatarColor,
+  replaceAgentProfile,
+  saveAgentProfile,
+  type AgentProfile,
+  type AvatarShape,
+} from '../lib/agentProfile'
 import AgentAvatar from './AgentAvatar'
-import { openSettingsSheet } from './SettingsSheet'
+import AgentProfilePreview from './AgentProfilePreview'
+import AgentTemplatePackPanel from './AgentTemplatePackPanel'
+import { openSettingsSheet } from './settings/kernel'
+import { openChromeOverlay } from '../lib/chromeOverlay'
 import MailboxAclEditor from './MailboxAclEditor'
 import {
   ROLE_CONSUMERS_CHANGED_EVENT,
@@ -93,6 +124,9 @@ import {
   findCustomRole,
   loadCustomRoles,
 } from '../lib/customRoles'
+import AgentMemoryPanel from './AgentMemoryPanel'
+import InlineEditText from './InlineEditText'
+import AgentMediaPanel from './AgentMediaPanel'
 
 /** Window event so the rail hover-edit and tests can open the agent editor. */
 export const OPEN_AGENT_EDITOR_EVENT = 'swarm:open-agent-editor'
@@ -122,11 +156,15 @@ const EMPTY_BLUEPRINTS: Blueprint[] = []
 
 /** #1127: the editor's vertical tab rail — the surface is tall, not wide, so
  * sections group into side tabs. Inactive panels stay mounted-but-hidden so
- * in-progress edits (#592) survive tab switches. */
+ * in-progress edits (#592) survive tab switches. #1391 adds Memory. */
 const EDITOR_TABS = [
   { id: 'identity', label: 'Identity' },
+  // #1678: per-agent media. Reads the conversation attachment index; see the
+  // design note on the issue for what counts as media and the forget semantics.
+  { id: 'media', label: 'Media' },
   { id: 'role', label: 'Role & wiring' },
   { id: 'model', label: 'Model & inference' },
+  { id: 'memory', label: 'Memory' },
   { id: 'advanced', label: 'Advanced' },
 ] as const
 
@@ -165,6 +203,11 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const { success, error: toastError } = useToast()
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
+  const [storefrontDescription, setStorefrontDescription] = useState('')
+  const [profileTitle, setProfileTitle] = useState('')
+  const [avatarShape, setAvatarShape] = useState<AvatarShape>(DEFAULT_AVATAR_SHAPE)
+  const [avatarColor, setAvatarColor] = useState('')
+  const [avatarColorError, setAvatarColorError] = useState<string | null>(null)
   const [role, setRole] = useState<AgentRole>('default')
   // #532: agents wired to *use* this seat for its role (wire-up UI + diagram).
   const [wiredConsumers, setWiredConsumers] = useState<string[]>([])
@@ -174,11 +217,16 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [profileOverride, setProfileOverride] = useState('')
   const [newChatPerTask, setNewChatPerTask] = useState(false)
   const [useSuggestions, setUseSuggestions] = useState(false)
+  const [commandAllowlist, setCommandAllowlist] = useState<CommandAllowlist>(
+    EMPTY_COMMAND_ALLOWLIST,
+  )
   const [voiceBind, setVoiceBind] = useState<AgentVoiceBind>(EMPTY_VOICE_BIND)
   // #592: set the moment the user edits one of these fields; hydration skips
   // touched groups so a late settings fetch cannot overwrite in-progress edits.
   const seatTogglesTouchedRef = useRef(false)
   const voiceTouchedRef = useRef(false)
+  const commandAllowlistTouchedRef = useRef(false)
+  const profileTouchedRef = useRef(false)
   const [streamReplies, setStreamReplies] = useState<SeatStreamReplies>(null)
   const streamRepliesId = useId()
   const [savingSettings, setSavingSettings] = useState(false)
@@ -189,12 +237,23 @@ export default function AgentEditor({ isOpen, onClose, agentId }: AgentEditorPro
   const [folderError, setFolderError] = useState<string | null>(null)
   const [githubRepo, setGithubRepo] = useState('')
   const [repoError, setRepoError] = useState<string | null>(null)
-  const [attachedSkills, setAttachedSkills] = useState<string[]>([])
   const [addingProfile, setAddingProfile] = useState(false)
   const [customRoles, setCustomRoles] = useState(() => loadCustomRoles())
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false)
   // #1127: selected tab persists across open/close within the session.
   const [activeTab, setActiveTab] = useState<EditorTabId>(loadEditorTab)
+  const activeTabRef = useRef<HTMLButtonElement>(null)
+  // #1676: opening the pane must actually move focus INTO it. The navbar pill
+  // (and the rail's pencil, and every other entry point) dispatches an event;
+  // nothing in the browser moves focus for us, and a pane that opens with
+  // focus still sitting in the navbar is worse than no pill at all — the
+  // keyboard user is still in the header with a dialog on top of it. Focusing
+  // the selected tab is the ARIA-correct landing spot for a tabbed surface:
+  // the tablist is announced, not a random field.
+  useEffect(() => {
+    if (!isOpen) return
+    activeTabRef.current?.focus()
+  }, [isOpen, id])
   const selectTab = (next: EditorTabId) => {
     setActiveTab(next)
     try {
@@ -248,11 +307,15 @@ const handleRoleSelect = (val: string) => {
   }
   // #527: a blueprint that declares ≥2 openai-agents personas gets one
   // avatar picker per persona (single-persona seats have nothing to switch).
+  // D6: the persona roster only exists for swarm blueprints. The seat id is
+  // used as a fallback recipe id, so the generic API gateway (`api_agent`)
+  // must not fire `GET /v1/blueprints/api_agent/personas` — it has no source
+  // and would 404 on every editor open. Skip the fetch for those ids.
   const editorRecipeId = blueprintId || id
   const personasQuery = useQuery({
     queryKey: ['blueprint-personas', editorRecipeId],
     queryFn: () => fetchBlueprintPersonas(editorRecipeId),
-    enabled: Boolean(editorRecipeId) && isOpen,
+    enabled: Boolean(editorRecipeId) && isOpen && !isApiBlueprintId(editorRecipeId),
     retry: 1,
   })
   const declaredPersonas = useMemo(() => {
@@ -280,6 +343,16 @@ const handleRoleSelect = (val: string) => {
     return sessionKindForAgent({ id, tags: agent?.tags })
   }, [id, agent])
 
+  /* #1706 D.14/D.15 — a team or a dedicated chat cannot be assigned a role,
+   * so the editor must not offer the field. The pill already refuses to render
+   * a badge in those modes (`agentPillLabels`), and the API already rejects
+   * the write (`validate_role_for_kind`); this asks the ONE FE decision point
+   * so the three cannot drift. The reason string is rendered, not implied. */
+  const roleAvailability = useMemo(
+    () => roleEditableForSeat(id, agentKind),
+    [id, agentKind],
+  )
+
   const allRoleOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [
       ...ROLE_OPTIONS,
@@ -292,10 +365,12 @@ const handleRoleSelect = (val: string) => {
     }
     // #853: the support option only renders for API-kind seats — hide rather
     // than disable so the picker never advertises a broken configuration.
-    const filtered =
-      agentKind === 'api' ? options : options.filter((o) => o.value !== 'support')
-    return filtered
-  }, [customRoles, agentKind])
+    // #1706: the filter is the single FE rule, not a second `role === 'support'`
+    // test, so it cannot drift from `roleAllowedOnSeatKind`'s other callers.
+    return options.filter((option) =>
+      roleAllowedOnSeatKind(option.value, roleAvailability.seatKind),
+    )
+  }, [customRoles, roleAvailability.seatKind])
 
   const cliQuery = useQuery({
     queryKey: ['cli-agents'],
@@ -311,13 +386,9 @@ const handleRoleSelect = (val: string) => {
     queryFn: () => (activeCli ? fetchCliModels(activeCli) : Promise.resolve({ cli: '', models: [] })),
     enabled: Boolean(isOpen && agentKind === 'cli' && activeCli),
     retry: 1,
-  })
-
-  const skillsQuery = useQuery({
-    queryKey: ['skills'],
-    queryFn: fetchSkills,
-    enabled: isOpen && agentKind !== 'remote',
-    retry: 1,
+    // #612: the per-CLI probe is expensive; reuse the cached list across
+    // re-opens (backend also TTL-caches per CLI in swarm.core.cli_models).
+    staleTime: 5 * 60 * 1000,
   })
 
   const llmProfilesQuery = useQuery({
@@ -358,15 +429,24 @@ const handleRoleSelect = (val: string) => {
     return (cliQuery.data?.clis ?? []).filter((c) => !catalogAgentIds.has(c.toLowerCase()))
   }, [cliQuery.data, catalogAgentIds])
 
+  const cliModelOptions = useMemo(
+    () => cliModelOptionsFor(cliModelsQuery.data),
+    [cliModelsQuery.data],
+  )
+
   const availableCliModels = useMemo(() => {
-    return (cliModelsQuery.data?.models ?? []).filter((m) => !catalogAgentIds.has(m.toLowerCase()))
-  }, [cliModelsQuery.data, catalogAgentIds])
+    return cliModelOptions.models.filter((m) => !catalogAgentIds.has(m.toLowerCase()))
+  }, [cliModelOptions.models, catalogAgentIds])
 
   const availableApiModels = useMemo(() => {
     return apiModelOptionsFromProfiles(llmProfilesQuery.data?.profiles, [
       llmProfilesQuery.data?.default_llm_profile ?? '',
     ]).filter((row) => !catalogAgentIds.has(row.id.toLowerCase()))
   }, [llmProfilesQuery.data, catalogAgentIds])
+
+  useEffect(() => {
+    profileTouchedRef.current = false
+  }, [isOpen, id])
 
   useEffect(() => {
     if (!isOpen || !id) return
@@ -388,14 +468,16 @@ const handleRoleSelect = (val: string) => {
     setFolderError(null)
     setGithubRepo(edit.githubRepo || '')
     setRepoError(null)
-    setAttachedSkills(edit.skills || [])
     const catalogNameForPrompt = catalogAgent?.name || id
     const roleForPrompt = edit.role || agentRole({ id, name: catalogAgent?.name, role: catalogAgent?.role })
     setAvatarPrompt(defaultAvatarPrompt(edit.name || catalogNameForPrompt, roleForPrompt))
 
     let cancelled = false
     ;(async () => {
-      const settings = await fetchAgentSettings(id)
+      const [settings, profile] = await Promise.all([
+        fetchAgentSettings(id),
+        fetchAgentProfile(id),
+      ])
       if (!cancelled) {
         // #592: hydration never clobbers an edit the user already made. The
         // fetch (and a late `blueprintsQuery.data`) can resolve *after* the
@@ -406,6 +488,15 @@ const handleRoleSelect = (val: string) => {
         }
         if (!voiceTouchedRef.current) {
           setVoiceBind(parseVoiceBind(settings))
+        }
+        if (!commandAllowlistTouchedRef.current) {
+          setCommandAllowlist(parseCommandAllowlist(settings.command_allowlist))
+        }
+        if (!profileTouchedRef.current) {
+          applyHydratedProfile(profile.profile, {
+            catalogName: catalogAgent?.name || id,
+            editName: edit.name,
+          })
         }
         setStreamReplies(loadSeatStreamReplies(id))
         if (!edit.folder && settings.folder) {
@@ -442,6 +533,18 @@ const handleRoleSelect = (val: string) => {
     }
   }
 
+  const persistCommandAllowlist = async (next: CommandAllowlist) => {
+    commandAllowlistTouchedRef.current = true
+    setCommandAllowlist(next)
+    if (!id) return
+    setSavingSettings(true)
+    try {
+      await saveAgentSettings(id, { command_allowlist: next })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
   const persistVoicePatch = async (patch: Partial<AgentVoiceBind>) => {
     voiceTouchedRef.current = true
     setVoiceBind((prev) => ({ ...prev, ...patch }))
@@ -467,16 +570,139 @@ const handleRoleSelect = (val: string) => {
     }
   }
 
-  const persistName = (next: string) => {
-    setName(next)
-    saveAgentEdit(id, { name: next })
+  const applyHydratedProfile = (
+    profile: AgentProfile,
+    opts: { catalogName: string; editName?: string },
+  ) => {
+    if (profile.display_name.trim()) {
+      setName(profile.display_name)
+      saveAgentEdit(id, { name: profile.display_name })
+    } else if (!opts.editName) {
+      setName(opts.catalogName)
+    }
+    setStorefrontDescription(profile.description)
+    setProfileTitle(profile.title)
+    setAvatarShape(profile.avatar_shape || DEFAULT_AVATAR_SHAPE)
+    setAvatarColor(profile.avatar_color)
+    setAvatarColorError(null)
+  }
+
+  const persistProfilePatch = async (patch: Partial<AgentProfile>) => {
+    if (!id) return
+    profileTouchedRef.current = true
+    setSavingSettings(true)
+    try {
+      await saveAgentProfile(id, patch)
+    } catch (err) {
+      toastError(
+        'Could not save profile',
+        err instanceof Error ? err.message : 'Profile save failed.',
+      )
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  /* ---- #1677 click-to-edit fields ------------------------------------
+     These three are now committed through `InlineEditText`, which waits for
+     the write and keeps the editor open if it fails. That forces the ordering
+     rule the old per-keystroke handlers got wrong: the local value is adopted
+     ONLY after the server accepted it. Optimistically setting `name` and then
+     firing a patch meant a rejected write left the whole editor (and the
+     rail/header rename) showing a value that was never stored. Here a rejection
+     propagates to the inline editor, which surfaces the reason and leaves
+     `name`/`profileTitle`/`storefrontDescription` exactly where they were. */
+  const commitDisplayName = async (next: string) => {
+    if (!id) return
+    profileTouchedRef.current = true
+    setSavingSettings(true)
+    try {
+      await saveAgentProfile(id, { display_name: next })
+      setName(next)
+      // The navbar/rail rename is local chrome; it is only written once the
+      // profile write has actually landed.
+      saveAgentEdit(id, { name: next })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const commitDescription = async (next: string) => {
+    if (!id) return
+    profileTouchedRef.current = true
+    setSavingSettings(true)
+    try {
+      await saveAgentProfile(id, { description: next })
+      setStorefrontDescription(next)
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const commitTitle = async (next: string) => {
+    if (!id) return
+    profileTouchedRef.current = true
+    setSavingSettings(true)
+    try {
+      await saveAgentProfile(id, { title: next })
+      setProfileTitle(next)
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const persistAvatarShape = (next: AvatarShape) => {
+    setAvatarShape(next)
+    void persistProfilePatch({ avatar_shape: next })
+  }
+
+  const persistAvatarColor = (next: string) => {
+    const trimmed = next.trim()
+    if (!trimmed) {
+      setAvatarColor('')
+      setAvatarColorError(null)
+      void persistProfilePatch({ avatar_color: '' })
+      return
+    }
+    try {
+      const normalized = normalizeAvatarColor(trimmed)
+      setAvatarColor(normalized)
+      setAvatarColorError(null)
+      void persistProfilePatch({ avatar_color: normalized })
+    } catch (err) {
+      setAvatarColor(trimmed)
+      setAvatarColorError(err instanceof Error ? err.message : 'Invalid color.')
+    }
+  }
+
+  const applyImportedPack = async (pack: { profile: AgentProfile }) => {
+    if (!id) return
+    profileTouchedRef.current = true
+    const next = pack.profile || defaultProfile()
+    setName(next.display_name || name)
+    setStorefrontDescription(next.description)
+    setProfileTitle(next.title)
+    setAvatarShape(next.avatar_shape || DEFAULT_AVATAR_SHAPE)
+    setAvatarColor(next.avatar_color)
+    setAvatarColorError(null)
+    if (next.display_name.trim()) saveAgentEdit(id, { name: next.display_name })
+    await replaceAgentProfile(id, next)
   }
 
   const persistRole = (next: AgentRole) => {
-    // #853: 'support' is exclusive to API-kind seats — its capabilities lean
-    // on structured function-calling hooks CLI/remote/team seats lack.
-    if (next === 'support' && agentKind !== 'api') {
-      toastError('Support role unavailable', 'Support role is exclusively available to API agents')
+    // #853 / #1706 D.16 — one guard for the whole rule. #853: 'support' is
+    // exclusive to API-kind seats (structured function-calling hooks that
+    // CLI/remote seats lack). #1706: a team or a chat carries no role at all.
+    // Bailing here means the local store is never written with a role the
+    // backend would reject, so the editor and the API cannot disagree even if
+    // this handler is reached by a path that forgot to hide the field.
+    if (!roleAllowedOnSeatKind(next, roleAvailability.seatKind)) {
+      toastError(
+        'Role unavailable',
+        roleAvailability.editable
+          ? 'Support role is exclusively available to API agents'
+          : ROLE_FIELD_UNAVAILABLE_REASON,
+      )
       return
     }
     setRole(next)
@@ -500,6 +726,7 @@ const handleRoleSelect = (val: string) => {
       }),
     onSuccess: (result) => {
       rememberGeneratedAvatar(id, result.avatar_path)
+      void persistProfilePatch({ avatar_path: result.avatar_path })
       void queryClient.invalidateQueries({ queryKey: ['image-gen-settings'] })
       void queryClient.invalidateQueries({ queryKey: ['blueprints'] })
       success('Avatar generated', 'Still image stored for this agent.')
@@ -588,6 +815,7 @@ const handleRoleSelect = (val: string) => {
               type="button"
               role="tab"
               id={`agent-editor-tab-${tab.id}`}
+              ref={tab.id === activeTab ? activeTabRef : undefined}
               aria-selected={activeTab === tab.id}
               aria-controls={`agent-editor-panel-${tab.id}`}
               tabIndex={activeTab === tab.id ? 0 : -1}
@@ -616,13 +844,106 @@ const handleRoleSelect = (val: string) => {
           hidden={activeTab !== 'identity' ? true : undefined}
           className="space-y-4"
         >
-        <Input
+        {/* #1677: Name / Description / Title are click-to-edit. The idle state
+            is a labelled button, the editing state a real input/textarea, and
+            both commit through the awaited handlers above so a rejected write
+            surfaces instead of being adopted optimistically. */}
+        <InlineEditText
+          testId="agent-field-name"
           label="Name"
-          name="agent-name"
           value={name}
-          onChange={(event) => persistName(event.target.value)}
-          autoComplete="off"
-          spellCheck={false}
+          placeholder="Name this agent"
+          maxLength={MAX_DISPLAY_NAME}
+          onSave={commitDisplayName}
+          hint={`Shown in the rail, the navbar pill, and every message. Up to ${MAX_DISPLAY_NAME} characters.`}
+        />
+        <InlineEditText
+          testId="agent-field-description"
+          label="Description"
+          value={storefrontDescription}
+          placeholder="Add a description"
+          multiline
+          rows={2}
+          allowEmpty
+          maxLength={MAX_DESCRIPTION}
+          onSave={commitDescription}
+          hint="A short blurb for the storefront. Enter adds a line; blur or Cmd/Ctrl+Enter saves."
+        />
+        <InlineEditText
+          testId="agent-field-title"
+          label="Title"
+          value={profileTitle}
+          placeholder="Add a label"
+          allowEmpty
+          maxLength={MAX_TITLE}
+          onSave={commitTitle}
+          hint={`The short line under the name. Up to ${MAX_TITLE} characters.`}
+        />
+
+        <div
+          className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
+          data-testid="agent-editor-profile-chrome"
+        >
+          <span className="text-sm font-semibold text-base-content/80">Avatar chrome</span>
+          <p className="text-xs text-base-content/60 mt-0.5">
+            Shape and color wrap the rail and chat-header face. Empty color keeps the theme default.
+          </p>
+          <Select
+            label="Avatar shape"
+            name="agent-avatar-shape"
+            value={avatarShape}
+            onChange={(event) => persistAvatarShape(event.target.value as AvatarShape)}
+          >
+            {AVATAR_SHAPES.map((shape) => (
+              <option key={shape} value={shape}>
+                {shape}
+              </option>
+            ))}
+          </Select>
+          <div className="flex flex-wrap items-end gap-2">
+            <Input
+              label="Avatar color"
+              name="agent-avatar-color"
+              value={avatarColor}
+              onChange={(event) => persistAvatarColor(event.target.value)}
+              placeholder="#f59e0b"
+              autoComplete="off"
+              spellCheck={false}
+              error={avatarColorError || undefined}
+            />
+            <input
+              type="color"
+              aria-label="Pick avatar color"
+              data-testid="agent-avatar-color-picker"
+              className="h-10 w-12 cursor-pointer rounded-md border border-base-300 bg-transparent p-0"
+              value={/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(avatarColor) ? avatarColor : '#888888'}
+              onChange={(event) => persistAvatarColor(event.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={!avatarColor}
+              onClick={() => persistAvatarColor('')}
+            >
+              Clear color
+            </Button>
+          </div>
+        </div>
+
+        <AgentProfilePreview
+          agentId={id}
+          profile={{
+            display_name: name,
+            description: storefrontDescription,
+            title: profileTitle,
+            role: role === 'default' ? '' : role,
+            avatar_shape: avatarShape,
+            avatar_color: avatarColorError ? '' : avatarColor,
+            avatar_path: null,
+          }}
+          fallbackName={catalogName}
+          caption="Rail / header preview"
         />
 
         {declaredPersonas.length >= 2 ? (
@@ -704,6 +1025,35 @@ const handleRoleSelect = (val: string) => {
           )}
         </div>
 
+        <AgentTemplatePackPanel
+          agentId={id}
+          profile={{
+            display_name: name,
+            description: storefrontDescription,
+            title: profileTitle,
+            role: role === 'default' ? '' : role,
+            avatar_shape: avatarShape,
+            avatar_color: avatarColorError ? '' : avatarColor,
+            avatar_path: null,
+          }}
+          fallbackName={catalogName}
+          onApplyPack={applyImportedPack}
+        />
+
+        </div>
+
+        {/* #1678: Media. Stays mounted-but-hidden like every other panel so a
+            tab switch does not reset it, but the index is only read while this
+            tab is selected — opening the editor on Identity does not spend a
+            request on media nobody asked for. */}
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-media"
+          aria-labelledby="agent-editor-tab-media"
+          hidden={activeTab !== 'media' ? true : undefined}
+          className="space-y-4"
+        >
+          <AgentMediaPanel agentId={id} active={activeTab === 'media'} />
         </div>
 
         <div
@@ -714,19 +1064,36 @@ const handleRoleSelect = (val: string) => {
           className="space-y-4"
         >
         <div className="form-control">
-          <Select
-            label="Role"
-            name="agent-role"
-            value={role}
-            onChange={(event) => handleRoleSelect(event.target.value)}
-          >
-            {allRoleOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-            <option value="__new_role__">+ Create new role…</option>
-          </Select>
+          {roleAvailability.editable ? (
+            <Select
+              label="Role"
+              name="agent-role"
+              value={role}
+              onChange={(event) => handleRoleSelect(event.target.value)}
+            >
+              {allRoleOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              <option value="__new_role__">+ Create new role…</option>
+            </Select>
+          ) : (
+            /* #1706 D.14/D.15 — the field is removed, not merely disabled, so a
+             * keyboard user cannot tab into a control the API would reject. The
+             * reason is real text next to where the field was, and it is
+             * announced (`role="status"`) rather than left as a silent gap. */
+            <div data-testid="role-field-unavailable" className="space-y-1">
+              <span className="text-sm font-medium">Role</span>
+              <p
+                id="agent-role-unavailable-reason"
+                role="status"
+                className="text-xs text-base-content/60"
+              >
+                {ROLE_FIELD_UNAVAILABLE_REASON}
+              </p>
+            </div>
+          )}
           <p className="text-xs text-base-content/70 mt-1" data-testid="role-explanation">
             {ROLE_BRIEFS[role] || findCustomRole(role)?.mechanism_detail || ROLE_BRIEFS.default}
           </p>
@@ -737,7 +1104,7 @@ const handleRoleSelect = (val: string) => {
           </p>
         </div>
 
-        {id && role !== 'default' ? (
+        {id && role !== 'default' && roleAvailability.editable ? (
           <div
             className="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2"
             data-testid="role-consumer-wireup"
@@ -839,53 +1206,19 @@ const handleRoleSelect = (val: string) => {
         />
 
         {agentKind !== 'remote' ? (
-          <div className="space-y-2" data-testid="agent-editor-skills">
-            <span className="text-sm font-semibold text-base-content/80">Skills</span>
-            <p className="text-xs text-base-content/60">
-              Attach one or more SKILL.md capabilities discovered under skills/.
-              Today&apos;s API seats are Blueprint-backed (ADR-006); true
-              inference-only API seats do not attach skills until that kind
-              exists.
-            </p>
-            {(skillsQuery.data?.data ?? []).length === 0 ? (
-              <p className="text-xs text-base-content/55">No discoverable skills.</p>
-            ) : (
-              <ul className="space-y-1">
-                {(skillsQuery.data?.data ?? []).map((skill) => {
-                  const checked = attachedSkills.includes(skill.name)
-                  return (
-                    <li key={skill.name}>
-                      <label className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="checkbox checkbox-sm mt-0.5"
-                          data-testid={`agent-skill-${skill.name}`}
-                          checked={checked}
-                          onChange={() => {
-                            const next = checked
-                              ? attachedSkills.filter((name) => name !== skill.name)
-                              : [...attachedSkills, skill.name]
-                            setAttachedSkills(next)
-                            saveAgentEdit(id, { skills: next })
-                          }}
-                        />
-                        <span>
-                          <span className="font-medium">{skill.name}</span>
-                          {skill.description ? (
-                            <span className="block text-xs text-base-content/60">
-                              {skill.description}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
+          <AgentSkillsPanel agentId={id} enabled={isOpen} />
         ) : null}
 
+        </div>
+
+        <div
+          role="tabpanel"
+          id="agent-editor-panel-memory"
+          aria-labelledby="agent-editor-tab-memory"
+          hidden={activeTab !== 'memory' ? true : undefined}
+          className="space-y-4"
+        >
+          {id && isOpen ? <AgentMemoryPanel agentId={id} /> : null}
         </div>
 
         <div
@@ -895,6 +1228,7 @@ const handleRoleSelect = (val: string) => {
           hidden={activeTab !== 'advanced' ? true : undefined}
           className="space-y-4"
         >
+        {id ? <AgentMcpToolTree agentId={id} active={activeTab === 'advanced'} /> : null}
         <div
           className="space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3"
           data-testid="agent-editor-voice"
@@ -1201,6 +1535,7 @@ const handleRoleSelect = (val: string) => {
                   <option value="auxiliary">Auxiliary (code summary)</option>
                   <option value="delegation">Delegation (design / coding)</option>
                   {(llmProfilesQuery.data?.profiles ?? [])
+                    .filter((p) => isApiNamespaceProfile(p))
                     .filter((p) => !['orchestration', 'auxiliary', 'delegation'].includes(p.id))
                     .map((p) => (
                       <option key={p.id} value={p.id}>
@@ -1339,6 +1674,12 @@ const handleRoleSelect = (val: string) => {
           </label>
         </div>
 
+        <CommandAllowlistEditor
+          value={commandAllowlist}
+          disabled={!id || savingSettings}
+          onChange={(next) => void persistCommandAllowlist(next)}
+        />
+
         <div
           className="tooltip tooltip-bottom w-full text-left"
           data-tip={STREAM_REPLIES_SEAT_TOOLTIP}
@@ -1377,6 +1718,19 @@ const handleRoleSelect = (val: string) => {
             onClick={openBlueprintInSettings}
           >
             Edit blueprint…
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!id}
+            data-testid="agent-editor-templates"
+            onClick={() => {
+              onClose()
+              openChromeOverlay('templates')
+            }}
+          >
+            Templates…
           </Button>
         </div>
         </div>

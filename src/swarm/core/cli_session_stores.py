@@ -1,7 +1,7 @@
 """Provider-owned session stores (ids + display metadata + transcript readers).
 
 Used when a CLI has no official non-interactive list argv but still owns
-sessions on disk. Open Swarm does **not** invent a parallel session DB —
+sessions on disk. Operating Swarm does **not** invent a parallel session DB —
 we only enumerate / read the CLI's own files.
 
 Transcript import (#139): ``read_provider_transcript`` dispatches through a

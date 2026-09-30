@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from swarm.core import catalog_fetch
 from swarm.core.paths import get_user_cache_dir_for_swarm
 
 logger = logging.getLogger(__name__)
@@ -277,9 +278,10 @@ def _is_fresh(payload: dict[str, Any], *, now: float, ttl: float) -> bool:
     return (now - fetched_at) < ttl
 
 
-def _fetch_pages(fetch: FetchJson, headers: dict[str, str]) -> tuple[list[dict[str, Any]], list[str]]:
+def _fetch_pages(fetch: FetchJson, headers: dict[str, str]) -> tuple[list[dict[str, Any]], list[str], str | None]:
     items: list[dict[str, Any]] = []
     warnings: list[str] = []
+    stalled_reason: str | None = None
     cursor = ""
     seen_ids: set[str] = set()
     for _page in range(MAX_PAGES):
@@ -289,16 +291,23 @@ def _fetch_pages(fetch: FetchJson, headers: dict[str, str]) -> tuple[list[dict[s
         try:
             status, payload = fetch(MCP_REGISTRY_SERVERS, headers, params)
         except Exception as exc:
-            warnings.append(f"Official MCP Registry request failed: {exc.__class__.__name__}.")
+            stalled_reason = catalog_fetch.classify_fetch_exception(exc)
+            warnings.append(
+                f"Official MCP Registry request failed: {exc.__class__.__name__} ({stalled_reason})."
+            )
             break
-        if status == 429 or (status == 403 and "rate" in str(payload).lower()):
-            warnings.append("Official MCP Registry rate limit reached — using cache if available.")
+        reason = catalog_fetch.classify_fetch_status(status, payload)
+        if reason is not None:
+            stalled_reason = reason
+            warnings.append(catalog_fetch.stall_message("Official MCP Registry", reason))
             break
-        if status != 200 or not isinstance(payload, dict):
-            warnings.append(f"Official MCP Registry returned HTTP {status}.")
+        if not isinstance(payload, dict):
+            stalled_reason = "payload"
+            warnings.append("Official MCP Registry payload was not a server list.")
             break
         rows = payload.get("servers")
         if not isinstance(rows, list):
+            stalled_reason = "payload"
             warnings.append("Official MCP Registry payload was not a server list.")
             break
         for row in rows:
@@ -313,7 +322,7 @@ def _fetch_pages(fetch: FetchJson, headers: dict[str, str]) -> tuple[list[dict[s
             break
     if not items and not warnings:
         warnings.append("Official MCP Registry returned no servers.")
-    return items, warnings
+    return items, warnings, stalled_reason
 
 
 def _default_fetch(url: str, headers: dict[str, str], params: dict[str, str]) -> tuple[int, Any]:
@@ -345,6 +354,7 @@ def fetch_registry_servers(
             "warnings": [],
             "cached": True,
             "fetched_at": cached.get("fetched_at"),
+            "stalled_reason": None,
         }
 
     fetch = fetch_json or _default_fetch
@@ -352,7 +362,7 @@ def fetch_registry_servers(
         "Accept": "application/json",
         "User-Agent": "open-swarm-mcp-registry-cache",
     }
-    items, warnings = _fetch_pages(fetch, headers)
+    items, warnings, stalled_reason = _fetch_pages(fetch, headers)
     if items:
         payload = {
             "object": "mcp_registry_cache",
@@ -366,6 +376,7 @@ def fetch_registry_servers(
             "warnings": warnings,
             "cached": False,
             "fetched_at": clock,
+            "stalled_reason": stalled_reason,
         }
 
     if cached and isinstance(cached.get("items"), list) and cached["items"]:
@@ -376,6 +387,7 @@ def fetch_registry_servers(
             "warnings": warnings,
             "cached": True,
             "fetched_at": cached.get("fetched_at"),
+            "stalled_reason": stalled_reason or "offline",
         }
     return {
         "object": "mcp_registry_cache",
@@ -383,4 +395,5 @@ def fetch_registry_servers(
         "warnings": warnings or ["Official MCP Registry is unavailable."],
         "cached": False,
         "fetched_at": None,
+        "stalled_reason": stalled_reason or "offline",
     }

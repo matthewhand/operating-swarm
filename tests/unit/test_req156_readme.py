@@ -5,6 +5,7 @@ and links the developer doc + the examples pack.
 """
 
 from swarm.core.handoff_graph import repo_root
+from helpers.private_net import assert_no_private_ip
 
 
 def test_developer_doc_has_forced_circular_and_harness_diagrams():
@@ -73,4 +74,4 @@ def test_example_readme_documents_8001_seed_without_secrets():
     lowered = text.lower()
     for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)

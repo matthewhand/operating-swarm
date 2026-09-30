@@ -4,7 +4,7 @@
 
 | What the flag does | What it does **not** do |
 |---|---|
-| When `django-mcp-server` is installed, mounts **`/mcp/`** and adds `mcp_server` to `INSTALLED_APPS` | Expose Open Swarm **blueprints as MCP tools** |
+| When `django-mcp-server` is installed, mounts **`/mcp/`** and adds `mcp_server` to `INSTALLED_APPS` | Expose Operating Swarm **blueprints as MCP tools** |
 | Logs a warning if the package is missing (no crash) | Port the blueprint→tool bridge to `mcp_server` ≥0.5 |
 
 `ENABLE_MCP_SERVER=true` makes `swarm/settings.py` add `'mcp_server'` to
@@ -41,7 +41,7 @@ installed and the flag set, `manage.py check` passes and `/mcp/` is mounted.
 flat `registry.register_tool(...)` API. `mcp_server` ≥0.5 replaced that with an
 `MCPToolset` / decorator paradigm, so the bridge is currently a **no-op** that
 returns 0 and emits **`logger.error`** (registration failure is loud on purpose).
-Porting it to expose Open Swarm blueprints as MCP tools is tracked in
+Porting it to expose Operating Swarm blueprints as MCP tools is tracked in
 [ROADMAP.md §3.3](../ROADMAP.md). Until then:
 
 - ✅ Flag + package → `/mcp/` mount works

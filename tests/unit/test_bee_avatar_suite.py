@@ -1,4 +1,4 @@
-"""Test Open Swarm Bee Avatar Suite (full profiles and close-up faces)."""
+"""Test Operating Swarm Bee Avatar Suite (full profiles and close-up faces)."""
 
 import importlib.util
 import json

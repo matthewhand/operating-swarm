@@ -279,6 +279,15 @@ def put_agent_policy(agent_id: str, mode: Any, entries: Any) -> AclPolicy:
     agents = dict(store.get("agents") or {})
     agents[agent] = payload
     _write_store({"schema": SCHEMA, "agents": agents, "roles": store.get("roles") or {}})
+    from swarm.core.activity_log import emit_activity
+
+    emit_activity(
+        action="acl.updated",
+        entity_type="acl",
+        entity_id=agent,
+        agent_id=agent,
+        detail={"scope": "agent", "mode": payload.get("mode")},
+    )
     return policy_from_stored(payload, default_allow_all=False)
 
 
@@ -301,6 +310,14 @@ def put_role_policy(role: Any, mode: Any, entries: Any) -> AclPolicy:
     roles = dict(store.get("roles") or {})
     roles[canonical] = payload
     _write_store({"schema": SCHEMA, "agents": store.get("agents") or {}, "roles": roles})
+    from swarm.core.activity_log import emit_activity
+
+    emit_activity(
+        action="acl.updated",
+        entity_type="acl",
+        entity_id=canonical,
+        detail={"scope": "role", "mode": payload.get("mode")},
+    )
     return policy_from_stored(payload, default_allow_all=is_allow_all_role(canonical))
 
 

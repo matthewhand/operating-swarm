@@ -4,7 +4,7 @@
 
 ## Intent
 
-Open Swarm as a harness **for** Hermes, OpenMausBot (OMB), and Rakazo. Those
+Operating Swarm as a harness **for** Hermes, OpenMausBot (OMB), and Rakazo. Those
 remotes are Team *members* you place into a roster so they can see and talk via
 openai-agents handoff / `as_tool`.
 

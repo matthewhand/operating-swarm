@@ -16,10 +16,20 @@ import time
 import urllib.error  # noqa: F401
 import urllib.request  # noqa: F401
 from pathlib import Path  # noqa: F401
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlparse, urlunparse  # noqa: F401
 
 import httpx
+
+if TYPE_CHECKING:  # annotations only, never evaluated at runtime
+    # These names are used in ANNOTATIONS ONLY -- 'from __future__ import
+    # annotations' keeps them strings, never evaluated at runtime -- and a
+    # runtime import of swarm.core.remotes here would close the import cycle
+    # these modules exist to avoid: their bodies reach remotes through the
+    # lazily-imported module object 'R' instead. Without this declaration
+    # ruff F821 reports every one of those annotations as an undefined name
+    # and a type checker resolves them to nothing.
+    from swarm.core.remotes import OperateResult, RemoteSpec
 
 R: Any = importlib.import_module("swarm.core.remotes")
 

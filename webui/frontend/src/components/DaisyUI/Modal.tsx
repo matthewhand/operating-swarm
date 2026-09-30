@@ -34,6 +34,16 @@ export const Modal = ({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const triggerElementRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  // Capture the opener during render, before commit. A sheet that hides its
+  // trigger in the same commit (#1445 chat navbar) has already blurred that
+  // node by the time useEffect runs, so activeElement is <body>.
+  if (isOpen && !wasOpenRef.current && typeof document !== 'undefined') {
+    triggerElementRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+  wasOpenRef.current = isOpen;
 
   // Sync open state with native dialog methods and manage focus
   useEffect(() => {
@@ -42,15 +52,12 @@ export const Modal = ({
 
     if (isOpen) {
       if (!dialog.open) {
-        triggerElementRef.current = document.activeElement as HTMLElement | null;
         dialog.showModal();
       }
     } else {
       if (dialog.open) {
         dialog.close();
-        if (triggerElementRef.current) {
-          triggerElementRef.current.focus();
-        }
+        triggerElementRef.current?.focus();
       }
     }
   }, [isOpen]);

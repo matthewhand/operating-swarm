@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import re
-import signal
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterable
@@ -33,6 +32,7 @@ from typing import Any
 from swarm.core import cli_catalog
 from swarm.core.async_utils import run_coro_sync
 from swarm.core.cli_adapter import TERM_GRACE
+from swarm.core.proc import spawn_kwargs
 from swarm.utils.redact import (
     SENSITIVE_PATTERNS,
     is_sensitive_key,
@@ -71,6 +71,11 @@ _HEADER_WORDS = frozenset(
         # these, and a banner on stdout must not become a dropdown option.
         "fetching",
         "loading",
+        # Reserved routing labels some CLIs print as a pseudo-row (grok emits
+        # ``You`` / ``Default``). They are never model ids — the frontend
+        # already hides them (``HIDDEN_ROUTING_LABELS``); the API must too.
+        "you",
+        "default",
     }
 )
 
@@ -78,6 +83,9 @@ RunExec = Callable[[list[str], float], Awaitable[tuple[int | None, str, str]]]
 
 # REQ-877: profile-loading probes stay bounded, cached, and concurrent.
 PROBE_TIMEOUT_S = 1.5
+# #1278: the explicit, user-triggered picker may wait longer than the profile
+# cap. opencode/agy list their models in ~2s+, so 1.5s emitted empty lists.
+ON_DEMAND_PROBE_TIMEOUT_S = 10.0
 PROBE_CACHE_TTL_S = 10 * 60.0  # 10 minutes (within the 5–15 min window)
 PROBE_TERM_GRACE_S = 0.25  # SIGTERM→SIGKILL for list-models only; not agent runs
 
@@ -91,10 +99,27 @@ class ListModelsResult:
     warning: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"cli": self.cli, "models": list(self.models)}
+        out: dict[str, Any] = {
+            "cli": self.cli,
+            "models": _runnable_models(self.cli, self.models),
+        }
         if self.warning:
             out["warning"] = self.warning
         return out
+
+
+def _runnable_models(name: str, models: Iterable[str]) -> list[str]:
+    """Drop ids ``name`` cannot actually run (app-gated tiers) from the picker.
+
+    ``opencode models`` lists its own ``opencode/*`` free/app-only tier, which
+    answers "can only be used from within OpenCode" when invoked as
+    ``opencode run``. The CLI-runnable provider is ``opencode-go/*``. The
+    cache keeps the raw probe; only the public picker payload is filtered so
+    NO picker offers a model the provider cannot use.
+    """
+    from swarm.blueprints.common.cli_fusion_support import is_app_gated_cli_model
+
+    return [m for m in models if not is_app_gated_cli_model(name, m)]
 
 
 @dataclass
@@ -116,9 +141,51 @@ def clear_probe_cache() -> None:
         _IN_FLIGHT.clear()
 
 
+def cached_models(name: str) -> list[str]:
+    """Live list-models for ``name`` from the per-CLI TTL cache, else ``[]``.
+
+    The cache (``_RESULT_CACHE``) is keyed **per CLI** (``_RESULT_CACHE[cli]``)
+    and each CLI entry carries its own timestamp / TTL (``PROBE_CACHE_TTL_S``),
+    so probing ``agy`` never serves (or evicts) ``opencode``'s list. This is a
+    read-only accessor: it never spawns a probe, and it serves last-good when
+    the freshest entry is empty/failed. Safe to call from a request path
+    (e.g. the model-pin namespace guard).
+    """
+    cli = str(name)
+    with _CACHE_LOCK:
+        entry = _RESULT_CACHE.get(cli)
+        if entry is None:
+            return []
+        return list(_serve_entry(entry).models)
+
+
 def list_models(name: str, *, timeout: float | None = None) -> ListModelsResult:
     """Synchronous probe. Safe to call from Typer / Django (no event loop)."""
     return list_models_many([name], timeout=timeout)[0]
+
+
+def list_models_for_picker(
+    name: str, *, timeout: float | None = None
+) -> ListModelsResult:
+    """On-demand list-models for the CLI picker: longer cap, still cached.
+
+    The profile-hydration path (:func:`list_models_many`, REQ-877) caps probes
+    at 1.5s so ``/v1/llm-profiles/`` never blocks on a CLI subprocess. opencode
+    and agy list their models slower than that (#1278), so this path waits up
+    to ``ON_DEMAND_PROBE_TIMEOUT_S``. A cached entry that holds real models is
+    served immediately; an empty/failed cached entry is re-probed rather than
+    pinning the picker to an empty list for the whole TTL. Never raises.
+    """
+    cli = str(name)
+    cap = ON_DEMAND_PROBE_TIMEOUT_S if timeout is None else float(timeout)
+    with _CACHE_LOCK:
+        entry = _RESULT_CACHE.get(cli)
+        if entry is not None and entry.result.models:
+            return _serve_entry(entry)
+    rows = _run_many_sync([cli], cap)
+    if not rows:
+        return ListModelsResult(cli=cli, models=[])
+    return _remember(rows[0])
 
 
 def list_models_all(*, timeout: float | None = None) -> list[ListModelsResult]:
@@ -501,8 +568,8 @@ async def _run_exec(argv: list[str], timeout: float) -> tuple[int | None, str, s
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
             env=env,
+            **spawn_kwargs(),
         )
     except (OSError, ValueError):
         raise
@@ -517,24 +584,9 @@ async def _run_exec(argv: list[str], timeout: float) -> tuple[int | None, str, s
 async def _terminate(
     proc: asyncio.subprocess.Process, *, grace: float = TERM_GRACE
 ) -> None:
-    if proc.returncode is not None or not proc.pid or proc.pid <= 1:
-        return
-    try:
-        pgid = os.getpgid(proc.pid)
-        if pgid <= 1:
-            return
-    except (ProcessLookupError, OSError):
-        return
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(pgid, sig)
-        except (ProcessLookupError, OSError):
-            return
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=grace)
-            return
-        except asyncio.TimeoutError:
-            continue
+    from swarm.core.proc import terminate_subprocess
+
+    await terminate_subprocess(proc, grace=grace)
 
 
 def _decode(blob: bytes | None) -> str:

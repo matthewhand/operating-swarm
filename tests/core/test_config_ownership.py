@@ -10,6 +10,7 @@ import pytest
 from swarm.core import config_ownership as own
 from swarm.core import remotes as remotes_core
 from swarm.core.llm_task_routing import persist_llm_settings, settings_public_payload
+from helpers.private_net import assert_no_private_ip
 
 
 def _cfg(tmp_path: Path, blob: dict) -> Path:
@@ -25,7 +26,7 @@ def test_example_config_has_no_plaintext_secrets():
     blob = json.dumps(data)
     assert "sk-" not in blob
     assert "${OPENAI_API_KEY}" in example
-    assert "10.0.0." not in example
+    assert_no_private_ip(example)
 
 
 def test_decision_is_full_and_inventory_has_no_silent_gaps():

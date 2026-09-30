@@ -15,7 +15,7 @@ The operator's observation is **right about transport** and **right about compos
 
 ## 1. Context
 
-Herdr is the pane session server + CLI at [herdr.dev](https://herdr.dev/). It wraps the coding CLIs already running in panes on a host (`agy` / `pi` / `grok` / …). Open Swarm drives it as a **client**: one hop to the Herdr host, then the official `herdr` CLI there (local unix socket, or SSH when the host is remote). It does not own the panes.
+Herdr is the pane session server + CLI at [herdr.dev](https://herdr.dev/). It wraps the coding CLIs already running in panes on a host (`agy` / `pi` / `grok` / …). Operating Swarm drives it as a **client**: one hop to the Herdr host, then the official `herdr` CLI there (local unix socket, or SSH when the host is remote). It does not own the panes.
 
 The operator question, verbatim intent: *"we should not call this a 'remote' anymore, instead it is just another type of cli… a cli that is basically a team of agents that don't talk to each other. so we should treat this as an extension of the 'cli' subclass not 'remote'?"*
 
@@ -41,7 +41,7 @@ So the *transport* half of the proposal is not a proposal — it is implemented.
 
 | Axis | CLI agent (`cli_agents`) | Herdr |
 |---|---|---|
-| Who spawns the seat | **The swarm.** Configured `command:` is exec'd per turn | **Herdr.** Panes exist before and after Open Swarm |
+| Who spawns the seat | **The swarm.** Configured `command:` is exec'd per turn | **Herdr.** Panes exist before and after Operating Swarm |
 | Who owns the lifecycle | Swarm (`cliRunState`, Terminate, REQ-114 `cli_run_state`) | Herdr server; the swarm is a client |
 | Boundary | None — direct exec on this host | Always a hop: unix socket locally, SSH remotely |
 | Unit of work | One seat, one conversation | A **fleet**: `list` returned 7 members (`w2:pG`, `w2:pD`, `w3:p1`, …) |
@@ -109,7 +109,7 @@ Also required: a data migration for stored `kind=herdr` roster rows and mailbox 
 | Option | Why not |
 |---|---|
 | Fifth user-facing kind `herdr` | Not what the operator asked for, and ADR-011 §5 already rejects it. Adds a kind without fixing composition. |
-| `kind=cli` + reuse `cli_agents` spawn/terminate | Herdr does not spawn; Open Swarm prompts panes it does not own. Reusing the lifecycle would either be dead code or would misreport seat state. |
+| `kind=cli` + reuse `cli_agents` spawn/terminate | Herdr does not spawn; Operating Swarm prompts panes it does not own. Reusing the lifecycle would either be dead code or would misreport seat state. |
 | Merge Herdr into `os-cli tui` | ADR-012 is explicit: the TUI is Herdr-*like* chrome and does not SSH to a Herdr host. Different hop. |
 | Leave everything as-is (option A) | Keeps a Team member that cannot hand off, and a `consult_herdr` tool that implies one agent where there is a fleet. |
 

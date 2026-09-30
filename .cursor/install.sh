@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent Cloud Agent bootstrap for Open Swarm.
+# Idempotent Cloud Agent bootstrap for Operating Swarm.
 # Runs after the repository is checked out. Safe to run repeatedly.
 set -euo pipefail
 
@@ -24,4 +24,4 @@ else
   echo "WARN: npm not found; skipping SPA build (Django template UI will be used)."
 fi
 
-echo "Open Swarm install complete."
+echo "Operating Swarm install complete."

@@ -1,5 +1,5 @@
 /**
- * REQ-861: theme-aware Open Swarm geometric mark (`currentColor`).
+ * REQ-861: theme-aware Operating Swarm geometric mark (`currentColor`).
  * Geometry matches `assets/brand/webui-geometric-mono.svg`.
  */
 export function BrandMarkMono({ className = 'h-5 w-5' }: { className?: string }) {

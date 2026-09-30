@@ -54,6 +54,11 @@ def test_get_empty_when_no_row(api_client):
         "theme_navbar_mode",
         "bubble_theme",
         "rail_sections",
+        "hide_unsupported_agent_picker",
+        "hide_unsupported_session_picker",
+        "operator_profile",
+        "about_me",
+        "activity_log_visibility",
     ]
     assert body["context_auto_compress_pct"] == 80
     assert body["context_strategy"] == "compress"
@@ -62,6 +67,9 @@ def test_get_empty_when_no_row(api_client):
     assert body["theme"] == "system"
     assert body["theme_navbar_mode"] == "if_not_system"
     assert body["bubble_theme"] == ""
+    assert body["operator_profile"] == {"name": "", "timezone": "", "about": ""}
+    assert body["about_me"] == ""
+    assert body["activity_log_visibility"] == "operator"
     blob = json.dumps(body)
     assert "api_key" not in blob
     assert "sk-" not in blob
@@ -364,3 +372,81 @@ def test_admin_principal_row_is_shared_between_guest_requests():
     assert seen["guest"] is True
     assert seen["principal"] == "user:admin"
     assert seen["rail_sections"]["membership"] == {"jeeves": "sec_a"}
+
+
+@pytest.mark.django_db
+def test_operator_profile_round_trip_and_rejects_non_object(api_client):
+    response = api_client.patch(
+        "/v1/preferences/",
+        {
+            "operator_profile": {
+                "name": "Ada",
+                "timezone": "UTC",
+                "about": "Be brief.",
+                "api_key": "sk-nope",
+            }
+        },
+        format="json",
+    )
+    assert response.status_code == 200
+    card = response.json()["operator_profile"]
+    assert card == {"name": "Ada", "timezone": "UTC", "about": "Be brief."}
+    blob = json.dumps(response.json())
+    assert "sk-nope" not in blob
+    assert "api_key" not in blob
+
+    again = api_client.get("/v1/preferences/").json()
+    assert again["operator_profile"] == card
+
+    bad = api_client.patch(
+        "/v1/preferences/",
+        {"operator_profile": "not-an-object"},
+        format="json",
+    )
+    assert bad.status_code == 400
+    assert "operator_profile" in bad.json()["error"]
+
+    secret = api_client.patch(
+        "/v1/preferences/",
+        {"operator_profile": {"name": "Ada", "about": "api_key=sk-abcdefghij"}},
+        format="json",
+    )
+    assert secret.status_code == 400
+    assert "secret" in secret.json()["error"]
+
+
+@pytest.mark.django_db
+def test_about_me_persists_clears_and_rejects_secrets(api_client):
+    saved = api_client.patch(
+        "/v1/preferences/",
+        {"about_me": "Works nights. Prefers terse answers."},
+        format="json",
+    )
+    assert saved.status_code == 200
+    assert saved.json()["about_me"] == "Works nights. Prefers terse answers."
+    again = api_client.get("/v1/preferences/").json()
+    assert again["about_me"] == "Works nights. Prefers terse answers."
+
+    cleared = api_client.patch("/v1/preferences/", {"about_me": ""}, format="json")
+    assert cleared.status_code == 200
+    assert cleared.json()["about_me"] == ""
+    assert api_client.get("/v1/preferences/").json()["about_me"] == ""
+
+    not_string = api_client.patch(
+        "/v1/preferences/",
+        {"about_me": {"text": "nope"}},
+        format="json",
+    )
+    assert not_string.status_code == 400
+    assert "about_me" in not_string.json()["error"]
+
+    secret = api_client.patch(
+        "/v1/preferences/",
+        {"about_me": "password=hunter2"},
+        format="json",
+    )
+    assert secret.status_code == 400
+    assert "secret" in secret.json()["error"]
+    assert api_client.get("/v1/preferences/").json()["about_me"] == ""
+
+

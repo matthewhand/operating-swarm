@@ -1,6 +1,6 @@
 # Skills & Multi-CLI Consensus — a Walkthrough
 
-This guide walks through two capabilities of Open Swarm's CLI Agent Fusion, end
+This guide walks through two capabilities of Operating Swarm's CLI Agent Fusion, end
 to end, with the exact commands and their real output:
 
 1. **Skills** — reusable, CLI-agnostic capabilities you apply to any agentic CLI.

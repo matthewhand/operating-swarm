@@ -1,7 +1,7 @@
 Blueprints API (Simple CRUD + Filtering)
 =======================================
 
-This document describes a minimal REST API for managing blueprints in Open Swarm. It is intentionally simple: clients can create, read, update, and delete custom blueprints stored in the user's JSON library, and list bundled/available blueprints with basic filtering. Clients are expected to inspect a blueprint's contents/metadata to infer MCP requirements.
+This document describes a minimal REST API for managing blueprints in Operating Swarm. It is intentionally simple: clients can create, read, update, and delete custom blueprints stored in the user's JSON library, and list bundled/available blueprints with basic filtering. Clients are expected to inspect a blueprint's contents/metadata to infer MCP requirements.
 
 Endpoints
 ---------
@@ -13,7 +13,7 @@ Endpoints
     - required_mcp: filter by required MCP server name (if blueprint metadata exposes required_mcp_servers).
 
 - GET /v1/blueprints/custom/
-  - Lists user-created custom blueprints from ~/.config/OpenSwarm/swarm/blueprint_library.json.
+  - Lists user-created custom blueprints from `$XDG_CONFIG_HOME/swarm/blueprint_library.json` (default `~/.config/swarm/blueprint_library.json`).
   - Query params:
     - search: case-insensitive substring across id, name, description.
     - tag: match a tag in the tags array.

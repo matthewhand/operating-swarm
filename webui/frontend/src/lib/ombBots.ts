@@ -48,6 +48,16 @@ function botList(payload: unknown): unknown[] {
   if (Array.isArray(rec.bots)) return rec.bots
   if (Array.isArray(rec.agents)) return rec.agents
   if (Array.isArray(rec.members)) return rec.members
+  // Hermes nests its model list one level deeper (`models: {object, data}`) —
+  // the same envelope `sessionsFromOperateResult` unwraps for sessions.
+  if (Array.isArray(rec.models)) return rec.models
+  const nestedModels = asRecord(rec.models)
+  if (nestedModels) {
+    if (Array.isArray(nestedModels.data)) return nestedModels.data
+    if (Array.isArray(nestedModels.models)) return nestedModels.models
+    if (Array.isArray(nestedModels.agents)) return nestedModels.agents
+    if (Array.isArray(nestedModels.bots)) return nestedModels.bots
+  }
   if (Array.isArray(rec.data)) {
     return rec.data.some(looksLikeRemoteSpec) ? [] : rec.data
   }
@@ -86,9 +96,30 @@ export function ombNavbarOptions(bots: readonly OmbBotOption[]): Array<{ id: str
   return bots.map((bot) => ({ id: bot.id, label: bot.name || bot.id }))
 }
 
-export function ombSendTarget(sessionId: string, remoteId: string): string {
+/** True for Chief of Staff / CoS / chief-of-staff / chiefOfStaff spellings. */
+export function isChiefOfStaffName(value: string): boolean {
+  const compact = (value || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  return compact === 'cos' || compact === 'chiefofstaff'
+}
+
+/** The workspace Chief of Staff bot id, or '' when no listed bot is the CoS. */
+export function ombChiefOfStaffId(bots: readonly OmbBotOption[]): string {
+  for (const bot of bots) {
+    if (isChiefOfStaffName(bot.name) || isChiefOfStaffName(bot.id)) return bot.id
+  }
+  return ''
+}
+
+/**
+ * The bot id a send should target. An explicit pick always wins; otherwise the
+ * workspace Chief of Staff is the default. '' only when neither exists.
+ */
+export function ombSendTarget(
+  sessionId: string,
+  remoteId: string,
+  bots: readonly OmbBotOption[] = [],
+): string {
   const session = sessionId.trim()
-  if (!session) return ''
-  if (isOpenMousBotKind(session) || session === remoteId.trim()) return ''
-  return session
+  if (session && !isOpenMousBotKind(session) && session !== remoteId.trim()) return session
+  return ombChiefOfStaffId(bots)
 }

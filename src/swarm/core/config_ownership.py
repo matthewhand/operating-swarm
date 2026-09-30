@@ -721,6 +721,13 @@ def default_llm_provenance(config: dict[str, Any] | None = None) -> dict[str, An
     return badge_for(env_var="DEFAULT_LLM", persisted=stored, secret=False)
 
 
+def _resolved_config_root() -> str:
+    """Resolved config directory for Settings. Path only, no file contents."""
+    from swarm.core.paths import config_root
+
+    return str(config_root())
+
+
 def ownership_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """GET /v1/config-ownership/ body. No secrets."""
     cfg = config if isinstance(config, dict) else _load_raw()[0]
@@ -743,6 +750,8 @@ def ownership_payload(config: dict[str, Any] | None = None) -> dict[str, Any]:
         "settings_panes": dict(SETTINGS_PANES),
         "inventory": inventory(),
         "default_llm_profile": default_llm_provenance(cfg),
+        "config_root": _resolved_config_root(),
+        "config_root_env": "SWARM_CONFIG_DIR",
         "sibling_775": (
             "Example file is swarm_config.example.json at repo root. "
             "#775 may move it; keep the filename *example* and gitignore live swarm_config.json."

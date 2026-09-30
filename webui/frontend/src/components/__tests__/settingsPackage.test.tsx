@@ -9,13 +9,14 @@
  *    acceptance criterion: modular, independently testable components);
  * 4. no duplication: moved pane definitions leave SettingsSheet.tsx.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { ToastProvider } from '../DaisyUI'
 import SettingsSheet, {
   OPEN_SETTINGS_EVENT,
   SETTINGS_SECTIONS,
+  SETTINGS_SEARCH_CONTENT,
   settingsDetailFromQuery,
   isSettingsSection,
   openSettingsSheet,
@@ -45,6 +46,47 @@ describe('#856 slice B: settings package', () => {
     }
     expect(isSettingsSection('general')).toBe(true)
     expect(isSettingsSection('not-a-section')).toBe(false)
+  })
+
+  it('runtime allowlist covers every SettingsSection (union == SETTINGS_SECTIONS)', () => {
+    // SETTINGS_SEARCH_CONTENT is typed Record<SettingsSection, string[]>, so
+    // tsc forces every union member to appear as a key. If a section is added
+    // to the union but not to the runtime allowlist, this test fails.
+    const unionMembers = Object.keys(SETTINGS_SEARCH_CONTENT).sort()
+    expect([...SETTINGS_SECTIONS].sort()).toEqual(unionMembers)
+    expect(new Set(SETTINGS_SECTIONS).size).toBe(SETTINGS_SECTIONS.length)
+  })
+
+  it('deep-links /chat?settings=providers to the providers pane', async () => {
+    expect(settingsDetailFromQuery('providers')).toEqual({ section: 'providers' })
+    expect(isSettingsSection('providers')).toBe(true)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ object: 'list', data: [], profiles: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    )
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      render(
+        <QueryClientProvider client={qc}>
+          <ToastProvider>
+            <SettingsSheet
+              isOpen={true}
+              onClose={() => {}}
+              initialSection={settingsDetailFromQuery('providers')?.section ?? null}
+            />
+          </ToastProvider>
+        </QueryClientProvider>,
+      )
+      expect(await screen.findByTestId('providers-pane')).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('renders AestheticsPane standalone under standard providers', () => {

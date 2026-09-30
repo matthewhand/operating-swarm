@@ -15,13 +15,28 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from swarm.core.activity_log import bound_activity_actor, request_actor_id
 from swarm.core.agent_sessions import (
     create_empty_session,
     list_agent_sessions,
     persist_allocated_session,
     session_to_dict,
 )
-from swarm.core.agent_settings import get_settings, update_settings
+from swarm.core.agent_profile import (
+    PACK_SECRET_KEYS,
+    PROFILE_BODY_ALIASES,
+    PROFILE_FIELD_KEY_SET,
+    extract_profile_patch,
+    rail_header_fields,
+    serialize_template_pack,
+)
+from swarm.core.agent_settings import (
+    get_profile,
+    get_settings,
+    replace_profile,
+    update_profile,
+    update_settings,
+)
 from swarm.core.chat_store import normalize_agent_id
 from swarm.core.session_policy import allocate_task_session, list_active_task_sessions
 from swarm.permissions import HasValidTokenOrSession
@@ -47,6 +62,7 @@ def _payload(agent_id: str, settings: dict, request) -> dict:
     except Exception:
         user_key = ""
     sessions = list_active_task_sessions(user_key, agent_id) if user_key else []
+    identity = rail_header_fields(settings.get("profile"))
     return {
         "object": "agent_settings",
         "agent_id": agent_id,
@@ -65,7 +81,12 @@ def _payload(agent_id: str, settings: dict, request) -> dict:
         "tts_model": settings.get("tts_model") or "",
         "tts_api_key_env": settings.get("tts_api_key_env") or "",
         "auto_speak_replies": bool(settings.get("auto_speak_replies")),
+        "command_allowlist": settings.get("command_allowlist")
+        or {"allow": [], "deny": [], "ask": []},
+        "mcp_tool_grants": list(settings.get("mcp_tool_grants") or []),
+        "mcp_tool_grants_set": bool(settings.get("mcp_tool_grants_set")),
         "active_sessions": sessions,
+        **identity,
     }
 
 
@@ -91,19 +112,111 @@ class AgentSettingsAPIView(APIView):
     def patch(self, request, agent_id: str, *_args, **_kwargs):
         agent = normalize_agent_id(agent_id)
         body = request.data if isinstance(request.data, dict) else {}
+        profile_patch = extract_profile_patch(body)
         body = {
             key: value
             for key, value in body.items()
             if key not in {"object", "agent_id", "active_sessions"}
+            and key not in PROFILE_BODY_ALIASES
         }
+        if profile_patch is not None:
+            body["profile"] = profile_patch
         try:
-            settings = update_settings(agent, body)
+            with bound_activity_actor(request_actor_id(request)):
+                # #1706 D.16 — the RAW `agent_id`, not the slugified `agent`.
+                # `update_settings` normalizes for its own store key, but a
+                # `chat:` / `team:` row id must reach the role gate intact or
+                # the slug cannot classify and the write is wrongly accepted.
+                settings = update_settings(agent_id, body)
         except ValueError as exc:
             return _error(str(exc), status.HTTP_400_BAD_REQUEST)
         except OSError:
             logger.exception("Failed to persist agent settings for %s", agent)
             return _error("Could not save agent settings.", status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response(_payload(agent, settings, request), status=status.HTTP_200_OK)
+
+
+def _profile_payload(agent_id: str, profile: dict) -> dict:
+    identity = rail_header_fields(profile)
+    return {
+        "object": "agent_profile",
+        "agent_id": agent_id,
+        **identity,
+        "pack": serialize_template_pack(agent_id, profile),
+    }
+
+
+class AgentProfileAPIView(APIView):
+    """GET/PUT/PATCH /v1/agents/<agent_id>/profile/ — storefront identity (#1388).
+
+    PUT replaces the profile (missing fields become defaults). PATCH merges.
+    GET returns rail/header fields plus a secret-free ``pack.profile`` section.
+    """
+
+    permission_classes = SETTINGS_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_agent_profile_get",
+        summary="Get agent storefront / rail profile",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, agent_id: str, *_args, **_kwargs):
+        agent = normalize_agent_id(agent_id)
+        return Response(_profile_payload(agent, get_profile(agent)), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        operation_id="v1_agent_profile_put",
+        summary="Replace agent storefront / rail profile",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def put(self, request, agent_id: str, *_args, **_kwargs):
+        return self._write(request, agent_id, replace=True)
+
+    @extend_schema(
+        operation_id="v1_agent_profile_patch",
+        summary="Update agent storefront / rail profile",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def patch(self, request, agent_id: str, *_args, **_kwargs):
+        return self._write(request, agent_id, replace=False)
+
+    def _write(self, request, agent_id: str, *, replace: bool):
+        agent = normalize_agent_id(agent_id)
+        body = request.data if isinstance(request.data, dict) else {}
+        reserved = {"object", "agent_id", "pack", "profile", "storefront_description"}
+        secret_keys = [key for key in body if key in PACK_SECRET_KEYS]
+        if secret_keys:
+            return _error(
+                "Profile must not include secrets or session settings "
+                f"({', '.join(sorted(secret_keys))}).",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        unknown = [
+            key
+            for key in body
+            if key not in PROFILE_FIELD_KEY_SET and key not in reserved
+        ]
+        if unknown:
+            return _error(
+                f"Unknown profile field(s): {', '.join(sorted(unknown))}.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        patch = extract_profile_patch(body)
+        if patch is None:
+            patch = body.get("profile") if isinstance(body.get("profile"), dict) else body
+        try:
+            # #1706 D.16 — the RAW `agent_id`, not the slugified `agent`.
+            # `role` is a profile field, so this is a role write path too.
+            # `update_profile` normalizes for its own store key, but a `chat:` /
+            # `team:` row id must reach the role gate intact or the slug cannot
+            # classify and the write is wrongly accepted.
+            profile = replace_profile(agent_id, patch) if replace else update_profile(agent_id, patch)
+        except ValueError as exc:
+            return _error(str(exc), status.HTTP_400_BAD_REQUEST)
+        except OSError:
+            logger.exception("Failed to persist agent profile for %s", agent)
+            return _error("Could not save agent profile.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(_profile_payload(agent, profile), status=status.HTTP_200_OK)
 
 
 class AgentTaskSessionAPIView(APIView):

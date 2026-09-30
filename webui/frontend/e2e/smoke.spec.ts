@@ -14,7 +14,9 @@ test('app shell loads and renders without uncaught JS errors', async ({ page }) 
 
   await page.goto('/')
 
-  await expect(page).toHaveTitle(/^Operating Swarm$/)
+  // The real ASGI origin appends the host (`Operating Swarm: <host>`) while the
+  // bare preview build served just the product name; match the product title.
+  await expect(page).toHaveTitle(/^Operating Swarm/)
   await expect(page.locator('#root')).not.toBeEmpty()
   await expect(page.getByRole('button', { name: 'Search' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Chat message' })).toBeVisible()

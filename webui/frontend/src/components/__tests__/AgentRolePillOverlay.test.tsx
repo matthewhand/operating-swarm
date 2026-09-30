@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import AgentSidebar from '../AgentSidebar'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
 import { HIDDEN_AGENTS_STORAGE_KEY } from '../../lib/hiddenAgents'
+import { AVATAR_ONLY_THRESHOLD } from '../../lib/railResize'
 
 const blueprints = [
   {
@@ -137,9 +138,10 @@ describe('AgentSidebar Role Badges Overlay Avatar (REQ-175)', () => {
     const timeAt = Number(css.match(timeQ)?.[1])
     expect(tipAt).toBeGreaterThan(badgeAt)
     expect(badgeAt).toBeGreaterThan(timeAt)
-    // The narrowest threshold must sit above the avatar-only width (96px),
-    // where the label column is gone and none of this is rendered anyway.
-    expect(timeAt).toBeGreaterThan(96)
+    // The narrowest threshold must sit above the avatar-only width
+    // (AVATAR_ONLY_THRESHOLD, 88px as of #1350), where the label column is
+    // gone and none of this is rendered anyway.
+    expect(timeAt).toBeGreaterThan(AVATAR_ONLY_THRESHOLD)
   })
 
   it('#525: a team row carries no role badge — neither on the avatar nor the name row', async () => {

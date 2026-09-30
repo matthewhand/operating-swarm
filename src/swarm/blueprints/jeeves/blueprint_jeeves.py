@@ -178,7 +178,7 @@ class JeevesBlueprint(BlueprintBase):
             "title": "Jeeves",
             "description": "Provides private web search (DuckDuckGo) and home automation (Home Assistant) via specialized agents (Jeeves, Mycroft, Gutenberg).",
             "version": "1.1.0", # Version updated
-            "author": "Open Swarm Team (Refactored)",
+            "author": "Operating Swarm Team (Refactored)",
             "tags": ["web search", "home automation", "duckduckgo", "home assistant", "multi-agent", "delegation"],
             "required_mcp_servers": ["duckduckgo-search", "home-assistant"],
         }

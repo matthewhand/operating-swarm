@@ -21,6 +21,7 @@ import logging
 import os
 from typing import Any, ClassVar
 
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.core.kind_bases import TeamKindBase
 from swarm.core.moa.agents_orchestrator import run_moa_agents_orchestrator
 from swarm.core.moa.config import resolve_moa_preset
@@ -46,7 +47,7 @@ class MoAOrchestratorBlueprint(TeamKindBase):
             "start a live openai-agents Runner."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["moa", "orchestrator", "specialists", "hybrid", "scripted"],
         "aliases": ["moa-orch", "agents_moa"],
         "required_mcp_servers": [],
@@ -136,6 +137,9 @@ class MoAOrchestratorBlueprint(TeamKindBase):
                 "final": True,
             }
             return
+        explicit_fake = bool(fake) or "backend" in self._params or (
+            ((self._config or {}).get("moa") or {}).get("backend") is not None
+        )
         try:
             tasks = self._parse_tasks()
 
@@ -149,20 +153,41 @@ class MoAOrchestratorBlueprint(TeamKindBase):
                 moa_fake_responses=dict(fake) if isinstance(fake, dict) else None,
             )
 
-            # Human-readable summary of the full orchestration
-            lines = [
-                "# MoA Agents Orchestrator",
-                "",
-                "## Consensus (read-only panel)",
-                result.determination or "(empty)",
-                "",
-                "## Specialist tasks",
-            ]
+            # Human-readable summary of the full orchestration.
+            #
+            # Specialists are *not* inlined: their output is a workspace artifact
+            # headed "Decision / Context" that quotes the user's own turn back
+            # under "Context", and the chat bubble is the wrong place for it.
+            # Name the persona, its status, and the file it wrote instead — the
+            # operator opens the file when they want the prose.
+            lines = ["# MoA Agents Orchestrator", ""]
+            if backend == "fake":
+                lines.extend(
+                    [
+                        unavailable.simulated_panel_notice(
+                            seats=participants,
+                            explicit=explicit_fake,
+                        ),
+                        "",
+                    ]
+                )
+            lines.extend(
+                [
+                    "## Consensus (read-only panel)",
+                    result.determination or "(empty)",
+                    "",
+                    "## Specialist tasks",
+                ]
+            )
+            if not result.specialist_results:
+                lines.append("(none scheduled)")
+                lines.append("")
             for s in result.specialist_results:
                 status = "ok" if s.ok else "FAIL"
-                lines.append(f"### {s.persona} [{status}]")
-                lines.append(s.output[:2000] if s.output else "(no output)")
-                lines.append("")
+                lines.append(f"- **{s.persona}** [{status}]")
+            if result.writes:
+                lines.extend(["", "Files written in the workspace:", ""])
+                lines.extend(f"- `{w}`" for w in result.writes)
             content = "\n".join(lines)
             meta = {
                 "moa_orchestrator": True,
@@ -174,7 +199,16 @@ class MoAOrchestratorBlueprint(TeamKindBase):
                 "specialists_ok": all(s.ok for s in result.specialist_results)
                 if result.specialist_results
                 else True,
+                # Downstream consumers (the agent sweep among them) can tell a
+                # real panel from the deterministic one without parsing prose.
+                "backend": backend,
+                "simulated_panel": backend == "fake",
             }
+            if backend == "fake":
+                unavailable.mark_unusable(
+                    self.blueprint_id or "moa_orchestrator",
+                    "ran the deterministic MoA panel; no live participants",
+                )
             yield {
                 "messages": [{"role": "assistant", "content": content}],
                 "role": "assistant",

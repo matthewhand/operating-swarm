@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Observability &amp; Health · Operating Swarm</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Operations · Operating Swarm</p>
+    <h1>Observability, Health &amp; Diagnostics</h1>
+
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="obs-title obs-desc">
+      <title id="obs-title">Observability and health surfaces</title>
+      <desc id="obs-desc">Catalog of Operating Swarm observability surfaces grouped into health and liveness, diagnostics, telemetry and rate limits, and history and audit, plus a logging and privacy band covering log-level knobs and secret redaction.</desc>
+      <defs>
+        <pattern id="dots-obs" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-obs)" opacity="0.55"/>
+
+      <text x="24" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">SURFACES BY AUDIENCE</text>
+
+      <!-- Group 1: Health -->
+      <rect x="24" y="52" width="460" height="180" rx="8" fill="rgba(240,138,89,0.06)" stroke="rgba(240,138,89,0.55)" stroke-width="1.5"/>
+      <text x="44" y="78" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">HEALTH &amp; LIVENESS · OPS</text>
+      <g transform="translate(44,92)">
+        <rect width="192" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">GET /health</text>
+        <text x="12" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">no auth · Fly liveness probe</text>
+      </g>
+      <g transform="translate(248,92)">
+        <rect width="212" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Compose healthcheck</text>
+        <text x="12" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">interval 30s · start 40s</text>
+      </g>
+      <g transform="translate(44,160)">
+        <rect width="416" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">GET /v1/runtime — runtime-mode banner</text>
+        <text x="12" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">bare-metal · sandbox-home · sandbox-isolated (no secrets)</text>
+      </g>
+
+      <!-- Group 2: Diagnostics -->
+      <rect x="516" y="52" width="460" height="180" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.20)" stroke-width="1"/>
+      <text x="536" y="78" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">DIAGNOSTICS · OPERATOR / SUPPORT</text>
+      <g transform="translate(536,92)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">GET /v1/diagnostics/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">environment / readiness hints</text>
+      </g>
+      <g transform="translate(752,92)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">GET /v1/system/build/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">version · git rev</text>
+      </g>
+      <g transform="translate(536,160)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">GET /v1/system</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">local store paths/sizes</text>
+      </g>
+      <g transform="translate(752,160)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">/v1/config-ownership</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">which layer owns each knob</text>
+      </g>
+
+      <!-- Group 3: Telemetry -->
+      <rect x="24" y="248" width="460" height="180" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.20)" stroke-width="1"/>
+      <text x="44" y="274" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">TELEMETRY &amp; RATE LIMITS · OPERATOR</text>
+      <g transform="translate(44,288)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">/v1/telemetry/requests/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">per-request timings</text>
+      </g>
+      <g transform="translate(260,288)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">/v1/telemetry/throttles/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">throttle incidents</text>
+      </g>
+      <g transform="translate(44,356)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">/v1/rate-limits</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">current limits &amp; usage</text>
+      </g>
+      <g transform="translate(260,356)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">/settings/api/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">settings dashboard (session)</text>
+      </g>
+
+      <!-- Group 4: History & audit -->
+      <rect x="516" y="248" width="460" height="180" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.20)" stroke-width="1"/>
+      <text x="536" y="274" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">HISTORY &amp; AUDIT · OPERATOR</text>
+      <g transform="translate(536,288)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Session Explorer /sessions/</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">responses + delegation timelines</text>
+      </g>
+      <g transform="translate(752,288)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Tool-call audit</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">ask_user / approval decisions</text>
+      </g>
+      <g transform="translate(536,356)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">CLI run registry</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">/v1/cli-agents/runs</text>
+      </g>
+      <g transform="translate(752,356)">
+        <rect width="204" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="12" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Routine history</text>
+        <text x="12" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">per-run status · duration</text>
+      </g>
+
+      <!-- Logging band -->
+      <line x1="24" y1="452" x2="976" y2="452" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="474" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LOGGING &amp; PRIVACY</text>
+      <g transform="translate(24,486)">
+        <rect width="300" height="72" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Log level knobs</text>
+        <text x="16" y="46" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">DJANGO_LOG_LEVEL · SWARM_LOG_LEVEL</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">stdout → container / systemd journal</text>
+      </g>
+      <g transform="translate(340,486)">
+        <rect width="300" height="72" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Redaction</text>
+        <text x="16" y="46" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">tokens / API headers masked in logs</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">secrets never in the chat store</text>
+      </g>
+      <g transform="translate(656,486)">
+        <rect width="320" height="72" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Contract</text>
+        <text x="16" y="46" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">/health unauthenticated, zero-secret by design</text>
+        <text x="16" y="62" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">runtime banner reports mode, never host paths</text>
+      </g>
+
+      <text x="24" y="584" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/urls.py · src/swarm/views/system_views.py · src/swarm/views/telemetry_api.py · src/swarm/views/rate_limits_api.py · src/swarm/views/runtime_views.py</text>
+    </svg>
+  </div>
+</body>
+</html>

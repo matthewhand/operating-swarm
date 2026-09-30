@@ -21,7 +21,7 @@ Kind-base templates Support should subclass:
 Announce spiel SoT ([REQ-136 #529](https://github.com/matthewhand/open-swarm/issues/529)):
 [docs/ANNOUNCE.md](../../ANNOUNCE.md). Short form: AI enthusiasts juggle many
 frameworks; some combine CLIs and APIs, but still do not talk to **remote
-harnesses** (Hermes, OpenMousBot as remote, …). Open Swarm is a
+harnesses** (Hermes, OpenMousBot as remote, …). Operating Swarm is a
 Grok-agnostic Grok-Bot-like UI **and** a bridge — task one place,
 coordinate across CLI, API, remotes, and local blueprints. Hero clip:
 [`docs/assets/readme/announce-bridge.gif`](../../assets/readme/announce-bridge.gif).
@@ -97,7 +97,7 @@ Code Monkey, QA Hawk, Professional Doubter.
 
 ```mermaid
 flowchart TB
-  User[User task] --> OS[Open Swarm]
+  User[User task] --> OS[Operating Swarm]
   OS --> API[API harness]
   OS --> CLI[CLI harness]
   OS --> Remote[Remote harness]

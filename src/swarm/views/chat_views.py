@@ -162,8 +162,10 @@ class HealthCheckView(APIView):
     """ Simple health check endpoint. """
     permission_classes = [AllowAny]
     def get(self, request, *_args, **_kwargs):
-        """ Returns simple 'ok' status. """
-        return Response({"status": "ok"})
+        """ Returns 'ok' plus the resolved config root (#1434). """
+        from swarm.core.paths import config_root
+
+        return Response({"status": "ok", "config_root": str(config_root())})
 
 class ChatCompletionsView(APIView):
     """
@@ -492,6 +494,18 @@ class ChatCompletionsView(APIView):
             raise NotFound(f"The requested model (blueprint) '{model_name}' was not found or could not be initialized.")
 
         try:
+            from swarm.core.agent_mcp import apply_turn_plugin_tools
+
+            cfg = getattr(blueprint_instance, "config", None)
+            apply_turn_plugin_tools(
+                blueprint_instance,
+                str(model_name or ""),
+                blueprint_params if isinstance(blueprint_params, dict) else None,
+                cfg if isinstance(cfg, dict) else None,
+            )
+        except Exception:
+            logger.exception("Failed to apply MCP tool grants")
+        try:
             from swarm.core.agent_mailbox import install_mailbox_for_runtime
 
             install_mailbox_for_runtime(
@@ -565,20 +579,35 @@ class ChatCompletionsView(APIView):
             logger.debug("auto-compress hook skipped", exc_info=True)
 
         try:
+            from swarm.core.agent_skills import skill_seat_from_params
             from swarm.core.skill_attach import (
                 apply_skills_to_messages,
+                attach_params_for_recipe,
                 blueprint_applies_own_skills,
             )
 
-            if (
-                isinstance(blueprint_params, dict)
-                and not blueprint_applies_own_skills(str(model_name or ""))
-            ):
-                messages, _applied, _missing = apply_skills_to_messages(
-                    messages, blueprint_params
-                )
+            param_dict = blueprint_params if isinstance(blueprint_params, dict) else {}
+            # Seat wins over the recipe id (``model`` may be ``cli_agent`` or
+            # ``api_agent`` while skills live on ``starter-cli`` / the rail id).
+            seat_id = skill_seat_from_params(param_dict, str(model_name or "") or None)
+            skill_params = attach_params_for_recipe(
+                param_dict,
+                recipe_applies_own=blueprint_applies_own_skills(str(model_name or "")),
+            )
+            messages, _applied, _missing = apply_skills_to_messages(
+                messages, skill_params, agent_id=seat_id
+            )
         except Exception:
             logger.debug("skill attach hook skipped", exc_info=True)
+
+        try:
+            from swarm.core.operator_profile import messages_with_operator_profile_for_request
+
+            messages = await sync_to_async(messages_with_operator_profile_for_request)(
+                request, messages
+            )
+        except Exception:
+            logger.debug("operator profile hook skipped", exc_info=True)
 
         rate_limit_wait = await self._gate_provider_rate_limit(
             model_name, messages, blueprint_params

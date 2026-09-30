@@ -1,4 +1,4 @@
-"""Running Open Swarm version (pyproject / installed package).
+"""Running Operating Swarm version (pyproject / installed package).
 
 Used by the chat websocket ``spa_hello`` advertise (REQ-78 / #423).
 No secrets. No GitHub tokens.

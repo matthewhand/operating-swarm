@@ -50,7 +50,7 @@ class CliOrchestratorBlueprint(CliKindBase):
             "tool, not a whole-request mode."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "orchestrator", "consensus", "routing", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],

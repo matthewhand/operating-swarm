@@ -191,6 +191,42 @@ export function stubDemoFetch(url: string, init?: RequestInit): Response | null 
   if (path.startsWith('/v1/llm-profiles')) {
     return jsonResponse({ object: 'llm_profiles', profiles: [], default_llm_profile: '' })
   }
+  if (/\/v1\/agents\/[^/]+\/plugins/.test(path)) {
+    const agent = path.split('/v1/agents/')[1]?.split('/')[0] || 'support'
+    const packPlugins = [
+      {
+        pluginId: 'web_search',
+        name: 'web_search',
+        description: 'Built-in catalog search tool.',
+      },
+      {
+        pluginId: 'mcp:io.github.example/fetch',
+        name: 'fetch',
+        description: 'Fetch a URL as an MCP tool.',
+      },
+    ]
+    const plugins = [
+      { ...packPlugins[0], status: 'enabled' },
+      { ...packPlugins[1], status: 'missing' },
+    ]
+    const pack = {
+      object: 'agent_plugin_pack',
+      schema: 1,
+      kind: 'agent_plugin_pack',
+      plugins: packPlugins,
+    }
+    if (path.includes('/pack')) {
+      return jsonResponse({ ...pack, agent_id: agent })
+    }
+    return jsonResponse({
+      object: path.includes('/import') ? 'agent_plugin_pack_import' : 'agent_plugins',
+      agent_id: agent,
+      plugins,
+      enabled: ['web_search'],
+      missing: ['mcp:io.github.example/fetch'],
+      pack,
+    })
+  }
   if (path.startsWith('/chat/thread')) {
     const agent = new URL(path, 'http://demo.local').searchParams.get('agent') || 'support'
     const conversationId =

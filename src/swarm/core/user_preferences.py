@@ -6,11 +6,18 @@ the same JSON bag later without a migration. Secret-shaped keys are rejected.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.conf import settings as django_settings
 
 from swarm.auth import request_principal, token_principal
+from swarm.core.activity_log import (
+    DEFAULT_VISIBILITY,
+    PREF_ACTIVITY_LOG_VISIBILITY,
+    coerce_visibility,
+    set_activity_log_visibility,
+)
 from swarm.core.context_compress_policy import (
     AUTO_COMPRESS_PCT_KEY,
     CONTEXT_COMPRESS_API_ONLY,
@@ -31,6 +38,15 @@ from swarm.core.context_cull_policy import (
 
 # First-class rail chrome. More knobs (theme, …) can join this registry
 # without a new table — they persist in UserPreference.values.
+#
+# ORDER CONTRACT: this dict is the single declaration order, and
+# ``public_payload()["registry"]`` republishes it verbatim as a published
+# key-for-key list (``tests/core/test_user_preferences.py`` and
+# ``tests/views/test_preferences_api.py`` both pin it). The list is therefore
+# APPEND-ONLY: a new key goes at the end, and nothing may reorder existing
+# entries to make room. Corollary for tests: never assert "I am the last key"
+# (it rots the moment the next preference lands) — assert that the key is
+# registered, and that its value is surfaced.
 PREF_REGISTRY: dict[str, dict[str, str]] = {
     "favourites": {
         "type": "pin_list",
@@ -80,6 +96,26 @@ PREF_REGISTRY: dict[str, dict[str, str]] = {
         "type": "rail_sections",
         "description": "Sidepane custom sections, agent membership, and collapsed states (#786).",
     },
+    "hide_unsupported_agent_picker": {
+        "type": "boolean",
+        "description": "Unmount the navbar Agent selector when the seat cannot support it (default false).",
+    },
+    "hide_unsupported_session_picker": {
+        "type": "boolean",
+        "description": "Unmount the navbar Session selector when the seat cannot support it (default false).",
+    },
+    "operator_profile": {
+        "type": "operator_profile",
+        "description": "Operator About me card (name, timezone, notes) injected into chat context (#1323).",
+    },
+    "about_me": {
+        "type": "about_me_string",
+        "description": "Global operator profile injected into agent instructions as [Operator profile] (#1323).",
+    },
+    PREF_ACTIVITY_LOG_VISIBILITY: {
+        "type": "enum_off_operator_all",
+        "description": "Who can read the operator activity log (off, operator, all).",
+    },
 }
 
 SECRET_KEY_FRAGMENTS = (
@@ -104,6 +140,17 @@ THEME_KEY = "theme"
 THEME_NAVBAR_MODE_KEY = "theme_navbar_mode"
 BUBBLE_THEME_KEY = "bubble_theme"
 RAIL_SECTIONS_KEY = "rail_sections"
+HIDE_UNSUPPORTED_AGENT_PICKER_KEY = "hide_unsupported_agent_picker"
+HIDE_UNSUPPORTED_SESSION_PICKER_KEY = "hide_unsupported_session_picker"
+OPERATOR_PROFILE_KEY = "operator_profile"
+ABOUT_ME_KEY = "about_me"
+ACTIVITY_LOG_VISIBILITY_KEY = PREF_ACTIVITY_LOG_VISIBILITY
+
+OPERATOR_PROFILE_NAME_MAX = 120
+OPERATOR_PROFILE_TZ_MAX = 64
+OPERATOR_PROFILE_ABOUT_MAX = 4000
+OPERATOR_PROFILE_FIELDS = ("name", "timezone", "about")
+ABOUT_ME_MAX = 4000
 
 DEFAULT_THEME = "system"
 VALID_THEMES = ("system", "light", "dark")
@@ -120,6 +167,38 @@ AGENT_DROPDOWN_FIELDS = ("cli", "model", "remote", "blueprint", "api")
 def is_secret_key(name: str) -> bool:
     lowered = (name or "").strip().lower()
     return any(fragment in lowered for fragment in SECRET_KEY_FRAGMENTS)
+
+
+# Assignment keys ("api_key=…", "password: …") and common token spellings.
+# The whole note is not passed to is_secret_key — a sentence that mentions
+# "token" is not a secret.
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"""(?ix)
+    (?:^|[\s,;{(])
+    ["']?
+    ([A-Za-z][A-Za-z0-9_.-]{1,63})
+    ["']?
+    \s*[:=]
+    \s*\S
+    """
+)
+_SECRET_TOKEN_RE = re.compile(
+    r"(?i)(?:^|[^A-Za-z0-9])"
+    r"(?:sk-[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[0-9A-Z]{8,})"
+    r"(?:[^A-Za-z0-9]|$)"
+)
+
+
+def secret_looking_content(text: str) -> bool:
+    """True when free text carries a secret-shaped assignment or token."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    if _SECRET_TOKEN_RE.search(text):
+        return True
+    for match in _SECRET_ASSIGNMENT_RE.finditer(text):
+        if is_secret_key(match.group(1)):
+            return True
+    return False
 
 
 def primary_operator_principal() -> str:
@@ -260,6 +339,68 @@ def normalize_agent_dropdowns(raw: Any) -> dict[str, dict[str, str]]:
     return out
 
 
+def _printable_one_line(raw: Any, max_len: int) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raw = str(raw)
+    cleaned = "".join(ch for ch in raw if ch.isprintable() and ch not in "\r\n\t")
+    return cleaned.strip()[:max_len]
+
+
+def _without_secret_content(text: str) -> str:
+    if text and secret_looking_content(text):
+        return ""
+    return text
+
+
+def normalize_operator_profile(raw: Any) -> dict[str, str]:
+    """Shape-validating About me card. Unknown and secret keys are dropped.
+
+    Secret-looking field *values* (``api_key=…``, ``password=…``) are rejected
+    the same way as secret keys: the field is stored blank and never injected.
+    """
+    empty = {"name": "", "timezone": "", "about": ""}
+    if raw is None:
+        return empty
+    if not isinstance(raw, dict):
+        return empty
+    name = _without_secret_content(
+        _printable_one_line(raw.get("name"), OPERATOR_PROFILE_NAME_MAX)
+    )
+    timezone = _without_secret_content(
+        _printable_one_line(raw.get("timezone"), OPERATOR_PROFILE_TZ_MAX)
+    )
+    about_raw = raw.get("about")
+    if about_raw is None:
+        about = ""
+    else:
+        if not isinstance(about_raw, str):
+            about_raw = str(about_raw)
+        about = _without_secret_content(
+            about_raw.replace("\x00", "").strip()[:OPERATOR_PROFILE_ABOUT_MAX]
+        )
+    return {"name": name, "timezone": timezone, "about": about}
+
+
+def normalize_about_me(raw: Any) -> str:
+    """Length-bounded operator note. Secret-looking content is rejected (blank)."""
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raw = str(raw)
+    cleaned = raw.replace("\x00", "").strip()
+    if secret_looking_content(cleaned):
+        return ""
+    return cleaned[:ABOUT_ME_MAX]
+
+
+def operator_profile_has_content(profile: dict[str, Any] | None) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    return any(str(profile.get(field) or "").strip() for field in OPERATOR_PROFILE_FIELDS)
+
+
 def normalize_hostname_override(raw: Any) -> str:
     """Display label only — strip controls and cap length.
 
@@ -275,6 +416,25 @@ def normalize_hostname_override(raw: Any) -> str:
     if len(cleaned) > HOSTNAME_MAX_LEN:
         cleaned = cleaned[:HOSTNAME_MAX_LEN].rstrip()
     return cleaned
+
+
+def normalize_bool(raw: Any, default: bool = False) -> bool:
+    """Coerce a stored/patched flag to a real bool (#1202).
+
+    Accepts native bools, numeric 0/1, and the usual string spellings; anything
+    unrecognised falls back to ``default`` rather than Python's truthy-string trap.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return raw != 0
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in ("1", "true", "yes", "on"):
+            return True
+        if lowered in ("0", "false", "no", "off", ""):
+            return False
+    return default
 
 
 def normalize_theme(raw: Any) -> str:
@@ -361,6 +521,11 @@ def empty_values() -> dict[str, Any]:
         THEME_NAVBAR_MODE_KEY: DEFAULT_NAVBAR_THEME_MODE,
         BUBBLE_THEME_KEY: "",
         RAIL_SECTIONS_KEY: {"sections": [], "membership": {}, "unassignedCollapsed": False},
+        HIDE_UNSUPPORTED_AGENT_PICKER_KEY: False,
+        HIDE_UNSUPPORTED_SESSION_PICKER_KEY: False,
+        OPERATOR_PROFILE_KEY: {"name": "", "timezone": "", "about": ""},
+        ABOUT_ME_KEY: "",
+        ACTIVITY_LOG_VISIBILITY_KEY: DEFAULT_VISIBILITY,
     }
 
 
@@ -395,6 +560,16 @@ def coerce_values(raw: Any) -> dict[str, Any]:
             out[key] = normalize_rail_sections(value)
         elif key == AGENT_DROPDOWNS_KEY:
             out[key] = normalize_agent_dropdowns(value)
+        elif key == HIDE_UNSUPPORTED_AGENT_PICKER_KEY:
+            out[key] = normalize_bool(value)
+        elif key == HIDE_UNSUPPORTED_SESSION_PICKER_KEY:
+            out[key] = normalize_bool(value)
+        elif key == OPERATOR_PROFILE_KEY:
+            out[key] = normalize_operator_profile(value)
+        elif key == ABOUT_ME_KEY:
+            out[key] = normalize_about_me(value)
+        elif key == ACTIVITY_LOG_VISIBILITY_KEY:
+            out[key] = coerce_visibility(value)
         else:
             out[key] = value
     out.setdefault(FAVOURITES_KEY, [])
@@ -407,6 +582,11 @@ def coerce_values(raw: Any) -> dict[str, Any]:
     out.setdefault(THEME_KEY, DEFAULT_THEME)
     out.setdefault(THEME_NAVBAR_MODE_KEY, DEFAULT_NAVBAR_THEME_MODE)
     out.setdefault(BUBBLE_THEME_KEY, "")
+    out.setdefault(HIDE_UNSUPPORTED_AGENT_PICKER_KEY, False)
+    out.setdefault(HIDE_UNSUPPORTED_SESSION_PICKER_KEY, False)
+    out.setdefault(OPERATOR_PROFILE_KEY, {"name": "", "timezone": "", "about": ""})
+    out.setdefault(ABOUT_ME_KEY, "")
+    out.setdefault(ACTIVITY_LOG_VISIBILITY_KEY, DEFAULT_VISIBILITY)
     return out
 
 
@@ -440,6 +620,21 @@ def merge_values(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, An
             merged[key] = normalize_rail_sections(value)
         elif key == AGENT_DROPDOWNS_KEY:
             merged[key] = normalize_agent_dropdowns(value)
+        elif key == HIDE_UNSUPPORTED_AGENT_PICKER_KEY:
+            merged[key] = normalize_bool(value)
+        elif key == HIDE_UNSUPPORTED_SESSION_PICKER_KEY:
+            merged[key] = normalize_bool(value)
+        elif key == OPERATOR_PROFILE_KEY:
+            merged[key] = normalize_operator_profile(value)
+        elif key == ABOUT_ME_KEY:
+            merged[key] = normalize_about_me(value)
+        elif key == ACTIVITY_LOG_VISIBILITY_KEY:
+            mode = coerce_visibility(value)
+            merged[key] = mode
+            try:
+                set_activity_log_visibility(mode)
+            except OSError:
+                pass
         else:
             merged[key] = value
     return merged
@@ -477,6 +672,17 @@ def public_payload(
         THEME_NAVBAR_MODE_KEY: normalize_theme_navbar_mode(bag.get(THEME_NAVBAR_MODE_KEY)),
         BUBBLE_THEME_KEY: normalize_bubble_theme(bag.get(BUBBLE_THEME_KEY)),
         RAIL_SECTIONS_KEY: normalize_rail_sections(bag.get(RAIL_SECTIONS_KEY)),
+        HIDE_UNSUPPORTED_AGENT_PICKER_KEY: normalize_bool(
+            bag.get(HIDE_UNSUPPORTED_AGENT_PICKER_KEY)
+        ),
+        HIDE_UNSUPPORTED_SESSION_PICKER_KEY: normalize_bool(
+            bag.get(HIDE_UNSUPPORTED_SESSION_PICKER_KEY)
+        ),
+        OPERATOR_PROFILE_KEY: normalize_operator_profile(bag.get(OPERATOR_PROFILE_KEY)),
+        ABOUT_ME_KEY: normalize_about_me(bag.get(ABOUT_ME_KEY)),
+        ACTIVITY_LOG_VISIBILITY_KEY: coerce_visibility(
+            bag.get(ACTIVITY_LOG_VISIBILITY_KEY)
+        ),
         "values": extras_bag(bag),
         "registry": [
             {"key": key, **meta} for key, meta in PREF_REGISTRY.items()
@@ -486,6 +692,7 @@ def public_payload(
 
 # Re-export so views can stamp token principals without importing auth twice.
 __all__ = [
+    "ACTIVITY_LOG_VISIBILITY_KEY",
     "AGENT_DROPDOWNS_KEY",
     "AUTO_COMPRESS_KEY",
     "BUBBLE_THEME_KEY",
@@ -496,7 +703,11 @@ __all__ = [
     "DEFAULT_THEME",
     "FAVOURITES_KEY",
     "HIDDEN_KEY",
+    "HIDE_UNSUPPORTED_AGENT_PICKER_KEY",
+    "HIDE_UNSUPPORTED_SESSION_PICKER_KEY",
     "HOSTNAME_KEY",
+    "ABOUT_ME_KEY",
+    "OPERATOR_PROFILE_KEY",
     "PREF_REGISTRY",
     "RAIL_SECTIONS_KEY",
     "THEME_KEY",
@@ -506,14 +717,19 @@ __all__ = [
     "extras_bag",
     "is_secret_key",
     "merge_values",
+    "normalize_about_me",
     "normalize_agent_dropdowns",
+    "normalize_bool",
     "normalize_bubble_theme",
     "normalize_favourites",
     "normalize_hostname_override",
     "normalize_id_list",
+    "normalize_operator_profile",
+    "operator_profile_has_content",
     "normalize_rail_sections",
     "normalize_theme",
     "normalize_theme_navbar_mode",
+    "secret_looking_content",
     "preference_identity",
     "primary_operator_principal",
     "public_payload",

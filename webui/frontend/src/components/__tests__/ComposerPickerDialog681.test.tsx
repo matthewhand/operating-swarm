@@ -110,6 +110,19 @@ describe('#681 ComposerPickerDialog', () => {
   })
 })
 
+describe('#718 — picker popup stays inside the viewport', () => {
+  it('right-anchors the dialog to its trigger instead of left-anchoring it off the right edge', () => {
+    renderDialog()
+    const dialog = screen.getByTestId('composer-picker')
+    // The composer pill sits at the row's right end; anchoring the popup's
+    // left edge there spilled it past 1280px (measured right edge 1346). The
+    // important variants beat the index.css pin on inset-inline-start.
+    expect(dialog.className).toContain('right-0')
+    expect(dialog.className).toContain('left-auto')
+    expect(dialog.className).not.toContain('left-0')
+  })
+})
+
 describe('#803 — auto-pick on exactly-one non-session option', () => {
   const single: ComposerProviderOption[] = [
     { id: 'cli:grok', label: 'grok', kind: 'cli' },

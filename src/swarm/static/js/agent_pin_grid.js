@@ -10,6 +10,11 @@
   function loadPins() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) {
+        var seeded = [{ id: "support", name: "Support" }];
+        savePins(seeded);
+        return seeded;
+      }
       if (!raw) return [];
       var parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];

@@ -90,8 +90,8 @@ def test_open_in_labels_never_omb():
     assert open_in_button_label("omb") == "Open in OpenMousBot"
     assert open_in_button_label("rakazo") == "Open in Rakazo"
     assert open_in_button_label("herdr") == "Open in Herdr"
-    assert open_in_button_label("swarm") == "Open in Open Swarm"
-    assert open_in_button_label("open-swarm") == "Open in Open Swarm"
+    assert open_in_button_label("swarm") == "Open in Operating Swarm"
+    assert open_in_button_label("open-swarm") == "Open in Operating Swarm"
     for kind in ("hermes", "omb", "rakazo", "herdr", "swarm"):
         assert not OMB_WORD.search(open_in_button_label(kind))
 

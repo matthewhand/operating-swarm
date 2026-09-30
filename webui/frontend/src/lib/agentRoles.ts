@@ -192,6 +192,153 @@ export function agentRole(agent: {
 export const ROLE_CHIEF_OF_STAFF = 'chief_of_staff'
 export const ROLE_ADVISOR = 'advisor'
 
+/* ------------------------------------------------------------------ *
+ * #1706 D.14/D.15/D.16 — which seats may carry a role at all.
+ *
+ * This is the FE's single seat-capability decision point, and it is the
+ * same rule the backend enforces in `validate_role_for_kind`
+ * (`src/swarm/core/roles/registry.py`). Keeping the two in step is the whole
+ * point: `roleAllowedOnSeatKind` backs both the picker's option filter and the
+ * write guard, and `roleEditableForSeat` decides whether the field exists at
+ * all — so neither can advertise a role the API would refuse to store.
+ *
+ * Two seat shapes own no role of their own:
+ *
+ *   `team` — a roster. Its members have roles; the roster does not.
+ *   `chat` — a dedicated chat session. It hangs off an agent seat, and the
+ *            role belongs to that seat, not to the conversation.
+ *
+ * `chat` is identified by the rail's own `chat:<agentId>:<sessionId>` row id,
+ * reusing `RAIL_CHAT_ROW_PREFIX` from `lib/railChatRows` rather than
+ * re-declaring it — the constraints forbid a second identity system, and that
+ * prefix is already the product's name for this thing.
+ * ------------------------------------------------------------------ */
+
+import { RAIL_CHAT_ROW_PREFIX } from './railChatRows'
+
+/** Seat shapes that cannot be assigned a role (#1706 §D). */
+export const ROLE_INCAPABLE_SEAT_KINDS = ['team', 'chat'] as const
+export type RoleIncapableSeatKind = (typeof ROLE_INCAPABLE_SEAT_KINDS)[number]
+
+/**
+ * Why the role field is unavailable, in the operator's words.
+ *
+ * This is a **programmatic** reason, not a missing control: the editor
+ * renders it and points the field's `aria-describedby` at it, so a
+ * screen-reader user is told the field is unavailable rather than being
+ * handed a form with a silent hole in it.
+ */
+export const ROLE_FIELD_UNAVAILABLE_REASON =
+  'Teams and chat sessions cannot be assigned a role. A role belongs to an ' +
+  'individual agent seat; open the team or chat’s owning agent to set one.'
+
+/** Strip taxonomy prefixes so the seat id can classify. */
+function peeledSeatId(raw: string | null | undefined): string {
+  let text = String(raw ?? '').trim().toLowerCase()
+  while (text.startsWith('blueprint:')) text = text.slice('blueprint:'.length)
+  return text
+}
+
+/**
+ * Is this seat id a dedicated chat session?
+ *
+ * Pure on the id, so both the editor and any future caller classify the same
+ * way without a store read.
+ */
+export function isChatSeatId(agentId: string | null | undefined): boolean {
+  return peeledSeatId(agentId).startsWith(RAIL_CHAT_ROW_PREFIX)
+}
+
+/**
+ * The seat kind *for role purposes* that this editor session addresses.
+ *
+ * A classifier, not the rule: it answers "what kind of thing is this?" so
+ * {@link roleEditableForSeat} can be the only place a decision is made.
+ *
+ * The source-style prefixes are read here rather than defaulting to `api`,
+ * because a wrong default is not inert: it would put a `remote`/`cli` seat in
+ * the api bucket, where {@link roleAllowedOnSeatKind} would happily offer the
+ * `support` role the backend refuses (#853). When nothing in the id says
+ * otherwise, `kindHint` — the editor's own computed kind — decides, and `api`
+ * is the last resort, matching the backend classifier's fallthrough.
+ */
+export function roleSeatKindFor(
+  agentId: string | null | undefined,
+  kindHint?: string | null,
+): string {
+  const peeled = peeledSeatId(agentId)
+  if (peeled.startsWith(RAIL_CHAT_ROW_PREFIX)) return 'chat'
+  if (peeled.startsWith('team:')) return 'team'
+  if (peeled.startsWith('cli:') || peeled === 'cli_agent') return 'cli'
+  if (
+    peeled.startsWith('remote:') ||
+    peeled.startsWith('placeholder:remote:') ||
+    peeled.startsWith('herdr:') ||
+    peeled === 'remote_harness'
+  ) {
+    return 'remote'
+  }
+  // A hint may refine an otherwise-unknown id, but never re-label a team or a
+  // chat: those identities are carried by the id itself.
+  return String(kindHint || '').trim().toLowerCase() || 'api'
+}
+
+/** What the editor must do with the role field for one seat. */
+export interface RoleFieldAvailability {
+  /** False ⇒ hide/disable the role field and render {@link reason}. */
+  editable: boolean
+  /** The seat kind the decision was made from, for the reason's wording. */
+  seatKind: string
+  /** Always populated (empty when editable) so `aria-describedby` is safe. */
+  reason: string
+}
+
+/**
+ * The one place the editor asks "may this seat carry a role?".
+ *
+ * Mirrors the backend's `validate_role_for_kind`: `default` is always allowed
+ * (it is the absence of a role), and `team` / `chat` allow no role at all.
+ */
+export function roleEditableForSeat(
+  agentId: string | null | undefined,
+  kindHint?: string | null,
+): RoleFieldAvailability {
+  const seatKind = roleSeatKindFor(agentId, kindHint)
+  const incapable = (ROLE_INCAPABLE_SEAT_KINDS as readonly string[]).includes(seatKind)
+  return {
+    editable: !incapable,
+    seatKind,
+    reason: incapable ? ROLE_FIELD_UNAVAILABLE_REASON : '',
+  }
+}
+
+/**
+ * The backend's #853 rule, mirrored: the `support` role leans on structured
+ * function-calling hooks that only API seats have.
+ *
+ * Exists so the picker's option filter and its write guard read ONE function
+ * instead of each spelling `role === 'support' && kind !== 'api'`. The backend
+ * half of the same rule is `validate_role_for_kind`, which also covers the
+ * #1706 team/chat case — so the two halves of the rule have exactly one FE
+ * expression and one BE expression, both of which callers reuse.
+ */
+export const SUPPORT_ROLE_SEAT_KINDS = ['api', 'blueprint'] as const
+
+export function roleAllowedOnSeatKind(
+  role: string | null | undefined,
+  seatKind: string | null | undefined,
+): boolean {
+  const normalized = normalizeAgentRole(role)
+  // `default` is the absence of a role, so it is valid everywhere — including
+  // on a team or chat, which is why a *clearing* write is never rejected.
+  if (normalized === 'default') return true
+  const seat = String(seatKind || '').trim().toLowerCase()
+  if ((ROLE_INCAPABLE_SEAT_KINDS as readonly string[]).includes(seat)) return false
+  if (normalized !== 'support') return true
+  return (SUPPORT_ROLE_SEAT_KINDS as readonly string[]).includes(seat)
+}
+
+
 export const ROLE_BADGE_LABELS: Record<AgentRole, string> = {
   default: '',
   admin: 'Admin',

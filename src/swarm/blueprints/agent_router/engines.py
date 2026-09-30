@@ -17,6 +17,12 @@ import importlib
 import os
 from typing import Any
 
+from swarm.core.agent_run_timeout import agent_run_timeout
+from swarm.core.operator_profile import (
+    apply_operator_profile_to_agent,
+    instructions_with_about_me,
+)
+
 try:
     from agents import (  # noqa: F401  (mirror of the blueprint module's optional import)
         Agent,
@@ -75,7 +81,17 @@ class RouterEnginesMixin:
             async for chunk in self._run_remote_agent(agent, messages, user_content):
                 yield chunk
             return
-        if backend in ("", "api") and blueprint_override:
+        # #1437: a blueprint param selects an API recipe. It must not
+        # reclassify a CLI or remote seat — those stay on their own engine
+        # even when the request also carries ``blueprint`` (empty backend
+        # used to steal the turn into ``_run_blueprint_agent``).
+        from swarm.core.seat_kind import dispatch_seat_kind
+
+        # Only the agent's own kind counts. An id that happens to match a
+        # recipe (``cli_agent``) must not suppress the blueprint path when
+        # the running agent never declared a CLI or remote seat.
+        seat = dispatch_seat_kind(kind if isinstance(kind, str) else None)
+        if backend in ("", "api") and blueprint_override and seat not in ("cli", "remote"):
             from types import SimpleNamespace
 
             bp_agent = SimpleNamespace(
@@ -87,8 +103,14 @@ class RouterEnginesMixin:
             async for chunk in self._run_blueprint_agent(bp_agent, messages, user_content):
                 yield chunk
             return
-        if backend == "api" and kind in ("cli", "remote"):
+        # API backend flattens a CLI or remote voice, including stored
+        # aliases such as ``herdr`` that already resolved to that seat.
+        # Otherwise the alias has to ride the seat: the switches below
+        # only match the raw tokens ``cli`` and ``remote``.
+        if backend == "api" and seat in ("cli", "remote"):
             kind = None
+        elif seat in ("cli", "remote") and kind not in ("cli", "remote"):
+            kind = seat
         if kind == "cli":
             async for chunk in self._run_cli_agent(agent, user_content):
                 yield chunk
@@ -98,7 +120,7 @@ class RouterEnginesMixin:
                 yield chunk
             return
         if kind == "swarm":
-            async for chunk in self._run_swarm_agent(agent, user_content):
+            async for chunk in self._run_swarm_agent(agent, user_content, messages):
                 yield chunk
             return
         if kind == "blueprint":
@@ -125,17 +147,26 @@ class RouterEnginesMixin:
                     model_instance.model = model_id
             if hasattr(agent, "model"):
                 agent.model = model_instance
+            from swarm.core.operator_profile import apply_operator_profile_to_agent
+
+            apply_operator_profile_to_agent(agent, messages)
+            run_timeout = agent_run_timeout(self._config)
             run_result = await asyncio.wait_for(
                 Runner.run(starting_agent=agent, input=user_content),
-                timeout=25.0,
+                timeout=run_timeout,
             )
             out = run_result.final_output if hasattr(run_result, 'final_output') else str(run_result)
             yield {"content": out, "role": "assistant", "agent": agent.name}
         except asyncio.TimeoutError:
-            R.logger.error("Agent %s LLM run timed out after 25s", getattr(agent, "name", agent))
+            R.logger.error(
+                "Agent %s LLM run timed out after %ss",
+                getattr(agent, "name", agent),
+                agent_run_timeout(self._config),
+            )
             yield {
                 "content": (
-                    "PONG agent_router — specialist LLM timed out after 25s. "
+                    f"PONG agent_router — specialist LLM timed out after "
+                    f"{agent_run_timeout(self._config):.0f}s. "
                     f"Agent={getattr(agent, 'name', 'agent')}. "
                     f"Asked: {user_content[:120]!r}"
                 ),
@@ -510,6 +541,15 @@ class RouterEnginesMixin:
             model = ""
         model = model[:120]
         if model:
+            from swarm.blueprints.common import cli_fusion_support as support
+            from swarm.core.model_namespace import model_valid_for_provider
+
+            configured = support._configured_cli_model(cli_name, list(entry.get("cmd") or []))
+            if not model_valid_for_provider(
+                "cli", cli_name, model, config=self._config, configured_model=configured
+            ):
+                model = ""
+        if model:
             from swarm.core.cli_catalog import apply_model
 
             entry = apply_model(entry, cli_name, model)
@@ -542,7 +582,12 @@ class RouterEnginesMixin:
         text = result.text if result.ok else (result.error or result.text or "CLI returned no output")
         yield {"content": text, "role": "assistant", "agent": agent_name}
 
-    async def _run_swarm_agent(self, agent: Any, user_content: str) -> Any:
+    async def _run_swarm_agent(
+        self,
+        agent: Any,
+        user_content: str,
+        messages: list[dict[str, Any]] | None = None,
+    ) -> Any:
         """Run a designer swarm: openai-agents coordinator + specialist personas."""
         agent_name = getattr(agent, "name", "Swarm")
         personas = list(getattr(agent, "personas", None) or [])
@@ -553,13 +598,14 @@ class RouterEnginesMixin:
                 model_instance = self._get_model_instance(self._resolve_llm_profile())
                 specialist_agents = []
                 for persona in personas:
-                    specialist_agents.append(
-                        R.Agent(
-                            name=persona["name"],
-                            model=model_instance,
-                            instructions=persona["instructions"],
-                        )
+                    specialist = R.Agent(
+                        name=persona["name"],
+                        model=model_instance,
+                        instructions=instructions_with_about_me(persona["instructions"]),
                     )
+                    # Settings → About me is operator_profile on the turn, not about_me.
+                    apply_operator_profile_to_agent(specialist, messages)
+                    specialist_agents.append(specialist)
                 tools = []
                 for specialist in specialist_agents:
                     def _make(spec=specialist):
@@ -586,15 +632,17 @@ class RouterEnginesMixin:
                 coordinator = R.Agent(
                     name=agent_name,
                     model=model_instance,
-                    instructions=coordinator_instructions or (
-                        "Coordinate the specialist personas and return one answer."
+                    instructions=instructions_with_about_me(
+                        coordinator_instructions
+                        or "Coordinate the specialist personas and return one answer."
                     ),
                     tools=tools,
                 )
+                apply_operator_profile_to_agent(coordinator, messages)
                 from agents import Runner
                 run_result = await asyncio.wait_for(
                     Runner.run(starting_agent=coordinator, input=user_content),
-                    timeout=25.0,
+                    timeout=agent_run_timeout(self._config),
                 )
                 out = run_result.final_output if hasattr(run_result, "final_output") else str(run_result)
                 yield {"content": out, "role": "assistant", "agent": agent_name}

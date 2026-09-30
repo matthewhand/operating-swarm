@@ -17,9 +17,12 @@ const sidebar =
     readFileSync(join(process.cwd(), 'src/components/AgentSidebar.tsx'), 'utf8') +
     readFileSync(join(process.cwd(), 'src/components/sidebar/RailSections.tsx'), 'utf8') // #856 slice I: fav-grid + section markup moved verbatim into sidebar/RailSections.tsx
 
-function rule(selector: string): string {
+function rule(selector: string, occurrence = 0): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? ''
+  const matches = [
+    ...css.matchAll(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'g')),
+  ]
+  return matches[occurrence]?.[1] ?? ''
 }
 
 describe('#559 pinned tiles centre, rail rows stay left-aligned', () => {
@@ -57,13 +60,15 @@ describe('#560 one height token for the top chrome band', () => {
   })
 
   it("the rail's search strip consumes the same token", () => {
-    const strip = rule('.os-rail-search-row')
+    // #1308 added a second `.os-rail-search-row` block (hit-target z-index)
+    // earlier in the sheet, so the chrome-band geometry is the 2nd match.
+    const strip = rule('.os-rail-search-row', 1)
     expect(strip).toMatch(/height:\s*var\(--os-top-chrome-h\)/)
   })
 
   it('both bands draw the divider, so the rule is continuous', () => {
     expect(rule('.os-chat-header')).toMatch(/border-bottom/)
-    expect(rule('.os-rail-search-row')).toMatch(/border-bottom/)
+    expect(rule('.os-rail-search-row', 1)).toMatch(/border-bottom/)
   })
 })
 

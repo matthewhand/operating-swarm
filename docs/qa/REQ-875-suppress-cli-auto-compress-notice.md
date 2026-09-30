@@ -16,7 +16,7 @@ Auto-compress skipped — model context length unknown.
 Investigation of the backend pipeline revealed:
 
 1. **Context Compression is an API Subclass Feature**:
-   - In Open Swarm, context auto-compression (REQ-87) and culling are designed specifically for the **API subclass** (`ApiKindBase`), where Open Swarm manages the token budget and context window across LLM completions.
+   - In Operating Swarm, context auto-compression (REQ-87) and culling are designed specifically for the **API subclass** (`ApiKindBase`), where Operating Swarm manages the token budget and context window across LLM completions.
    - CLI agents (`CliKindBase`) manage their own sessions, transcripts, and context natively in their host processes.
 2. **Defective Kind Classification**:
    - In [`src/swarm/core/agent_kind.py`](../../src/swarm/core/agent_kind.py) (`classify_agent_kind`):

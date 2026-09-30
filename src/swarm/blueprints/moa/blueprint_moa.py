@@ -11,6 +11,7 @@ import os
 import shutil
 from typing import Any, ClassVar
 
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.core.blueprint_base import BlueprintBase
 from swarm.core.moa import MoAOrchestrator, PermissionMode
 from swarm.core.moa.backends import FakeParticipantBackend
@@ -35,7 +36,7 @@ class MoABlueprint(BlueprintBase):
             "Legacy aliases: cli_fusion, cli_ensemble."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["moa", "mixture-of-agents", "consensus", "readonly", "cli", "grok"],
         # Discoverable as model ids on /v1/models and /v1/chat/completions
         "aliases": sorted(LEGACY_ALIASES | {"mixture_of_agents"}),
@@ -46,6 +47,11 @@ class MoABlueprint(BlueprintBase):
     def __init__(self, blueprint_id: str = "moa", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
         self._params: dict[str, Any] = {}
+        #: True when :meth:`_backend` fell back to placeholder opinions because
+        #: no live MoA backend was configured. Set by :meth:`_backend`, read by
+        #: :meth:`run`. Those opinions report ``ok=True``, so without this the
+        #: orchestrator synthesizes a consensus out of "needs grok on PATH".
+        self._stubbed_panel = False
 
     def set_params(self, params: dict[str, Any] | None) -> None:
         self._params = dict(params or {})
@@ -96,10 +102,20 @@ class MoABlueprint(BlueprintBase):
             or 60
         )
         if params.get("fake_responses"):
+            # The caller wrote the opinions, so the panel is theirs, not a
+            # simulation this seat invented. Nothing to label.
+            self._stubbed_panel = False
             return FakeParticipantBackend(dict(params["fake_responses"]))
         kind = self._resolved_kind()
         if kind == "fake":
             seats = self._participants()
+            # Every opinion below is a placeholder string this seat generated.
+            # Two outcomes, both labelled:
+            #   - tests / the smoke matrix want determinism: run it, and say so;
+            #   - a live host with no reachable backend: refuse outright, because
+            #     the orchestrator cannot tell these from real opinions and
+            #     synthesizes a confident consensus out of them.
+            self._stubbed_panel = True
             if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("SWARM_TEST_MODE"):
                 stubs = {
                     n: f"(stub opinion from {n} — set params.fake_responses or backend=grok)"
@@ -114,6 +130,7 @@ class MoABlueprint(BlueprintBase):
                 for n in seats
             }
             return FakeParticipantBackend(stubs)
+        self._stubbed_panel = False
         return build_backend(backend=kind, timeout=timeout)
 
     def _permission(self) -> str:
@@ -148,8 +165,32 @@ class MoABlueprint(BlueprintBase):
             }
             return
 
+        backend = self._backend()
+        hermetic = bool(
+            os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("SWARM_TEST_MODE")
+        )
+        if self._stubbed_panel and not hermetic:
+            # No live panel was reachable. Say so before spending a turn on it —
+            # the stub opinions would otherwise synthesize into a confident
+            # "— synthesized by orchestrator from N participants".
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "moa",
+                why=(
+                    "no live MoA backend is available — the configured "
+                    f"participants ({', '.join(participants)}) are placeholder "
+                    "opinions, not model output"
+                ),
+                remedy=(
+                    "install and authenticate the CLI the panel names (grok is "
+                    "the live path) and set `moa.backend`, or pass "
+                    "`params.fake_responses` to script a deterministic panel "
+                    "deliberately"
+                ),
+                backends=participants,
+            )
+            return
         orch = MoAOrchestrator(
-            backend=self._backend(),
+            backend=backend,
             participant_permission=self._permission(),
         )
         from swarm.core.workdir import (
@@ -184,8 +225,34 @@ class MoABlueprint(BlueprintBase):
             det = result.determination
             from swarm.core.model_text import sanitize_model_text
 
-            answer = sanitize_model_text(det.answer if det else "No determination.")
             ok_names = [o.name for o in result.ok_opinions]
+            # A panel that returned nothing produces the orchestrator's
+            # "No usable participant opinions." — a *synthesizer* sentence, not
+            # an answer, and with no indication that N participants were consulted
+            # and all of them failed (out of credit, not installed, timed out).
+            # The sweep read that as a 3.9s reply from a working seat. When no
+            # participant spoke, say so and name the per-seat failure instead.
+            if not ok_names:
+                yield unavailable.cannot_answer_chunk(
+                    self.blueprint_id or "moa",
+                    why=(
+                        f"none of the {len(result.opinions)} MoA participants "
+                        f"({', '.join(o.name for o in result.opinions) or 'none'}) "
+                        f"returned an opinion"
+                    ),
+                    remedy=(
+                        "check the participants can run: install/auth the CLI "
+                        "they name (grok for the live panel), or set "
+                        "`moa.backend` / `params.participants` in "
+                        "swarm_config.json. Set `params.fake_responses` for a "
+                        "deterministic offline panel."
+                    ),
+                    detail=unavailable.participant_failures(result.opinions),
+                    backends=[o.name for o in result.opinions],
+                )
+                return
+
+            answer = sanitize_model_text(det.answer if det else "No determination.")
             meta = {
                 "moa": True,
                 # system_fingerprint uses backends=… (orchestrator-owned panel that answered)
@@ -194,6 +261,25 @@ class MoABlueprint(BlueprintBase):
                 "ok_participants": ok_names,
                 "act": bool(result.act_result),
             }
+            if self._stubbed_panel:
+                # The panel is the deterministic one. Say so above the
+                # determination rather than letting a synthesized
+                # "— synthesized by orchestrator from N participants" stand in
+                # for a real consensus.
+                answer = "\n\n".join(
+                    [
+                        unavailable.simulated_panel_notice(
+                            seats=participants, explicit=False
+                        ),
+                        answer,
+                    ]
+                )
+                meta["simulated_panel"] = True
+                meta["backend"] = "fake"
+                unavailable.mark_unusable(
+                    self.blueprint_id or "moa",
+                    "ran the deterministic MoA panel; no live participants",
+                )
             message = {"role": "assistant", "content": answer}
             # ChatCompletionsView accepts {messages: [...]} final shape + meta side-channel.
             yield {

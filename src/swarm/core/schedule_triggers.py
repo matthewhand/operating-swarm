@@ -319,10 +319,15 @@ def public_history_extras(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     return extras
 
 
+_FILL_IN_SENDER_RE = re.compile(r"^\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}$")
+
+
 def mailbox_event_matches(trigger: dict[str, Any], event: dict[str, Any]) -> bool:
     if str(trigger.get("kind") or "") != TRIGGER_MAILBOX_MESSAGE:
         return False
     wanted_sender = str(trigger.get("sender") or "").strip().lower()
+    if _FILL_IN_SENDER_RE.fullmatch(wanted_sender):
+        return False
     actual_sender = str(event.get("sender") or event.get("sender_id") or "").strip().lower()
     if wanted_sender and wanted_sender not in {"anyone", "*"} and wanted_sender != actual_sender:
         return False

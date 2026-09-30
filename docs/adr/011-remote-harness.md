@@ -6,10 +6,11 @@
 - **Related:** [#652](https://github.com/matthewhand/open-swarm/issues/652) / [ADR-006](./006-api-vs-blueprint-kinds.md) (four user-facing kinds), [#570](https://github.com/matthewhand/open-swarm/issues/570) / [ADR-005](./005-kind-bases.md) (`RemoteKindBase`), [#463](https://github.com/matthewhand/open-swarm/issues/463) (Herdr SSH), [#645](https://github.com/matthewhand/open-swarm/issues/645) / [ADR-007](./007-local-computer-control.md) (computer operate)
 - **Amends:** ADR-006 — Remote stays one of four kinds; variants are plugins, not extra kinds. ADR-005 — `RemoteKindBase` is the Blueprint template; this ADR names the **runtime** harness contract those remotes implement.
 - **Supersedes:** none.
+- **Amended (2026-09-28, [#1672](https://github.com/matthewhand/open-swarm/issues/1672)):** optional `operate` is a **server-side** classification, not a published capability. See "Amendment: `operate` is not published" below.
 
 **Decision:** **Remote** is an abstract harness interface (`RemoteHarness`). Hermes, OpenMousBot, Rakazo, Herdr, and nested open-swarm **implement** it. Four user-facing kinds remain **CLI | API | Blueprint | Remote**. Herdr is a Remote implementation, not a fifth kind.
 
-Live verbs today: **health / list / send**. Computer-control remotes (OMB, Rakazo) expose optional **operate** as a capability; the verbs stay stubs until ADR-007 Phase 3. Herdr transport is CLI locally and SSH remotely — not HTTP like the others.
+Live verbs today: **health / list / send**. Computer-control remotes (OMB, Rakazo) are classified server-side as computer-capable; the verbs stay stubs until ADR-007 Phase 3, and that classification is not published (see the #1672 amendment). Herdr transport is CLI locally and SSH remotely — not HTTP like the others.
 
 No secrets. No Neon. No live `:8001`.
 
@@ -81,6 +82,19 @@ Stable import: `from swarm.core.remote_harness import RemoteHarness, implementat
 
 Existing `check_health` / `operate` stay the public I/O. Thin `BoundRemoteHarness` wrappers bind the current adapters. Do not break persist, opt-in catalog, or HTTP/SSH paths.
 
+### Amendment: `operate` is not published (#1672)
+
+The decision above is unchanged — OMB / Rakazo are the computer-control remotes, and `computer-status` / `computer-screenshot` still return `gap=computer_operate_unwired`. What changed is the **payload**.
+
+`RemoteCapabilities.as_dict()` no longer emits `operate`; it is listed in `SERVER_SIDE_ONLY_CAPABILITIES`. The flag still exists on the dataclass and still separates the two honest refusals in `computer_operate_stub()`:
+
+| | `computer_operate_stub` gap | Meaning |
+|---|---|---|
+| `capabilities.operate` False | `computer_not_supported` | not a computer vendor — place OMB or Rakazo |
+| `capabilities.operate` True | `computer_operate_unwired` | a computer vendor whose verb is not built (ADR-007 Phase 3, parked) |
+
+Why: the payload published `operate: true` for omb/rakazo while every computer op still refused. No client read the key, and the SPA has no remote computer surface to gate on it — the Monitor "Computer control" pane is the *local seat's* sandbox / screen / routines surface, unrelated to which remote is placed. A key that no call can deliver and no client can use is a promise the system does not keep, so it is gone rather than carried as a dead flag. **ADR-007 Phase 3 re-adds it in the same change that wires the verb**, alongside the Settings readiness row it was reserved for.
+
 ---
 
 ## 3. Classifier lock
@@ -141,7 +155,7 @@ Slack is a **Remote implementation**, not a fifth kind and not a Hermes `channel
 | Question | Decision |
 |----------|----------|
 | New `impl` id vs Hermes `channel=slack` | New catalog id **`slack`**. Hermes HTTP (`/health`, `/v1/models`, `/api/sessions`, `/v1/runs`) is a different transport from Slack Web API (Socket Mode bot + app tokens on the NemoHermes gateway). Mixing them would lie about health/list/send. |
-| Slack APIs vs Hermes gateway APIs | Talk to **Slack Web API** directly (`auth.test`, `conversations.list` / `history` / `replies`, `chat.postMessage`). Do not clone NemoHermes source. NemoHermes is the bot in the thread; Open Swarm is another Web API client. |
+| Slack APIs vs Hermes gateway APIs | Talk to **Slack Web API** directly (`auth.test`, `conversations.list` / `history` / `replies`, `chat.postMessage`). Do not clone NemoHermes source. NemoHermes is the bot in the thread; Operating Swarm is another Web API client. |
 | Session id | `{channel_id}:{thread_ts}` (e.g. `C0123456789:1712345678.123456`). Reuses `RemoteSession.channel` / `thread_ts` and `sanitize_cli_session_id`. |
 | New RemoteHarness verbs? | **No.** `health` / `list` / `send` already cover it. `capabilities.sessions=True`. The published SDK protocol already lists Slack threads as sessions; no private-only protocol change. |
 | Blueprint | In-tree adapter in `swarm.core.remotes` + `BoundRemoteHarness`, same as AnythingLLM. `RemoteKindBase` stays the Blueprint template; `remote_harness` operates via `remotes.operate`. Not a plugin package. |

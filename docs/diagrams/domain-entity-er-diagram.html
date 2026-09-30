@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Open Swarm · Domain Entity &amp; State Model (ER)</title>
+  <title>Operating Swarm · Domain Entity &amp; State Model (ER)</title>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -49,12 +49,12 @@
 </head>
 <body>
   <div class="frame">
-    <p class="eyebrow">Data Model · Open Swarm</p>
+    <p class="eyebrow">Data Model · Operating Swarm</p>
     <h1>Core Domain Entity &amp; Persistence Relationships</h1>
 
     <svg viewBox="0 0 1020 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="er-title er-desc">
       <title id="er-title">Core Domain Entity &amp; Persistence Relationships</title>
-      <desc id="er-desc">Entity-relationship data model diagram depicting agents, team rosters, conversation sessions, turn records, tool calls, and routines in Open Swarm.</desc>
+      <desc id="er-desc">Entity-relationship data model diagram depicting agents, team rosters, conversation sessions, turn records, tool calls, and routines in Operating Swarm.</desc>
       <defs>
         <pattern id="grid-dots-er" width="20" height="20" patternUnits="userSpaceOnUse">
           <circle cx="2" cy="2" r="1" fill="rgba(245,245,245,0.08)"/>
@@ -176,7 +176,7 @@
         <text x="14" y="19" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">RemoteSpec</text>
         <text x="345" y="19" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">harness conf</text>
         <!-- Attributes -->
-        <text x="14" y="46" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string  kind: "trueforge"|"omb"|"hermes"  base_url: str  ui_url: str</text>
+        <text x="14" y="46" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="11"><tspan fill="#f08a59" font-weight="bold">PK</tspan> id: string  kind: str  base_url: str  ui_url: str</text>
         <text x="14" y="66" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="10">auth_kind: "bearer"|"cookie" | health_path: string | timeout_s: float</text>
       </g>
 

@@ -70,6 +70,13 @@ import {
   saveBubbleTheme,
   type BubbleTheme,
 } from './bubbleTheme'
+import {
+  applyFontFamily,
+  loadCustomFontFamily,
+  parseFontFamily,
+  saveCustomFontFamily,
+  saveFontFamily,
+} from './fontFamily'
 
 export type { ContextStrategy } from './contextCull'
 
@@ -110,8 +117,98 @@ export interface UserPrefs {
   bubble_theme?: string
   /** #786: sidepane sections + membership, server-persisted. */
   rail_sections?: RailSectionsState
+  /** #1202: unmount an unsupported navbar Agent/Session selector. */
+  hide_unsupported_agent_picker?: boolean
+  hide_unsupported_session_picker?: boolean
+  /** #1323: operator About me card injected into chat context. */
+  operator_profile?: OperatorProfile
+  /** #1323: global operator note appended to agent instructions. */
+  about_me?: string
+  /** #1314: who can read GET /v1/activity/. */
+  activity_log_visibility?: 'off' | 'operator' | 'all'
   values?: Record<string, unknown>
   agent_dropdowns: AgentDropdowns
+}
+
+export interface OperatorProfile {
+  name: string
+  timezone: string
+  about: string
+}
+
+export const EMPTY_OPERATOR_PROFILE: OperatorProfile = {
+  name: '',
+  timezone: '',
+  about: '',
+}
+
+export const OPERATOR_PROFILE_NAME_MAX = 120
+export const OPERATOR_PROFILE_TZ_MAX = 64
+export const OPERATOR_PROFILE_ABOUT_MAX = 4000
+export const ABOUT_ME_MAX = 4000
+
+const SECRET_KEY_FRAGMENTS = [
+  'secret',
+  'password',
+  'passwd',
+  'token',
+  'api_key',
+  'apikey',
+  'credential',
+  'private_key',
+]
+
+function clientIsSecretKey(name: string): boolean {
+  const lowered = name.trim().toLowerCase()
+  return SECRET_KEY_FRAGMENTS.some((fragment) => lowered.includes(fragment))
+}
+
+const SECRET_ASSIGNMENT =
+  /(?:^|[\s,;{(])["']?([A-Za-z][A-Za-z0-9_.-]{1,63})["']?\s*[:=]\s*\S/gi
+const SECRET_TOKEN =
+  /(?:^|[^A-Za-z0-9])(?:sk-[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|AKIA[0-9A-Z]{8,})/i
+
+/** Mirrors ``secret_looking_content`` in user_preferences.py (#1323). */
+export function aboutMeLooksSecret(text: string): boolean {
+  if (!text.trim()) return false
+  if (SECRET_TOKEN.test(text)) return true
+  SECRET_ASSIGNMENT.lastIndex = 0
+  for (const match of text.matchAll(SECRET_ASSIGNMENT)) {
+    if (match[1] && clientIsSecretKey(match[1])) return true
+  }
+  return false
+}
+
+export function parseAboutMe(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const cleaned = raw.replace(/\0/g, '').trim().slice(0, ABOUT_ME_MAX)
+  if (aboutMeLooksSecret(cleaned)) return ''
+  return cleaned
+}
+
+function oneLine(raw: unknown, maxLen: number): string {
+  if (typeof raw !== 'string') return ''
+  return raw.replace(/[\r\n\t]/g, '').trim().slice(0, maxLen)
+}
+
+export function parseOperatorProfile(raw: unknown): OperatorProfile {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ...EMPTY_OPERATOR_PROFILE }
+  }
+  const rec = raw as Record<string, unknown>
+  const aboutRaw = typeof rec.about === 'string' ? rec.about.replace(/\0/g, '').trim().slice(0, OPERATOR_PROFILE_ABOUT_MAX) : ''
+  const about = aboutMeLooksSecret(aboutRaw) ? '' : aboutRaw
+  const name = oneLine(rec.name, OPERATOR_PROFILE_NAME_MAX)
+  const timezone = oneLine(rec.timezone, OPERATOR_PROFILE_TZ_MAX)
+  return {
+    name: aboutMeLooksSecret(name) ? '' : name,
+    timezone: aboutMeLooksSecret(timezone) ? '' : timezone,
+    about,
+  }
+}
+
+function parseActivityLogVisibility(raw: unknown): 'off' | 'operator' | 'all' | undefined {
+  return raw === 'off' || raw === 'operator' || raw === 'all' ? raw : undefined
 }
 
 export function parseAutoCompressPct(raw: unknown): number {
@@ -198,6 +295,13 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
   const railSectionsRaw = rec.rail_sections ?? values.rail_sections
   const railSections =
     railSectionsRaw === undefined ? undefined : parseRailSectionsValue(railSectionsRaw)
+  const boolPref = (key: string): boolean => {
+    const raw = rec[key] !== undefined ? rec[key] : values[key]
+    return raw === true || raw === 'true' || raw === 1 || raw === '1'
+  }
+  const activityVisibility = parseActivityLogVisibility(
+    rec.activity_log_visibility ?? values.activity_log_visibility,
+  )
   return {
     object: 'user_preferences',
     principal: typeof rec.principal === 'string' ? rec.principal : '',
@@ -214,6 +318,13 @@ export function parseUserPrefs(raw: unknown): UserPrefs | null {
     theme_navbar_mode: themeNavbarMode,
     bubble_theme: bubbleTheme,
     rail_sections: railSections,
+    hide_unsupported_agent_picker: boolPref('hide_unsupported_agent_picker'),
+    hide_unsupported_session_picker: boolPref('hide_unsupported_session_picker'),
+    operator_profile: parseOperatorProfile(
+      rec.operator_profile !== undefined ? rec.operator_profile : values.operator_profile,
+    ),
+    about_me: parseAboutMe(rec.about_me !== undefined ? rec.about_me : values.about_me),
+    ...(activityVisibility ? { activity_log_visibility: activityVisibility } : {}),
     values,
     agent_dropdowns:
       Object.keys(fromTop).length > 0 ? fromTop : fromValues,
@@ -254,6 +365,7 @@ export function applyPrefsToLocal(prefs: {
   theme_navbar_mode?: NavbarThemeToggleMode
   bubble_theme?: string
   rail_sections?: RailSectionsState
+  values?: Record<string, unknown>
 }): void {
   savePinnedAgents(prefs.favourites)
   saveHiddenAgentIds(prefs.hidden_agents)
@@ -278,6 +390,19 @@ export function applyPrefsToLocal(prefs: {
   }
   if (typeof prefs.bubble_theme === 'string' && prefs.bubble_theme.length > 0) {
     saveBubbleTheme(prefs.bubble_theme as BubbleTheme)
+  }
+  // #1227: font family rides the values bag — id plus an optional custom stack.
+  const fontFamily = prefs.values?.font_family
+  if (typeof fontFamily === 'string' && fontFamily.length > 0) {
+    const id = parseFontFamily(fontFamily)
+    if (id === 'custom') {
+      const raw = prefs.values?.font_family_custom
+      if (typeof raw === 'string' && raw.trim()) saveCustomFontFamily(raw)
+      else if (fontFamily.trim() !== 'custom') saveCustomFontFamily(fontFamily)
+      else applyFontFamily('custom', loadCustomFontFamily())
+    } else {
+      saveFontFamily(id)
+    }
   }
 }
 
@@ -340,8 +465,11 @@ export async function saveUserPrefs(
     theme_navbar_mode?: NavbarThemeToggleMode
     bubble_theme?: string
     rail_sections?: RailSectionsState
+    operator_profile?: OperatorProfile
+    about_me?: string
     values?: Record<string, unknown>
     agent_dropdowns?: AgentDropdowns
+    activity_log_visibility?: 'off' | 'operator' | 'all'
   },
   options?: { keepalive?: boolean },
 ): Promise<UserPrefs | null> {
@@ -357,8 +485,11 @@ export async function saveUserPrefs(
     patch.theme_navbar_mode === undefined &&
     patch.bubble_theme === undefined &&
     patch.rail_sections === undefined &&
+    patch.operator_profile === undefined &&
+    patch.about_me === undefined &&
     patch.values === undefined &&
-    patch.agent_dropdowns === undefined
+    patch.agent_dropdowns === undefined &&
+    patch.activity_log_visibility === undefined
   ) {
     return null
   }
@@ -382,6 +513,15 @@ export async function saveUserPrefs(
   if (patch.theme_navbar_mode !== undefined) body.theme_navbar_mode = patch.theme_navbar_mode
   if (patch.bubble_theme !== undefined) body.bubble_theme = patch.bubble_theme
   if (patch.rail_sections !== undefined) body.rail_sections = patch.rail_sections
+  if (patch.operator_profile !== undefined) {
+    body.operator_profile = parseOperatorProfile(patch.operator_profile)
+  }
+  if (patch.about_me !== undefined) {
+    body.about_me = parseAboutMe(patch.about_me)
+  }
+  if (patch.activity_log_visibility !== undefined) {
+    body.activity_log_visibility = parseActivityLogVisibility(patch.activity_log_visibility)
+  }
   const values = { ...(patch.values || {}) }
   if (patch.agent_dropdowns !== undefined) values.agent_dropdowns = patch.agent_dropdowns
   if (Object.keys(values).length > 0) body.values = values

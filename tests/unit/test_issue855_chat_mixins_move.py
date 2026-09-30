@@ -8,7 +8,7 @@ Locks the doctrine of the swarm/chat mixin move:
 2. Patch-safety: a patch on ``swarm.consumers.<name>`` lands even when the
    caller lives in a mixin, because moved bodies resolve kernel names
    through the late-bound ``R`` handle (deferred import — no cycle).
-3. Coverage: exactly the 16 moved methods live in the three mixin classes;
+3. Coverage: exactly the moved methods live in the three mixin classes;
    none remain defined twice (no shadowing duplicates in the kernel).
 4. Hygiene: the kernel class keeps the hot path; the mixin bases precede
    ``AsyncWebsocketConsumer`` in the MRO so moved methods win.
@@ -32,6 +32,8 @@ ADVICE = (
 )
 CONVERSATIONS = (
     "apply_message_edit",
+    "apply_message_reaction",
+    "_apply_message_reaction_body",
     "fetch_conversation",
     "save_conversation",
     "delete_conversation",
@@ -39,6 +41,7 @@ CONVERSATIONS = (
 STUBS = (
     "_emit_new_cli_session_notice",
     "respond_with_team_stub",
+    "respond_with_roster_run",
     "respond_with_demo",
     "respond_with_bootstrap",
     "respond_with_blueprint",

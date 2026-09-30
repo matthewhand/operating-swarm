@@ -1,6 +1,6 @@
 """Herdr CLI client (REQ-21) and remotes kind (REQ-64 / REQ-100).
 
-Open Swarm drives Herdr as a **member kind=herdr** without owning the TUI.
+Operating Swarm drives Herdr as a **member kind=herdr** without owning the TUI.
 This package wraps the official ``herdr`` CLI only — it does **not** speak the
 unix-socket protocol, and it is **not** Hermes, OMB, or Rakazo.
 
@@ -50,6 +50,17 @@ from swarm.herdr.remote import (
     ssh_target_from_spec,
     uses_local_http_health,
 )
+from swarm.herdr.status import (
+    HERDR_AGENT_STATUSES,
+    SEAT_STATUSES,
+    UNKNOWN_STATUS,
+    HerdrPaneStatus,
+    HerdrSeatStatus,
+    normalize_agent_status,
+    pane_id_of,
+    pane_statuses,
+    statuses_by_target,
+)
 from swarm.herdr.ssh import (
     SSH_NOT_CONFIGURED,
     SSHError,
@@ -73,18 +84,23 @@ __all__ = [
     "HERDR_NOT_CONFIGURED",
     "HERDR_SSH_NOT_CONFIGURED",
     "HOP_MODEL",
+    "HERDR_AGENT_STATUSES",
     "KIND_ID",
     "LIST_PATH",
     "MEMBER_KIND",
+    "SEAT_STATUSES",
     "SSH_HOST_ENV",
     "SSH_NOT_CONFIGURED",
     "SSH_USER_ENV",
+    "UNKNOWN_STATUS",
     "WAIT_UNTIL_STATES",
     "WAIT_UNTIL_STOPPED",
     "HerdrBlockedError",
     "HerdrCLIError",
     "HerdrClient",
     "HerdrError",
+    "HerdrPaneStatus",
+    "HerdrSeatStatus",
     "SSHError",
     "SSHNotConfiguredError",
     "SSHTarget",
@@ -98,11 +114,15 @@ __all__ = [
     "members_from_agent_list",
     "members_from_http_list",
     "members_from_workspace_list",
+    "normalize_agent_status",
     "not_configured_message",
+    "pane_id_of",
+    "pane_statuses",
     "remote_command_from_ssh_argv",
     "require_ssh_target",
     "resolve_herdr_mode",
     "ssh_target_from_spec",
+    "statuses_by_target",
     "stub_ssh_transport",
     "uses_local_http_health",
 ]

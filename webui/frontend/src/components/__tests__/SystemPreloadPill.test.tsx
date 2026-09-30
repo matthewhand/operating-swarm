@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { createEvent, render, screen, fireEvent } from '@testing-library/react'
+import { OPEN_SETTINGS_EVENT } from '../SettingsSheet'
 import { SystemPreloadPill } from '../SystemPreloadPill'
 
 describe('REQ-207: Support preload — Message from System pill', () => {
@@ -109,5 +110,46 @@ describe('REQ-207: Support preload — Message from System pill', () => {
     render(<SystemPreloadPill text="handoff brief" label="Message from Codey" />)
     expect(screen.getByRole('button', { name: /Message from Codey/i })).toBeInTheDocument()
     expect(screen.getByTestId('system-preload-pill')).toHaveTextContent('C')
+  })
+
+  describe('#1442 settings links in the preload body', () => {
+    const opened: unknown[] = []
+    const listener = (event: Event) => opened.push((event as CustomEvent).detail)
+
+    beforeEach(() => {
+      opened.length = 0
+      window.addEventListener(OPEN_SETTINGS_EVENT, listener)
+    })
+
+    afterEach(() => {
+      window.removeEventListener(OPEN_SETTINGS_EVENT, listener)
+    })
+
+    it('opens the sheet from a Settings deeplink without leaving the page', () => {
+      render(
+        <SystemPreloadPill
+          defaultExpanded
+          text={'Open [LLM profiles](/chat?settings=llm-profiles) or [Settings](/chat?settings=true).'}
+        />,
+      )
+      fireEvent.click(screen.getByRole('link', { name: 'LLM profiles' }))
+      fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
+      expect(opened).toEqual([{ section: 'llm-profiles' }, {}])
+    })
+
+    it('leaves ordinary links and modified clicks alone', () => {
+      render(
+        <SystemPreloadPill
+          defaultExpanded
+          text={'Go to [Teams](/teams/launch/) or [Settings](/chat?settings=true).'}
+        />,
+      )
+      fireEvent.click(screen.getByRole('link', { name: 'Teams' }))
+      const settings = screen.getByRole('link', { name: 'Settings' })
+      const modified = createEvent.click(settings, { ctrlKey: true })
+      fireEvent(settings, modified)
+      expect(opened).toEqual([])
+      expect(modified.defaultPrevented).toBe(false)
+    })
   })
 })

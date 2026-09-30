@@ -26,12 +26,31 @@
     <a class="visually-hidden-focusable btn btn-sm btn-primary position-absolute top-0 start-0 m-2 z-3" href="#os-main">Skip to main content</a>
     {% with path=request.path %}
     <header class="os-header sticky-top">
-        <nav class="navbar navbar-dark os-navbar py-1" aria-label="Primary">
+        <nav class="navbar os-navbar py-1" aria-label="Primary">
             <div class="os-navbar-inner">
                 <button type="button" class="os-sidebar-toggle d-lg-none" id="os-sidebar-open" aria-label="Open agents sidebar">
                     <i class="fas fa-bars" aria-hidden="true"></i>
                 </button>
-                <a class="navbar-brand fw-semibold" href="/" aria-label="Home"><img src="{% static 'brand/webui-geometric.svg' %}" alt="" width="28" height="28" class="os-brand-mark-geometric"></a>
+                <a class="navbar-brand fw-semibold" href="/" aria-label="Home">
+                    {# Painted mark matches Chat BrandMarkMono (currentColor). The geometric file stays for REQ-106 and is not shown. #}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="28" height="28" class="os-brand-mark-geometric" fill="currentColor" aria-hidden="true">
+                        <g fill="currentColor" transform="rotate(-38 32 33)">
+                            <path d="M18 18 C8 8 4 22 16 28 C20 24 22 20 18 18 Z"/>
+                            <path d="M22 14 C16 2 6 10 18 22 C24 18 26 16 22 14 Z"/>
+                            <path d="M32 55.6 L28.6 50.2 H35.4 Z"/>
+                            <ellipse cx="32" cy="38.2" rx="10.4" ry="15.6"/>
+                            <ellipse cx="32" cy="22.2" rx="7.6" ry="7.1"/>
+                            <circle cx="32" cy="12.6" r="5.4"/>
+                            <circle cx="20.4" cy="2.4" r="1.35"/>
+                            <circle cx="43.6" cy="2.4" r="1.35"/>
+                            <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                                <path d="M29.6 8.2 C27.2 3.6 23.6 1.8 20.4 2.4"/>
+                                <path d="M34.4 8.2 C36.8 3.6 40.4 1.8 43.6 2.4"/>
+                            </g>
+                        </g>
+                    </svg>
+                    <img src="{% static 'brand/webui-geometric.svg' %}" alt="" width="28" height="28" class="os-brand-mark-asset" aria-hidden="true">
+                </a>
                 <ul class="navbar-nav flex-row flex-nowrap align-items-center gap-1 me-auto mb-0">
                     <li class="nav-item">
                         <a class="nav-link {% if path == '/agents' or path|slice:':8' == '/agents/' %}active{% endif %}"
@@ -48,7 +67,7 @@
                         <a class="nav-link dropdown-toggle {% if path == '/chat' or path|slice:':6' == '/chat/' or '/blueprint' in path or path|slice:':7' == '/teams/' or path|slice:':10' == '/sessions/' or path|slice:':10' == '/settings/' or path|slice:':10' == '/profiles/' %}active{% endif %}"
                            href="#" id="moreNavDropdown" role="button" data-bs-toggle="dropdown"
                            data-bs-display="static" aria-expanded="false" aria-haspopup="true">More</a>
-                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="moreNavDropdown">
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="moreNavDropdown">
                             <li>
                                 <a class="dropdown-item {% if path == '/chat' or path|slice:':6' == '/chat/' %}active{% endif %}"
                                    href="/chat">Chat</a>
@@ -71,7 +90,7 @@
                             </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
-                                <a class="dropdown-item" href="https://github.com/matthewhand/open-swarm"
+                                <a class="dropdown-item" href="https://github.com/matthewhand/operating-swarm"
                                    target="_blank" rel="noopener noreferrer">GitHub</a>
                             </li>
                         </ul>
@@ -133,7 +152,7 @@
                     aria-expanded="false" aria-haspopup="true" aria-label="More">
                 <span class="os-bottom-nav__label">More</span>
             </button>
-            <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="moreNavDropdownMobile">
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="moreNavDropdownMobile">
                 <li>
                     <a class="dropdown-item {% if path == '/chat' or path|slice:':6' == '/chat/' %}active{% endif %}"
                        href="/chat">Chat</a>

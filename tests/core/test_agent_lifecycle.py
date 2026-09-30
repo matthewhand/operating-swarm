@@ -10,6 +10,9 @@ from swarm.core.agent_lifecycle import (
     ERROR_ALREADY_EXISTS,
     ERROR_CALLER_KIND,
     ERROR_CLI_COMMAND,
+    ERROR_COMPANY,
+    ERROR_COMPANY_NOT_FOUND,
+    ERROR_MODEL_DENIED,
     ERROR_PROTECTED,
     ERROR_ROLE,
     ERROR_SECRET,
@@ -30,10 +33,29 @@ from swarm.core import chat_store
 from swarm.core.transcript_roles import reconstruct_display
 
 NOW = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+ACME_ID = "acme"
+
+
+def _acme_company(**policy):
+    bag = {
+        "mode": "allow_all",
+        "allowed_models": [],
+        "denied_models": [],
+        "default_model": "",
+    }
+    bag.update(policy)
+    return {
+        "id": ACME_ID,
+        "slug": "acme",
+        "name": "Acme",
+        "model_policy": bag,
+    }
 
 
 def _ctx(role: str = "support", **kwargs) -> LifecycleContext:
     stores = kwargs.pop("stores", None) or LifecycleStores()
+    if not stores.companies:
+        stores.companies[ACME_ID] = _acme_company()
     kwargs.setdefault("caller_id", "support")
     kwargs.setdefault("caller_role", role)
     kwargs.setdefault("now", NOW)
@@ -54,6 +76,82 @@ def test_support_creates_api_seat_with_safe_defaults():
     assert row["user_created"] is True
     assert row["role"] == "default"
     assert custom_item_is_rail_seat(row) is True
+    assert agent["company_id"] == ACME_ID
+    assert agent["company_slug"] == "acme"
+    assert row["company_id"] == ACME_ID
+
+
+def test_create_agent_persists_company_stamp_with_the_seat(monkeypatch):
+    """#1317: the library write must include company_id, not only the tool reply."""
+    captured: dict = {}
+
+    def _capture(library):
+        captured["row"] = dict(library["custom"][0])
+        return True
+
+    monkeypatch.setattr("swarm.core.agent_lifecycle._save_library", _capture)
+    stores = LifecycleStores(persist_library=True, companies={ACME_ID: _acme_company()})
+    ctx = _ctx(stores=stores)
+    result = ctx.create_agent("Desk Bot", "api", company_id=ACME_ID)
+    assert result["ok"] is True
+    assert captured["row"]["company_id"] == ACME_ID
+    assert captured["row"]["company_slug"] == "acme"
+    assert result["agent"]["company_id"] == ACME_ID
+
+
+def test_create_agent_requires_a_company():
+    """#1317: new bots must attach a Company (policy attach)."""
+    ctx = _ctx()
+    ctx.stores.companies.clear()
+    result = ctx.create_agent("No Company Yet", "api")
+    assert result["ok"] is False
+    assert result["error"] == ERROR_COMPANY
+
+
+def test_create_agent_attaches_explicit_company_and_default_model():
+    stores = LifecycleStores(
+        companies={
+            "fleet": {
+                "id": "fleet",
+                "slug": "fleet",
+                "name": "Fleet",
+                "model_policy": {
+                    "mode": "allowlist",
+                    "allowed_models": ["cli/agy"],
+                    "denied_models": [],
+                    "default_model": "cli/agy",
+                },
+            }
+        }
+    )
+    ctx = _ctx("chief_of_staff", caller_id="cos", stores=stores)
+    result = ctx.create_agent("Desk Bot", "api", company_id="fleet")
+    assert result["ok"] is True
+    assert result["agent"]["company_id"] == "fleet"
+    assert result["agent"]["model"] == "cli/agy"
+
+
+def test_create_agent_unknown_company_is_refused():
+    ctx = _ctx()
+    result = ctx.create_agent("Desk Bot", "api", company_id="missing")
+    assert result["ok"] is False
+    assert result["error"] == ERROR_COMPANY_NOT_FOUND
+
+
+def test_create_agent_denied_model_is_refused():
+    stores = LifecycleStores(
+        companies={
+            ACME_ID: _acme_company(
+                mode="allowlist",
+                allowed_models=["cli/agy"],
+                default_model="cli/agy",
+            )
+        }
+    )
+    ctx = _ctx(stores=stores)
+    result = ctx.create_agent("Desk Bot", "api", model="openai/gpt-4o")
+    assert result["ok"] is False
+    assert result["error"] == ERROR_MODEL_DENIED
 
 
 def test_cli_requires_command_and_stamps_it():

@@ -9,6 +9,7 @@ import {
 import { parseSuggestions } from './suggestions'
 import { parseTeammateTask, type TeammateTaskEvent } from './teammateTask'
 import { parseSubagentFanOut, type SubagentFanOutData } from './subagentFanOut'
+import { parseMessageReactions, type MessageReaction } from './messageReactions'
 
 /**
  * Client for the Django Channels chat websocket.
@@ -75,6 +76,16 @@ export type ChatWsEvent =
   | { kind: 'spa_hello'; spaVersion: string }
   | { kind: 'turn_started'; turnId: string; agentId: string }
   | { kind: 'turn_finished'; turnId: string; agentId: string }
+  | {
+      kind: 'fan_out_leg'
+      id: string
+      label: string
+      status: string
+      legKind: string
+      openId: string
+      href: string
+      batchId: string
+    }
   | { kind: 'suggestions'; suggestions: string[] }
   | { kind: 'context_usage'; usage: ContextUsage }
   | { kind: 'aux_started'; task: { task_id: string; label?: string; model?: string; state: 'running' } }
@@ -85,6 +96,19 @@ export type ChatWsEvent =
       agentId: string
       name: string
       pending: boolean
+    }
+  | {
+      kind: 'reaction'
+      index: number
+      emoji: string
+      actor: string
+      reactions: MessageReaction[]
+    }
+  | {
+      kind: 'reaction_turn'
+      id: string
+      emoji: string
+      reactions: MessageReaction[]
     }
   | { kind: 'unknown'; raw: string }
 
@@ -175,6 +199,16 @@ export function buildChatWsEditFrame(index: number, content: string): string {
   return JSON.stringify({ edit: { index, content } })
 }
 
+/** Build the JSON frame that toggles an emoji reaction (#1411). */
+export function buildChatWsReactionFrame(index: number, emoji: string): string {
+  return JSON.stringify({ reaction: { index, emoji } })
+}
+
+/** Reaction toggles persist only while the chat socket is open (WebSocket.OPEN === 1). */
+export function canPersistReactionFrame(readyState: number | undefined | null): boolean {
+  return readyState === 1
+}
+
 /** #198: ask the server to interrupt the turn in flight (enter-to-interrupt). */
 /**
  * #198: cancel the turn in flight. #1096: the frame now carries the target
@@ -192,6 +226,11 @@ export function buildCancelTurnFrame(agent?: string, turnId?: string): string {
     ...(agent ? { agent } : {}),
     ...(turnId ? { turn_id: turnId } : {}),
   })
+}
+
+/** #1374: stop one fan-out leg. Other legs of the same turn keep running. */
+export function buildCancelFanOutLegFrame(legId: string): string {
+  return JSON.stringify({ type: 'cancel_turn', leg_id: legId })
 }
 
 export function newConversationId(): string {
@@ -219,6 +258,9 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
   if (!trimmed.startsWith('{')) return null
   try {
     const payload = JSON.parse(trimmed) as Record<string, unknown>
+    if (typeof payload.text === 'string' && payload.text.trim().startsWith('<')) {
+      return parseChatWsMessage(payload.text)
+    }
     const type = String(payload.type || '')
     const id = String(payload.id || '')
     const name = String(payload.name || '')
@@ -272,6 +314,20 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
       if (!spaVersion) return { kind: 'unknown', raw }
       return { kind: 'spa_hello', spaVersion }
     }
+    if (type === 'fan_out_leg') {
+      const id = String(payload.leg_id || payload.id || '').trim()
+      if (!id) return { kind: 'unknown', raw }
+      return {
+        kind: 'fan_out_leg',
+        id,
+        label: typeof payload.label === 'string' ? payload.label : '',
+        status: typeof payload.status === 'string' ? payload.status : '',
+        legKind: typeof payload.kind === 'string' ? payload.kind : '',
+        openId: String(payload.open_id || payload.openId || ''),
+        href: typeof payload.href === 'string' ? payload.href : '',
+        batchId: String(payload.batch_id || payload.batchId || ''),
+      }
+    }
     if (type === 'turn_started' || type === 'turn_finished') {
       // ADR-017 PR-1 bookends: every turn opens/closes with its identity.
       // Malformed frames (no turn_id) drop — the registry relies on it.
@@ -321,6 +377,31 @@ function parseToolJsonFrame(raw: string): ChatWsEvent | null {
       const usage = parseContextUsage(payload)
       if (!usage) return { kind: 'unknown', raw }
       return { kind: 'context_usage', usage }
+    }
+    if (type === 'reaction') {
+      const index = payload.index
+      const emoji = String(payload.emoji || '')
+      if (typeof index !== 'number' || !Number.isInteger(index) || !emoji) {
+        return { kind: 'unknown', raw }
+      }
+      return {
+        kind: 'reaction',
+        index,
+        emoji,
+        actor: String(payload.actor || ''),
+        reactions: parseMessageReactions(payload.reactions),
+      }
+    }
+    if (type === 'reaction_turn') {
+      const id = String(payload.id || '')
+      const emoji = String(payload.emoji || '')
+      if (!id || !emoji) return { kind: 'unknown', raw }
+      return {
+        kind: 'reaction_turn',
+        id,
+        emoji,
+        reactions: parseMessageReactions(payload.reactions),
+      }
     }
     if (type === 'rate_limit_wait' || payload.object === 'open_swarm.rate_limit_wait') {
       if (isRateLimitWait(payload)) {

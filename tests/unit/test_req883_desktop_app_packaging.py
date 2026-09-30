@@ -11,6 +11,7 @@ from Operating Swarm.
 from __future__ import annotations
 
 from pathlib import Path
+from helpers.private_net import assert_no_private_ip
 
 REPO = Path(__file__).resolve().parents[2]
 SPEC = REPO / "docs" / "qa" / "REQ-883-desktop-app-packaging-windows-macos.md"
@@ -130,7 +131,7 @@ def test_req883_no_committed_secrets():
     lowered = text.lower()
     for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)
 
 
 def test_req883_entry_point_and_optional_extra():

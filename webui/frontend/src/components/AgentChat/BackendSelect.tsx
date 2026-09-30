@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Agent } from '../../types/agent'
 import type { CliCatalogEntry, LlmProfileEntry, RemoteFrameworkEntry } from '../../lib/agent-api'
 import { CLI_STARTER_NAMES } from '../../lib/starter-agents'
+import { remoteKindLabel } from '../../lib/remoteKinds'
 import { agentTypeOf, type RemoteMemberOption } from '../../lib/agent-types'
 
 const CUSTOM_MODEL = '__custom__'
@@ -110,8 +111,8 @@ export function BackendSelect({
   const agentType = agentTypeOf(agent)
   const cliChoices = agentType === 'cli' ? cliDropdownEntries(clis) : []
   const remoteLabel = agent.framework
-    ? `Remote · ${agent.framework}`
-    : 'Remote team'
+    ? `Remote · ${remoteKindLabel(agent.framework)}`
+    : 'Remote'
   const cliSelected = value.startsWith('cli:')
   const showLlm = agentType === 'api' && !!onLlmChange
   const showBlueprint = agentType === 'api' && !!onBlueprintChange
@@ -263,7 +264,7 @@ export function BackendSelect({
           >
             {frameworkOptions.map((f) => (
               <option key={f.id} value={f.id}>
-                {f.name || f.id}
+                {remoteKindLabel(f.id, f.name || f.id)}
               </option>
             ))}
           </select>

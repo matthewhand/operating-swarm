@@ -13,9 +13,9 @@ openai-agents Agent objects.
 
 Contract:
 - ``designed_agent_kind(id)`` → the design's kind (or None).
-- ``resolve_chat_blueprint_id`` routes personality/swarm designs to
-  ``agent_router``; CLI designs keep the ``cli_agent`` remap; everything
-  else unchanged.
+- ``resolve_chat_blueprint_id`` routes personality/swarm/remote designs to
+  ``agent_router``; CLI designs keep the ``cli_agent`` remap; catalog remote
+  impl ids stay on ``remote_harness``.
 - ``designed_seat_params(id)`` → ``{target_agent, routing_strategy: direct}``
   for those seats; ``get_blueprint_instance`` applies it (source-pinned).
 """
@@ -53,6 +53,34 @@ def test_designed_agent_kind_reads_the_designs_file(tmp_path, monkeypatch):
     assert designed_agent_kind("cli-demo-agy") == "cli"
     assert designed_agent_kind("no-such-seat") is None
     assert designed_agent_kind("") is None
+
+
+def test_remote_design_routes_to_agent_router(tmp_path, monkeypatch):
+    """#1439: a designer remote seat is not a catalog impl id, so it used to
+    fall through as a missing blueprint. It runs on agent_router, which
+    dispatches kind=remote to the remote engine."""
+    _write_designs(
+        tmp_path,
+        monkeypatch,
+        [{"agent_id": "ops-bot", "kind": "remote", "framework": "hermes"}],
+    )
+    assert designed_agent_kind("ops-bot") == "remote"
+    assert resolve_chat_blueprint_id("ops-bot") == "agent_router"
+    assert designed_seat_params("ops-bot") == {
+        "target_agent": "ops-bot",
+        "routing_strategy": "direct",
+    }
+
+
+def test_catalog_remote_id_is_not_stolen_by_a_design(tmp_path, monkeypatch):
+    """A frame whose blueprint is the catalog impl still uses the harness."""
+    _write_designs(
+        tmp_path,
+        monkeypatch,
+        [{"agent_id": "hermes", "kind": "remote"}],
+    )
+    assert resolve_chat_blueprint_id("hermes") == "remote_harness"
+    assert resolve_chat_blueprint_id("trueforge-2") == "remote_harness"
 
 
 def test_cli_designs_keep_their_cli_agent_remap(tmp_path, monkeypatch):

@@ -11,6 +11,71 @@ on:
     branches: [main]
 
 jobs:
+  # #1435: one package load_config. F811 is "redefinition of unused name"
+  # (the config_loader shadow class). Runs on pull_request, not only main.
+  ruff-f811:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Ruff F811 (no shadowed names under src/)
+        run: uv run ruff check --select F811 src/
+
+  # An undefined name is the one static check that maps directly onto an
+  # outage, and the app had no gate for it. On 2026-09-28
+  # `src/swarm/core/serving_process.py` called an undefined `_tokens` from
+  # `_start_serving_hooks()`, which `SwarmConfig.ready()` does not guard, so
+  # the NameError fired for every real server process (os-api / uvicorn /
+  # gunicorn / daphne) and the app refused to boot at all. One command
+  # (`ruff check --select F821 src/`) reported it; nothing ran that command.
+  #
+  # F823 is the same failure from the other end: a local read before any
+  # assignment, i.e. an UnboundLocalError. `agent_relationships.save_relationships`
+  # shipped exactly that — `save_relationships()` with no argument always
+  # raised, and the `global`-less write left the module cache stale.
+  #
+  # Hard gate, no --exit-zero: `ruff check --select F821,F823 src/` is clean as
+  # of this commit, so a non-zero exit here is a real regression. If you
+  # introduce one legitimately, add the `if TYPE_CHECKING:` import the
+  # annotation needs rather than reaching for a blanket ignore.
+  #
+  # The three defects this gate now catches, and where each lived:
+  #   `serving_process._tokens`  (F821) — fixed in 3440959f
+  #   `cli_session_watch._last_sids` (F821) — fixed in the commit before this one
+  #   `agent_relationships.save_relationships` (F823) — same
+  # plus 54 F821s across the 10 `remote_impls/` modules, which are annotation
+  # names and needed no runtime import. Counts below are `ruff check --select
+  # F821 src/` on the tree as merged, not a carried-over total:
+  #   at 6e41fc6a: F821 55 (54 in remote_impls/, 1 in cli_session_watch.py),
+  #               F823  1 (agent_relationships.py)
+  #   at origin/main: F821 56 (adds serving_process.py), F823 1
+  # The 10 remote_impls modules still hold 0.
+  ruff-undefined-names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Ruff F821 + F823 (no undefined names under src/)
+        run: uv run ruff check --select F821,F823 src/
+
   # Playwright e2e and per-REQ own-diff workflows are workflow_dispatch only
   # (Actions budget / #250). Vitest remains the SPA PR gate (REQ-171C-7).
   vitest:
@@ -61,6 +126,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: "Gate: grep POSIX process calls stay in swarm.core.proc"
+        run: uv run python scripts/lint_no_direct_pgroup.py
+
       - name: "Gate: Sanitize tracked files against sensitive LAN IPs and hostnames"
         run: uv run pytest tests/test_tracked_files_sanitization.py --no-cov
 
@@ -69,6 +137,39 @@ jobs:
         env:
           DJANGO_ALLOW_ASYNC_UNSAFE: "true"
         # REQ-123: pytest stays on SQLite (no live Neon). See docs/DATABASE.md.
+
+  # #1730 claim A: the coverage floor. `pyproject.toml` used to declare
+  # `fail_under = 70` while `pytest.ini`'s addopts passed
+  # `--cov-fail-under=0`, and the CLI flag wins -- pytest_cov/plugin.py only
+  # falls back to the config file's `fail_under` when the option is None. So the
+  # declared 70% applied to nothing and every run had a 0% floor. Both numbers
+  # are gone; the one floor is scripts/coverage_ratchet.py against a pinned
+  # baseline, over a FULL-suite report.
+  #
+  # One leg, not the 2-leg matrix: coverage is a property of the suite, not of
+  # the interpreter, and measuring it twice doubles the most expensive job in
+  # this workflow for no extra signal.
+  coverage-ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Full suite with a machine-readable coverage report
+        run: uv run pytest --cov-report=json
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"
+
+      - name: Coverage floor (may only improve)
+        run: uv run python scripts/coverage_ratchet.py
 
   # REQ-123 / #508: migrate smoke against a local Postgres service — not Neon.
   postgres-migrate:
@@ -104,3 +205,28 @@ jobs:
         env:
           DJANGO_DEBUG: "true"
           DATABASE_URL: postgres://swarm:swarm@localhost:5432/swarm
+
+  # #1438: Windows tree-kill. Full suite stays on ubuntu; this job runs the
+  # process helper tests (spawn flags + taskkill /T /F) on windows-latest.
+  windows-proc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: "Gate: grep POSIX process calls stay in swarm.core.proc"
+        run: uv run python scripts/lint_no_direct_pgroup.py
+
+      - name: Process helper tests
+        shell: bash
+        run: env -u DATABASE_URL -u POSTGRES_HOST -u POSTGRES_DB uv run pytest tests/core/test_issue1438_windows_getpgid.py -q --override-ini="addopts=-ra" -p no:cov --timeout=180
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"

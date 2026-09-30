@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { QueryClientContext } from '@tanstack/react-query'
 import { FileCode2, EyeOff } from 'lucide-react'
 import { Button, Textarea } from './DaisyUI'
-import { createCustomBlueprint } from '../lib/api'
+import { createCustomBlueprint, fetchCompanies } from '../lib/api'
+import { requireCompanyIdForCreate } from '../lib/companyAttach'
 import {
   ADD_AS_AGENT_LABEL,
   SAVE_AS_BLUEPRINT_LABEL,
@@ -45,6 +46,8 @@ export default function SupportCreatedBlueprintCard({
     setBusy(asAgent ? 'add' : 'save')
     setError('')
     try {
+      const companies = (await fetchCompanies()).data || []
+      const companyId = requireCompanyIdForCreate(companies)
       const created = await createCustomBlueprint({
         id: card.id,
         name: card.title,
@@ -55,6 +58,7 @@ export default function SupportCreatedBlueprintCard({
         kind: 'api',
         rail: true,
         source: card.source || 'support-nl',
+        company_id: companyId,
       })
       const targetId = created.id || card.id
       setCreatedId(targetId)

@@ -10,6 +10,7 @@ import { agentIdFromBlueprint, setConversationIdForAgent } from './agentChat'
 import { formatRailTimestamp } from './chatTime'
 import {
   listAgentSessions,
+  upsertAgentSession,
   type AgentSession,
   type AgentSessionStatus,
 } from './scaleOutSessions'
@@ -150,6 +151,17 @@ export async function createAgentSession(
     const parsed = parseDjangoSession(data, agent)
     if (parsed?.id) {
       setConversationIdForAgent(agent, parsed.id)
+      // #1709: the rail row is the only place a chat shows up as a chat, and it
+      // reads the scale-out cache — so a created row has to land there or the
+      // sidepane cannot show that a chat was added. The Django row stays
+      // canonical; this is the same derived cache the picker merges from, and
+      // `mergePickerSessions` dedupes the two by id.
+      //
+      // Filed under `agent` rather than `parsed.agent_id`: every reader
+      // normalizes to the blueprint id (the rail indexes `loadAllAgentSessions`
+      // by its own row id, `mergePickerSessions` reads under
+      // `agentIdFromBlueprint`), so the server's echo is not a safe key.
+      upsertAgentSession({ ...djangoSessionToPicker(parsed), agentId: agent })
     }
     emitAgentSessionsChanged(agent)
     return parsed

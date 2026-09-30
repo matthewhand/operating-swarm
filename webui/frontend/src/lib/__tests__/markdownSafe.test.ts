@@ -131,4 +131,26 @@ describe('renderMarkdownSafe (#220)', () => {
     expect(renderMarkdownSafe('')).toBe('')
     expect(renderMarkdownSafe('', { complete: true })).toBe('')
   })
+
+  it('REQ-1321: holds an unclosed inline math expression while streaming', () => {
+    expect(split('energy $E=mc')).toEqual({ visible: 'energy ', held: '$E=mc' })
+    expect(split('energy $E=mc^2$')).toEqual({ visible: 'energy $E=mc^2$', held: '' })
+  })
+
+  it('REQ-1321: does not hold a bare dollar amount', () => {
+    expect(split('it costs $5')).toEqual({ visible: 'it costs $5', held: '' })
+    expect(split('it costs $5 today')).toEqual({ visible: 'it costs $5 today', held: '' })
+  })
+
+  it('REQ-1321: holds an unclosed display math block', () => {
+    const open = '$$\\int_0^1 x\\,dx'
+    expect(split(open)).toEqual({ visible: '', held: open })
+    const closed = '$$\\int_0^1 x\\,dx$$'
+    expect(split(closed)).toEqual({ visible: closed, held: '' })
+  })
+
+  it('REQ-1321: ignores $ inside inline code and fences', () => {
+    expect(split('use `$x=1` now')).toEqual({ visible: 'use `$x=1` now', held: '' })
+    expect(split('```\n$x=1\n```')).toEqual({ visible: '```\n$x=1\n```', held: '' })
+  })
 })

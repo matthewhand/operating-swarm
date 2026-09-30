@@ -15,8 +15,35 @@
             <h1 class="brand-name">Operating Swarm</h1>
             <p class="brand-sub">Sign in to continue</p>
         </div>
+        {% if messages %}
+            {# Required: SocialAuthExceptionMiddleware adds the refusal reason
+               via messages.error() before redirecting here, so without this the
+               user gets a bare login page and no explanation. Reuses the
+               existing `error-message` convention (operator.css) rather than
+               inventing an unstyled class. #}
+            <p class="error-message" role="alert">{{ messages|join:" " }}</p>
+        {% endif %}
         {% if error %}
             <p class="error-message" role="alert">{{ error }}</p>
+        {% endif %}
+        {% if social_auth_error %}
+            <p class="error-message" role="alert">{{ social_auth_error }}</p>
+        {% endif %}
+        {% if oauth_providers %}
+            {# social-auth-app-django 6.x marks the begin view @require_POST, so
+               each provider is a form, not a link. The callback endpoint stays
+               GET because the provider redirects the browser there. #}
+            <div class="oauth-buttons">
+                {% for provider in oauth_providers %}
+                    <form method="post" action="{% url 'social:begin' provider.backend %}" class="oauth-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.GET.next }}">
+                        <button type="submit" class="oauth-button oauth-{{ provider.backend }}"
+                                data-testid="oauth-{{ provider.backend }}">{{ provider.label }}</button>
+                    </form>
+                {% endfor %}
+            </div>
+            <p class="field-separator"><span>or</span></p>
         {% endif %}
         <form method="post" action="{% url 'custom_login' %}">
             {% csrf_token %}

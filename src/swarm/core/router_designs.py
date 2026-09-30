@@ -90,13 +90,14 @@ def designed_agent_kind(agent_id: str) -> str | None:
 def designed_seat_params(agent_id: str) -> dict[str, str]:
     """Params routing a turn at a designed (non-CLI) seat to its runner.
 
-    Personality/swarm designs run through the ``agent_router`` blueprint with
-    a direct target (their real Agent objects are bound there by
-    ``_attach_designed``). CLI designs are remapped by the CLI catalog
+    Personality, swarm, and remote designs run through the ``agent_router``
+    blueprint with a direct target (their Agent objects are bound there by
+    ``_attach_designed``; a remote design then dispatches to
+    ``_run_remote_agent``). CLI designs are remapped by the CLI catalog
     instead and need no params. Non-designs get ``{}``.
     """
     kind = designed_agent_kind(agent_id)
-    if kind in ("personality", "swarm"):
+    if kind in ("personality", "swarm", "remote"):
         return {"target_agent": agent_id.strip(), "routing_strategy": "direct"}
     return {}
 
@@ -231,13 +232,14 @@ def upsert_design(raw: dict[str, Any]) -> dict[str, Any]:
     agents = [a for a in agents if a.get("agent_id") != spec["agent_id"]]
     agents.append(spec)
     save_designs(agents)
-    if spec.get("mcp_mode"):
+    if spec.get("mcp_mode") or spec.get("mcp_tools"):
         from swarm.core.agent_mcp import register_mcp
 
         register_mcp(
             spec["agent_id"],
-            mode=spec.get("mcp_mode"),
+            mode=spec.get("mcp_mode") or "all",
             mcp_servers=spec.get("mcp_servers"),
+            mcp_tools=spec.get("mcp_tools"),
         )
     if spec.get("kind") == "remote" and (spec.get("base_url") or spec.get("target")):
         try:

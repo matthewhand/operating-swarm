@@ -42,7 +42,7 @@ class RemotesListView(APIView):
         # #601: the rail's time slot needs an honest instant per remote row.
         # The chat store is the source that actually knows; a remote with no
         # persisted thread stays without the key (no fabricated "now").
-        from swarm.core.chat_store import rail_activity_summaries, user_key_for
+        from swarm.core.chat_store import rail_activity_summaries, stamp_rail_activity, user_key_for
 
         user = getattr(_request, "user", None)
         if user is not None and getattr(user, "is_authenticated", False):
@@ -81,11 +81,7 @@ class RemotesListView(APIView):
             payload = spec.public_dict()
             # Store stems slugify ':' → '-', so a remote seat's thread file is
             # 'remote-<id>.json' — matching the SPA's own thread keys.
-            summary = activity.get(f"remote-{spec.id}")
-            if summary:
-                payload["last_message_at"] = summary["at"]
-                if summary.get("text"):
-                    payload["last_message"] = summary["text"]
+            stamp_rail_activity(payload, activity.get(f"remote-{spec.id}"))
             agents = dependents.get(spec.id)
             if agents:
                 payload["agents"] = agents
@@ -125,6 +121,10 @@ class RemotesListView(APIView):
                 "ssh_port": serializers.CharField(required=False, allow_blank=True),
                 "ssh_identity_env": serializers.CharField(required=False, allow_blank=True),
                 "ssh_agent": serializers.BooleanField(required=False),
+                "source": serializers.CharField(required=False, help_text="Provenance, e.g. add-agent."),
+                "company_id": serializers.CharField(required=False, help_text="#1317 Company id or slug."),
+                "company": serializers.CharField(required=False),
+                "model": serializers.CharField(required=False, allow_blank=True),
             },
         ),
         responses={201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
@@ -138,6 +138,25 @@ class RemotesListView(APIView):
                 {"error": "Provide kind (hermes, omb, rakazo, herdr, swarm, or trueforge)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from swarm.core.company_attach import (
+            CompanyAttachError,
+            attach_company_for_new_bot,
+            company_ref_from_body,
+            is_new_bot_create,
+        )
+
+        attach = None
+        if is_new_bot_create(body):
+            try:
+                attach = attach_company_for_new_bot(
+                    company_ref_from_body(body),
+                    model=body.get("model"),
+                )
+            except CompanyAttachError as exc:
+                return Response(
+                    {"error": exc.message, "code": exc.code},
+                    status=exc.http_status,
+                )
         kwargs: dict = {}
         if kind:
             kwargs["kind"] = str(kind)
@@ -160,6 +179,8 @@ class RemotesListView(APIView):
                 kwargs[field] = "" if body[field] is None else str(body[field])
         if "ssh_agent" in body:
             kwargs["ssh_agent"] = body["ssh_agent"]
+        if attach is not None:
+            kwargs["extra"] = attach.stamp()
         try:
             spec, path = remotes_core.persist_remote(str(target_id), **kwargs)
         except remotes_core.RemoteError as exc:
@@ -276,6 +297,130 @@ class RemoteDetailView(APIView):
         return Response({"id": rid, "deleted": True, "persisted_to": str(path)})
 
 
+class RemotePairView(APIView):
+    """#1273 — exchange a MausBot pairing code for a session cookie.
+
+    OpenMausBot's loopback policy (#541) rejects every non-paired remote
+    caller; its own pairing flow shows a 6-char code server-side (5-min TTL)
+    and accepts ``POST /api/auth/pair {code, label, cookie:true}`` from
+    anywhere, answering with a session cookie. This endpoint performs that
+    exchange on the operator's behalf and persists the cookie into
+    ``remotes.<id>.cookie`` so ``_auth_headers`` carries it on every later
+    call — pairing becomes a provider-setup affordance, not a curl dance.
+    """
+
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_remotes_pair",
+        summary="Pair this Operating Swarm instance with an OpenMausBot server using its pairing code",
+        request=inline_serializer(
+            name="RemotePairRequest",
+            fields={
+                "code": serializers.CharField(help_text="6-char pairing code shown on the OpenMausBot server"),
+                "label": serializers.CharField(required=False, allow_blank=True),
+            },
+        ),
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, remote_id: str, *_args, **_kwargs):
+        try:
+            remotes_core._require_id(remote_id)
+        except remotes_core.RemoteError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        spec = remotes_core.load_remote(remote_id)
+        if (spec.kind or remotes_core.kind_of_instance(spec.id)) != "omb":
+            return Response(
+                {"error": "Pairing is an OpenMausBot flow — this remote kind does not use pairing codes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        body = request.data if isinstance(request.data, dict) else {}
+        code = str(body.get("code") or "").strip()
+        if not code:
+            return Response({"error": "Provide the pairing code shown on the OpenMausBot server."}, status=status.HTTP_400_BAD_REQUEST)
+        label = str(body.get("label") or "operating-swarm").strip() or "operating-swarm"
+
+        base_url = (spec.base_url or "").rstrip("/")
+        if not base_url:
+            return Response({"error": "The omb remote has no base_url configured."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from swarm.core.remotes import http_json
+
+        try:
+            result = http_json(
+                "POST",
+                f"{base_url}/api/auth/pair",
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                json={"code": code, "label": label, "cookie": True},
+                timeout=10.0,
+            )
+        except Exception as exc:  # noqa: BLE001 — honest failure surface
+            return Response({"error": f"Could not reach the OpenMausBot server: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if result.status not in remotes_core._UP:
+            detail = ""
+            if isinstance(result.body, dict):
+                detail = str(result.body.get("error") or result.body.get("message") or "")
+            return Response(
+                {"error": detail or f"Pairing failed (http {result.status})."},
+                status=status.HTTP_401_UNAUTHORIZED if result.status in (401, 403) else status.HTTP_502_BAD_GATEWAY,
+            )
+
+        cookie_value = ""
+        headers = getattr(result, "headers", None) or {}
+        for key, val in headers.items():
+            if str(key).lower() == "set-cookie" and isinstance(val, str) and val.strip():
+                cookie_value = val.split(";")[0].strip()
+                break
+        if not cookie_value:
+            return Response(
+                {"error": "The server accepted the code but returned no session cookie."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # #460 doctrine: the config layer refuses plaintext secrets — entries
+        # carry ``${ENV}`` placeholders and the process env is the store. Derive
+        # the per-remote env name, persist the cookie into the XDG swarm .env,
+        # then record the placeholder + env name in config.
+        inst_slug = remotes_core._instance_slug(remote_id, "omb")
+        env_name = remotes_core._as_env_name(
+            spec.session_cookie_env
+            or (f"OMB_{inst_slug}_SESSION_COOKIE" if inst_slug else "OMB_SESSION_COOKIE")
+        )
+        if not env_name:
+            env_name = "OMB_SESSION_COOKIE"
+        try:
+            from swarm.utils.dotenv_load import upsert_swarm_env_secret
+
+            env_path = upsert_swarm_env_secret(env_name, cookie_value)
+        except (ValueError, OSError) as exc:
+            return Response(
+                {"error": f"Paired with the server, but the session cookie could not be stored: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        try:
+            remotes_core.persist_remote(
+                remote_id,
+                session_cookie_env=env_name,
+                cookie=f"${{{env_name}}}",
+            )
+        except remotes_core.RemoteError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "ok": True,
+                "remote": remote_id,
+                "paired": True,
+                "cookie_env": env_name,
+                "env_file": str(env_path),
+            }
+        )
+
+
 class RemoteHealthView(APIView):
     def get_permissions(self):
         return [perm() for perm in api_permission_classes()]
@@ -360,12 +505,12 @@ class RemoteOperateView(APIView):
                 "target": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, AnythingLLM workspace:thread, Letta agent id, Open WebUI chat id, Flowise flow id, or n8n workflow id",
+                    help_text="OpenMousBot/Rakazo bot id, Herdr pane/CLI id, AnythingLLM workspace:thread, Open WebUI chat id, Flowise flow id, or n8n workflow id",
                 ),
                 "session_id": serializers.CharField(
                     required=False,
                     allow_blank=True,
-                    help_text="Resume key (Letta agent id, AnythingLLM workspace/thread, Open WebUI chat id, Flowise flow id, or n8n workflow id)",
+                    help_text="Resume key (AnythingLLM workspace/thread, Open WebUI chat id, Flowise flow id, or n8n workflow id)",
                 ),
                 "timeout": serializers.FloatField(
                     required=False,
@@ -427,6 +572,35 @@ class RemoteRoutinesView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
         result = remotes_core.operate(remote_id, "routines")
         return Response(result.as_dict(), status=status.HTTP_200_OK)
+
+
+class RemoteTrueForgeCatalogView(APIView):
+    """#1358 — TrueForge agents + sessions for the navbar pickers.
+
+    One read feeds both navbar controls. The response is scoped to the named
+    TrueForge instance only: a non-TrueForge remote id is refused (HTTP 400),
+    and a down endpoint degrades to ``ok: false`` with empty ``agents`` /
+    ``sessions`` arrays and an honest ``detail`` — never a foreign provider's
+    rows and never the default inference profile.
+    """
+
+    def get_permissions(self):
+        return [perm() for perm in api_permission_classes()]
+
+    @extend_schema(
+        operation_id="v1_remotes_trueforge_catalog",
+        summary="List TrueForge agents + sessions for the navbar pickers",
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, _request, remote_id: str, *_args, **_kwargs):
+        try:
+            remotes_core._require_id(remote_id)
+        except remotes_core.RemoteError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        catalog = remotes_core.trueforge_catalog(remote_id)
+        if catalog.get("error") == "not_trueforge":
+            return Response({"error": catalog["detail"]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(catalog, status=status.HTTP_200_OK)
 
 
 class AgentTeamView(APIView):

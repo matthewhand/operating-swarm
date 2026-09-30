@@ -5,7 +5,7 @@ Overview
 --------
 Instead of hosting or moderating a centralized catalog, we leverage GitHub’s
 native discovery and tagging to surface community repositories that share
-Open Swarm blueprints and MCP configuration templates (never secrets).
+Operating Swarm blueprints and MCP configuration templates (never secrets).
 
 How It Works
 ------------

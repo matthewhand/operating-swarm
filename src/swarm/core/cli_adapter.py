@@ -15,14 +15,15 @@ Design notes
   still untrusted argv (C-H8): attach ``-p=``, feed stdin, or insert ``--``
   before a flag-shaped positional prompt. Token replacement does not rescan
   the prompt or workdir values.
-* **Lifecycle.** Every launch runs in its own OS process *group*
-  (``start_new_session=True``) so a hung or runaway agent — and any children it
-  spawned — can be killed as a group on timeout, ``aclose``, cancel, or a rail
-  **Terminate** (REQ-114). Kill is SIGTERM, then SIGKILL after ``TERM_GRACE``.
-  That flag is not a CLI conversation session. CLI session ids (``--resume`` /
-  ``--session``) are tracked separately on the chat thread (REQ-52). Chat runs
-  register the child pid/pgid so Terminate only signals the swarm-spawned
-  group — never an unrelated host process.
+* **Lifecycle.** Every launch runs in its own OS process group
+  (:func:`swarm.core.proc.spawn_kwargs`) so a hung or runaway agent — and any
+  children it spawned — can be killed as a tree on timeout, ``aclose``, cancel,
+  or a rail **Terminate** (REQ-114). POSIX is SIGTERM, then SIGKILL after
+  ``TERM_GRACE``. Windows is ``taskkill /T /F``. That spawn is not a CLI
+  conversation session. CLI session ids (``--resume`` / ``--session``) are
+  tracked separately on the chat thread (REQ-52). Chat runs register the child
+  pid/pgid so Terminate only signals the swarm-spawned group — never an
+  unrelated host process.
 * **Config-driven.** Adapters are described as plain dicts (see
   :meth:`CliAdapter.from_config`) so adding a new CLI is a config edit, not code.
 """
@@ -35,11 +36,12 @@ import json
 import logging
 import os
 import re
-import signal
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+from swarm.core.proc import spawn_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +77,12 @@ SMOKE_NOT_INSTALLED = "not_installed"
 
 # A trivial prompt for the smoke probe; cheap, but DOES invoke the model once.
 DEFAULT_SMOKE_PROMPT = "Reply with the single word: OK"
-# Smoke probes should be quick; cap well under a normal run.
-SMOKE_TIMEOUT = 60.0
+# Smoke probes should be quick. A CLI's *first* agentic launch also absorbs
+# cold-start cost (session/hook/MCP boot) before the model can answer, so this
+# is deliberately roomier than check_auth's AUTH_TIMEOUT — a 60s cap flaked
+# codex on this host (a warm `codex exec` answers in ~9s but a cold one can
+# exceed a minute).
+SMOKE_TIMEOUT = 120.0
 
 
 class CliAdapterError(Exception):
@@ -99,7 +105,9 @@ class CliAgentConfig:
         the ``{prompt}`` token is optional and the prompt is written to stdin.
     prompt_mode:
         ``"arg"`` (default) substitutes ``{prompt}`` into ``cmd``; ``"stdin"``
-        feeds the prompt to the process's standard input.
+        feeds the prompt to the process's standard input; ``"none"`` runs
+        ``cmd`` as-is (review CLIs such as ``ocr`` that reject a positional
+        prompt). Stdin stays closed.
     parse:
         ``"text"`` returns trimmed stdout. ``"json:<dotpath>"`` parses stdout as
         JSON and extracts the value at the dotted path (e.g. ``json:.result`` or
@@ -127,7 +135,7 @@ class CliAgentConfig:
         Extra argv pieces inserted when a stored CLI session id is replayed.
         Use ``{session_id}`` for the id. ``None`` (default) falls back to the
         catalog policy for ``name``. An empty list means this CLI cannot resume.
-        Distinct from OS ``start_new_session=True`` (process-group kill).
+        Distinct from the OS process group spawned for tree-kill.
     resume_insert:
         Index in the token-substituted argv at which ``resume_argv`` is inserted.
         ``None`` uses the catalog (default ``1`` — after the executable).
@@ -162,9 +170,9 @@ class CliAgentConfig:
     def __post_init__(self) -> None:
         if not self.cmd:
             raise CliAdapterError(f"CLI adapter '{self.name}' has an empty cmd")
-        if self.prompt_mode not in ("arg", "stdin"):
+        if self.prompt_mode not in ("arg", "stdin", "none"):
             raise CliAdapterError(
-                f"CLI adapter '{self.name}': prompt_mode must be 'arg' or 'stdin', "
+                f"CLI adapter '{self.name}': prompt_mode must be 'arg', 'stdin', or 'none', "
                 f"got {self.prompt_mode!r}"
             )
         if self.prompt_mode == "arg" and not any(PROMPT_TOKEN in part for part in self.cmd):
@@ -489,6 +497,12 @@ class CliAdapter:
             "resume_insert": int(insert) if insert is not None else 1,
             "session_id_paths": list(paths),
             "can_resume": bool(resume_argv),
+            # #1658: True when this CLI says anything at all about resuming —
+            # either a real argv, or an explicit non-resumable declaration. Only
+            # a CLI with NO declared policy may be guessed at, so a declared
+            # "cannot resume" is never overridden by the conventional --resume.
+            "resume_declared": bool(catalog) or self.config.resume_argv is not None,
+            "resume_unsupported_reason": catalog.get("resume_unsupported_reason") or "",
             "notes": catalog.get("notes") or "",
             "resume_strip": list(strip) if isinstance(strip, (list, tuple)) else [],
         }
@@ -526,12 +540,25 @@ class CliAdapter:
         First-turn catalog cmds stay one-shot. Resume argv is inserted only
         when ``session_id`` / ``resume_session_id`` is set and this CLI has a
         resume policy. ``resume_session_id`` is an alias of ``session_id``.
+
+        ``ocr`` workspace review rejects ``--resume`` before the model runs.
+        A caller-supplied id is dropped unless this prompt is a range, commit,
+        or scan.
         """
         raw_sid = resume_session_id or session_id
         from swarm.core.cli_sessions import sanitize_cli_session_id
 
         sid = sanitize_cli_session_id(raw_sid)
-        argv = _protect_prompt_argv(self.config.cmd, prompt, workdir)
+        if self.config.prompt_mode == "none":
+            argv = [part for part in self.config.cmd if PROMPT_TOKEN not in part]
+            if self.name == "ocr":
+                from swarm.core.ocr_review import augment_ocr_argv, resume_allowed
+
+                argv = augment_ocr_argv(argv, prompt)
+                if sid and not resume_allowed(prompt):
+                    sid = None
+        else:
+            argv = _protect_prompt_argv(self.config.cmd, prompt, workdir)
         if self.config.remote:
             from swarm.core.cli_remote import apply_remote_attach
 
@@ -544,8 +571,11 @@ class CliAdapter:
             if extra:
                 insert = min(int(policy["resume_insert"]), len(argv))
                 argv = argv[:insert] + extra + argv[insert:]
-            elif self.config.resume_argv is None:
-                # No catalog/config policy: append the common --resume flag.
+            elif self.config.resume_argv is None and not policy.get("resume_declared"):
+                # No catalog/config policy at all: append the common --resume
+                # flag as a best guess. A CLI that *declared* it cannot resume
+                # (resume_argv: None + a reason) is left alone — injecting
+                # --resume there would fail on an unknown option.
                 argv = argv + ["--resume", sid]
             argv = _strip_resume_conflicts(argv, policy.get("resume_strip"))
         stdin_bytes: bytes | None = None
@@ -563,6 +593,11 @@ class CliAdapter:
         """Return (text, parse_error, session_id). parse_error is None on success."""
         session_id = self._extract_session_id(stdout)
         spec = self.config.parse or "text"
+        if spec == "ocr":
+            from swarm.core.ocr_review import render_ocr_stdout
+
+            text, err = render_ocr_stdout(stdout)
+            return text, err, session_id
         if spec == "text":
             return stdout.strip(), None, session_id
         if spec.startswith("json"):
@@ -684,7 +719,7 @@ class CliAdapter:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=effective_workdir,
                 env=env,
-                start_new_session=True,
+                **spawn_kwargs(),
             )
         except (OSError, ValueError) as exc:
             if mcp_path:
@@ -855,7 +890,7 @@ class CliAdapter:
             )
         finally:
             # SSE disconnect / aclose / CancelledError — same path as timeout.
-            # shield so a cancel during cleanup still lets killpg + wait finish.
+            # shield so a cancel during cleanup still lets the tree-kill + wait finish.
             from swarm.core.cli_run_registry import unregister_cli_run
 
             unregister_cli_run(run_token)
@@ -917,7 +952,7 @@ class CliAdapter:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=self._build_env("", workdir, None),
-                start_new_session=True,
+                **spawn_kwargs(),
             )
         except (OSError, ValueError):
             return AUTH_UNKNOWN
@@ -961,25 +996,10 @@ class CliAdapter:
 
     @staticmethod
     async def _terminate(proc: asyncio.subprocess.Process) -> None:
-        """Kill a timed-out process group: SIGTERM, grace, then SIGKILL."""
-        if proc.returncode is not None or not proc.pid or proc.pid <= 1:
-            return
-        try:
-            pgid = os.getpgid(proc.pid)
-            if pgid <= 1:
-                return
-        except (ProcessLookupError, OSError):
-            return
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(pgid, sig)
-            except (ProcessLookupError, OSError):
-                return
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=TERM_GRACE)
-                return
-            except asyncio.TimeoutError:
-                continue
+        """Kill a timed-out process tree (POSIX group signal or Windows taskkill)."""
+        from swarm.core.proc import terminate_subprocess
+
+        await terminate_subprocess(proc, grace=TERM_GRACE)
 
 
 @dataclass

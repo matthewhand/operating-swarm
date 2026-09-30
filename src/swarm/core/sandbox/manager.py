@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 from .base import SandboxBackend, SandboxConfig, SandboxExecutionResult
 from .daytona_sandbox import DaytonaSandbox
@@ -41,6 +43,50 @@ def _raw_provider_name(raw_config: dict[str, Any]) -> str:
     return ""
 
 
+def _command_allowlist_denial(command: str) -> str | None:
+    """Return an audit-friendly denial string when *command* is not allowed.
+
+    Uses the active safety session's agent id. Never raises: storage/runtime
+    problems degrade to the pre-#1312 behaviour (no policy → allow).
+    """
+    try:
+        from swarm.core import command_allowlist
+
+        verdict = command_allowlist.check_runtime_command(
+            command, tool_name="sandbox_run_bash"
+        )
+    except Exception:  # pragma: no cover - must never break execution
+        logger.debug("command allowlist check skipped", exc_info=True)
+        return None
+    if verdict.outcome == command_allowlist.OUTCOME_DENY:
+        return command_allowlist.denial_message(verdict, command=command)
+    return None
+
+
+def _resolve_sandbox_work_dir(raw_config: dict[str, Any], raw_name: str, backend_type: str) -> str:
+    """Resolve the local work dir, preferring a persistent per-bot VM (#1329).
+
+    An explicit ``work_dir``/``workspace`` always wins. Otherwise a
+    ``local``/``bare_metal`` backend gets the stable per-bot VM dir when the
+    agent-run path has bound an owner/bot context; without one (unit callers,
+    empty config) it keeps the legacy ``os.getcwd()`` behaviour.
+    """
+    explicit = raw_config.get("work_dir") or raw_config.get("workspace")
+    if explicit:
+        return str(explicit)
+    if backend_type == "local" and raw_name in ("local", "bare_metal"):
+        try:
+            from .vm_registry import current_bot_context, resolve_bot_vm_dir
+
+            ctx = current_bot_context()
+        except Exception:  # pragma: no cover - resolution must never break build
+            logger.debug("sandbox VM context lookup failed", exc_info=True)
+            ctx = None
+        if ctx is not None:
+            return str(resolve_bot_vm_dir(ctx.owner_key, ctx.bot_id))
+    return os.getcwd()
+
+
 class SandboxManager:
     """Orchestrates sandbox backend instantiation and provides agent tool adapters.
 
@@ -71,7 +117,7 @@ class SandboxManager:
             raw_config.get("unrestricted_host") or raw_config.get("dangerous_confirmed")
         )
         timeout = raw_config.get("timeout_seconds") or raw_config.get("timeout") or 30
-        work_dir = raw_config.get("work_dir") or raw_config.get("workspace") or os.getcwd()
+        work_dir = _resolve_sandbox_work_dir(raw_config, raw_name, b_type)
         allowed = raw_config.get("allowed_paths") or [work_dir]
         env_vars = raw_config.get("env_vars") or {}
         inherit_env = bool(raw_config["inherit_env"]) if "inherit_env" in raw_config else True
@@ -170,6 +216,18 @@ class SandboxManager:
             return result
 
     def execute_bash(self, command: str, timeout: int | None = None) -> SandboxExecutionResult:
+        # #1312: last line of defence — an active per-bot command allowlist is
+        # enforced here, at the actual OS execution point, even if a caller
+        # bypassed the generic tool dispatcher.
+        denial = _command_allowlist_denial(command)
+        if denial:
+            return SandboxExecutionResult(
+                stdout="",
+                stderr="",
+                exit_code=126,
+                success=False,
+                error=denial,
+            )
         try:
             return self._backend.execute_bash(command, timeout=timeout)
         except Exception as exc:
@@ -225,6 +283,72 @@ class SandboxManager:
     def write_file(self, path: str, content: str) -> bool:
         return self._backend.write_file(path, content)
 
+    def _attach_file_to_chat(self, path: str, name: str | None = None, ctx: Any = None) -> str:
+        """#1329: register a sandbox file with the chat attachment store.
+
+        Confined to the sandbox workspace (never a traversal, even in
+        unrestricted bare-metal mode), size-limited to
+        ``chat_attachments.MAX_ATTACHMENT_BYTES``, and only usable inside a
+        chat turn (owner + conversation bound). File bytes are never echoed in
+        the returned text.
+        """
+        if ctx is None:
+            from .vm_registry import current_bot_context
+
+            ctx = current_bot_context()
+
+        raw = str(path or "").strip()
+        if not raw:
+            return "[Attach Error: path is required]"
+
+        if ctx is None or ctx.user is None:
+            return (
+                "[Attach Error: no active chat session — sandbox_attach_file is "
+                "only available during a chat turn]"
+            )
+
+        work_dir = Path(self.config.work_dir or os.getcwd()).resolve()
+        candidate = Path(raw) if Path(raw).is_absolute() else work_dir / raw
+        try:
+            resolved = candidate.resolve()
+        except OSError as exc:
+            return f"[Attach Error: {exc}]"
+        if resolved != work_dir and work_dir not in resolved.parents:
+            return "[Attach Error: path escapes the sandbox VM workspace]"
+
+        result = self._backend_download(str(resolved))
+        if isinstance(result, str):
+            return f"[Attach Error: {result}]"
+        data = result
+        if not data:
+            return "[Attach Error: empty file]"
+
+        from swarm.core import chat_attachments
+
+        if len(data) > chat_attachments.MAX_ATTACHMENT_BYTES:
+            return (
+                "[Attach Error: file too large (max "
+                f"{chat_attachments.MAX_ATTACHMENT_BYTES} bytes)]"
+            )
+
+        display = chat_attachments.safe_display_name(name or Path(raw).name)
+        content_type = chat_attachments.guess_content_type(display)
+        try:
+            row = chat_attachments.store_for_user(
+                ctx.user,
+                ctx.conversation_id,
+                display,
+                content_type,
+                data,
+            )
+        except Exception:
+            logger.debug("sandbox attach failed", exc_info=True)
+            return "[Attach Error: could not store file]"
+        return (
+            f"Attached {row.original_name} "
+            f"({chat_attachments.format_size(row.size)}) as attachment {row.id}"
+        )
+
     def get_raw_tools(self) -> dict[str, Callable[..., Any]]:
         """Return the un-wrapped callable tool functions."""
         def sandbox_run_python(code: str) -> str:
@@ -274,14 +398,59 @@ class SandboxManager:
                 return base64.b64encode(result).decode("ascii")
             return result
 
-        return {
+        def sandbox_attach_file(path: str, name: str | None = None) -> str:
+            """Attach a file from the sandbox VM to the current chat as an attachment.
+
+            The file must live inside this sandbox's workspace; paths that
+            escape it are refused. Oversize files are rejected with the same
+            limit as a composer upload. Only usable during a chat turn.
+            """
+            return self._attach_file_to_chat(path, name)
+
+        tools: dict[str, Callable[..., Any]] = {
             "sandbox_run_python": sandbox_run_python,
             "sandbox_run_bash": sandbox_run_bash,
             "sandbox_read_file": sandbox_read_file,
             "sandbox_write_file": sandbox_write_file,
             "sandbox_upload_file": sandbox_upload_file,
             "sandbox_download_file": sandbox_download_file,
+            "sandbox_attach_file": sandbox_attach_file,
         }
+        # #1200: attach browser/computer-control tools for capable backends.
+        tools.update(self._browser_tools())
+        return tools
+
+    def _browser_tools(self) -> dict[str, Callable[..., Any]]:
+        """#1200: browser/computer-control tools, only for capable backends."""
+        from .browser import browser_tools
+
+        return browser_tools(self._backend)
+
+    def _attach_async_tool(self, raw_fn: Callable[..., Any]) -> Callable[..., Any]:
+        """Async wrapper for the attach tool (#1329).
+
+        The raw tool stays synchronous so direct callers/tests keep working.
+        openai-agents runs sync tools inside the event loop, where the Django
+        ORM refuses synchronous access (``SynchronousOnlyOperation``); offload
+        the DB write to a worker thread and pass the bound owner/bot context
+        explicitly (no ContextVar reliance).
+        """
+
+        async def _attach(path: str, name: str | None = None) -> str:
+            from asgiref.sync import sync_to_async
+
+            from .vm_registry import current_bot_context
+
+            ctx = current_bot_context()
+            return await sync_to_async(
+                self._attach_file_to_chat, thread_sensitive=False
+            )(path, name, ctx)
+
+        _attach.__name__ = "sandbox_attach_file"
+        _attach.__doc__ = getattr(raw_fn, "__doc__", None) or (
+            "Attach a file from the sandbox VM to the current chat."
+        )
+        return _attach
 
     def as_function_tools(self) -> list[Any]:
         """Wrap sandbox operations into openai-agents FunctionTools for Agent(tools=[...]).
@@ -291,13 +460,19 @@ class SandboxManager:
         safely into this sandbox harness.
         """
         raw_tools = self.get_raw_tools()
+        # #1329: the attach tool touches the DB, which is unsafe inline in the
+        # event loop — expose it as an async tool that offloads the write.
+        prepared = [
+            self._attach_async_tool(fn) if name == "sandbox_attach_file" else fn
+            for name, fn in raw_tools.items()
+        ]
 
         try:
             from agents import function_tool
-            return [function_tool(fn) for fn in raw_tools.values()]
+            return [function_tool(fn) for fn in prepared]
         except Exception:  # pragma: no cover
             logger.debug("openai-agents SDK not available; returning raw callables")
-            return list(raw_tools.values())
+            return list(prepared)
 
     def cleanup(self) -> None:
         self._backend.cleanup()

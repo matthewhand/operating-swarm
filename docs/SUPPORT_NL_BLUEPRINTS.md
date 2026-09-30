@@ -2,7 +2,7 @@
 
 Issue SoT: [REQ-158 #567](https://github.com/matthewhand/open-swarm/issues/567).
 
-**Intent:** Sell the power-user Python path **and** the NL path. Open Swarm
+**Intent:** Sell the power-user Python path **and** the NL path. Operating Swarm
 bootstraps more of itself via **Support**.
 
 **Name:** the onboarder is **Support** (same seat as REQ-137 / #530). Not a

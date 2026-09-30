@@ -7,7 +7,14 @@ Uses BlueprintBase and agent-as-tool delegation.
 
 from agents.mcp import MCPServer
 import os
-from dotenv import load_dotenv; load_dotenv(override=True)
+# NOTE: no module-scope load_dotenv() here. swarm/settings.py already calls
+# load_swarm_dotenv() at import, which reads BOTH the project-root .env and
+# the user-config .env and honours the documented precedence (process env
+# wins, never overwritten). Blueprint discovery imports every blueprint at
+# startup, so a per-blueprint load runs for every deployment -- and with
+# override=True it also stomps real shell/systemd env, which is how a
+# developer's user-config .env leaked API_AUTH_TOKEN into the test
+# suite (#1335).
 
 import logging
 import sqlite3

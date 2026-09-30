@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
+from swarm.core import command_allowlist
 from swarm.core.classifier_verdict import (
     GATE_VERDICT_TOOL,
     attach_classifier_tools,
@@ -205,6 +206,11 @@ class SafetyVerdict:
     raw: str = ""
     always_allowed: bool = False
     channel: str = CHANNEL_API
+    # #1312: audit-friendly command-allowlist context.
+    reason: str = ""
+    code: str = ""
+    command_outcome: str = ""
+    matched_rule: str = ""
 
 
 @dataclass
@@ -330,8 +336,25 @@ def approve_pending_tool_call(
     Wired + unconcerned: approved, no prompt.
     Always-allowed tool name on this agent: approved, no prompt.
     Wired + concerned: ``elicit_fn`` is called; missing elicit → denied.
+
+    #1312: a per-agent exact-command allowlist runs first. ``deny`` is final —
+    it cannot be overridden by ``Always allow``. ``ask`` forces elicitation.
     """
     args = arguments or {}
+    command_verdict = command_allowlist.evaluate_tool_call(tool_name, args, agent_id=agent_id)
+    force_concern = command_verdict.outcome == command_allowlist.OUTCOME_ASK
+    if command_verdict.outcome == command_allowlist.OUTCOME_DENY:
+        return SafetyVerdict(
+            concerned=True,
+            approved=False,
+            prompted=False,
+            raw=command_verdict.raw,
+            reason=command_verdict.reason,
+            code=command_verdict.code,
+            command_outcome=command_verdict.outcome,
+            matched_rule=command_verdict.matched_rule,
+            channel=channel,
+        )
     if not uses_swarm_approval(channel):
         return SafetyVerdict(
             concerned=False,
@@ -346,7 +369,7 @@ def approve_pending_tool_call(
         if safety_assigned is not None
         else (safety is not None or classify_fn is not None)
     )
-    if not assigned:
+    if not assigned and not force_concern:
         return SafetyVerdict(
             concerned=False,
             raw="UNWIRED",
@@ -355,7 +378,13 @@ def approve_pending_tool_call(
             channel=channel,
         )
 
-    if always_allow is not None and agent_id and always_allow.is_allowed(agent_id, tool_name):
+    # An explicit `ask` allowlist rule must prompt: never short-circuit it.
+    if (
+        not force_concern
+        and always_allow is not None
+        and agent_id
+        and always_allow.is_allowed(agent_id, tool_name)
+    ):
         return SafetyVerdict(
             concerned=False,
             raw="ALWAYS_ALLOW",
@@ -365,14 +394,25 @@ def approve_pending_tool_call(
             channel=channel,
         )
 
-    classified = classify_pending_tool_call(
-        safety=safety,
-        tool_name=tool_name,
-        arguments=args,
-        classify_fn=classify_fn,
-        invoke_fn=invoke_fn,
-        safety_assigned=True,
-    )
+    if force_concern:
+        classified = SafetyVerdict(
+            concerned=True,
+            approved=False,
+            raw=command_verdict.raw,
+            reason=command_verdict.reason,
+            code=command_verdict.code,
+            command_outcome=command_verdict.outcome,
+            matched_rule=command_verdict.matched_rule,
+        )
+    else:
+        classified = classify_pending_tool_call(
+            safety=safety,
+            tool_name=tool_name,
+            arguments=args,
+            classify_fn=classify_fn,
+            invoke_fn=invoke_fn,
+            safety_assigned=True,
+        )
     classified.channel = channel
     if not classified.concerned:
         classified.approved = True
@@ -599,10 +639,15 @@ async def approve_pending_tool_call_async(
         always_allow=always_allow,
         safety_assigned=safety_assigned,
     )
+    # #1312: an allowlist `deny` is final — never elicit an override.
+    if preview.command_outcome == command_allowlist.OUTCOME_DENY:
+        return preview
+    force_concern = preview.command_outcome == command_allowlist.OUTCOME_ASK
     if not preview.concerned or preview.always_allowed or not uses_swarm_approval(channel):
         return preview
-    if safety_assigned is False or (
-        safety_assigned is None and safety is None and classify_fn is None
+    if not force_concern and (
+        safety_assigned is False
+        or (safety_assigned is None and safety is None and classify_fn is None)
     ):
         return preview
     if elicit_fn is None:

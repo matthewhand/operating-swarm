@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Flow · Operating Swarm</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --color-link:   #6ea8fe;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Data Flow · Operating Swarm</p>
+    <h1>Data Flow, Sensitive Data &amp; Retention</h1>
+
+    <svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="df-title df-desc">
+      <title id="df-title">Operating Swarm data flow and retention</title>
+      <desc id="df-desc">Left-to-right data flow: ingress from HTTP, websocket and uploads, transformation (chunk normalization, seat resolution, redaction), storage in chat JSON, database mirror, responses JSON and config, in-process cache and queues, and egress as streamed responses, provider calls and remote sends. A retention band lists sensitive data handling.</desc>
+      <defs>
+        <pattern id="dots-df" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="df-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="df-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-df)" opacity="0.55"/>
+
+      <!-- Stage connectors -->
+      <line x1="210" y1="200" x2="218" y2="200" stroke="#f08a59" stroke-width="2" marker-end="url(#df-arrow-accent)"/>
+      <line x1="400" y1="200" x2="408" y2="200" stroke="#f08a59" stroke-width="2" marker-end="url(#df-arrow-accent)"/>
+      <line x1="590" y1="200" x2="598" y2="200" stroke="#f08a59" stroke-width="2" marker-end="url(#df-arrow-accent)"/>
+      <line x1="780" y1="200" x2="788" y2="200" stroke="#f08a59" stroke-width="2" marker-end="url(#df-arrow-accent)"/>
+
+      <!-- Stage headers -->
+      <text x="120" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em" text-anchor="middle">INGRESS</text>
+      <text x="310" y="36" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em" text-anchor="middle">TRANSFORM</text>
+      <text x="500" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em" text-anchor="middle">STORAGE</text>
+      <text x="690" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em" text-anchor="middle">CACHE / QUEUE</text>
+      <text x="880" y="36" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em" text-anchor="middle">EGRESS</text>
+
+      <!-- Column backgrounds -->
+      <rect x="30" y="48" width="180" height="272" rx="8" fill="rgba(191,192,192,0.05)" stroke="rgba(191,192,192,0.22)" stroke-width="1"/>
+      <rect x="220" y="48" width="180" height="272" rx="8" fill="rgba(240,138,89,0.06)" stroke="rgba(240,138,89,0.45)" stroke-width="1"/>
+      <rect x="410" y="48" width="180" height="272" rx="8" fill="rgba(191,192,192,0.05)" stroke="rgba(191,192,192,0.22)" stroke-width="1"/>
+      <rect x="600" y="48" width="180" height="272" rx="8" fill="rgba(191,192,192,0.05)" stroke="rgba(191,192,192,0.22)" stroke-width="1"/>
+      <rect x="790" y="48" width="180" height="272" rx="8" fill="rgba(110,168,254,0.05)" stroke="rgba(110,168,254,0.40)" stroke-width="1"/>
+
+      <!-- Ingress nodes -->
+      <g transform="translate(42,64)">
+        <rect width="156" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">HTTP request</text>
+        <text x="78" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">/v1/chat · /v1/responses</text>
+        <text x="78" y="56" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">params · messages</text>
+      </g>
+      <g transform="translate(42,140)">
+        <rect width="156" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">WS / upload frames</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">chat · tool_decision</text>
+      </g>
+      <g transform="translate(42,208)">
+        <rect width="156" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Attachments · webhooks</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">GitHub · schedule tick</text>
+      </g>
+
+      <!-- Transform nodes -->
+      <g transform="translate(232,64)">
+        <rect width="156" height="64" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="78" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Normalize + resolve</text>
+        <text x="78" y="44" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">chunks → OpenAI shape</text>
+        <text x="78" y="56" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">resolve seat + model</text>
+      </g>
+      <g transform="translate(232,140)">
+        <rect width="156" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Run seat turn</text>
+        <text x="78" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">subprocess · LLM · remote</text>
+      </g>
+      <g transform="translate(232,208)">
+        <rect width="156" height="56" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Redact · compose</text>
+        <text x="78" y="42" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">secrets stripped · multimodal</text>
+      </g>
+
+      <!-- Storage nodes -->
+      <g transform="translate(422,64)">
+        <rect width="156" height="64" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="78" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">chat_store JSON</text>
+        <text x="78" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">active/&lt;user&gt;/&lt;agent&gt;.json</text>
+        <text x="78" y="56" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">on-disk source of truth</text>
+      </g>
+      <g transform="translate(422,140)">
+        <rect width="156" height="56" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">DB mirror</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">ChatMessage · ChatConversation</text>
+      </g>
+      <g transform="translate(422,208)">
+        <rect width="156" height="56" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Responses · config JSON</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">profile · routines · blueprints</text>
+      </g>
+
+      <!-- Cache nodes -->
+      <g transform="translate(612,64)">
+        <rect width="156" height="64" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">In-memory conversations</text>
+        <text x="78" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">keyed (user, conversation)</text>
+        <text x="78" y="56" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">not persisted</text>
+      </g>
+      <g transform="translate(612,140)">
+        <rect width="156" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Turn queue · cancel</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">agent_turn_queue · registry</text>
+      </g>
+      <g transform="translate(612,208)">
+        <rect width="156" height="56" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Inflight counters</text>
+        <text x="78" y="42" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">process-local · 1 worker</text>
+      </g>
+
+      <!-- Egress nodes -->
+      <g transform="translate(802,64)">
+        <rect width="156" height="64" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="78" y="26" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Streamed response</text>
+        <text x="78" y="44" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">SSE · JSON · WS frames</text>
+        <text x="78" y="56" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">to caller</text>
+      </g>
+      <g transform="translate(802,140)">
+        <rect width="156" height="56" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Provider egress</text>
+        <text x="78" y="42" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">prompt leaves host</text>
+      </g>
+      <g transform="translate(802,208)">
+        <rect width="156" height="56" rx="6" fill="rgba(245,245,245,0.04)" stroke="rgba(245,245,245,0.30)" stroke-width="1"/>
+        <text x="78" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="10" font-weight="600" text-anchor="middle">Remote sends</text>
+        <text x="78" y="42" fill="#6ea8fe" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">harness · nested swarm</text>
+      </g>
+
+      <!-- Retention band -->
+      <line x1="24" y1="344" x2="976" y2="344" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="364" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">SENSITIVE DATA &amp; RETENTION</text>
+      <g transform="translate(24,378)">
+        <rect width="232" height="92" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Chat content</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">auto-age 90d → trash/</text>
+        <text x="16" y="60" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">SWARM_CHAT_MAX_AGE_DAYS</text>
+        <text x="16" y="76" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">trash never auto-deleted</text>
+      </g>
+      <g transform="translate(264,378)">
+        <rect width="232" height="92" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Responses records</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">SWARM_RESPONSES_DIR files</text>
+        <text x="16" y="60" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">age-pruned</text>
+        <text x="16" y="76" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">queued/in_progress never pruned</text>
+      </g>
+      <g transform="translate(504,378)">
+        <rect width="232" height="92" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Credentials</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">API token / keys: env only</text>
+        <text x="16" y="60" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">CLI OAuth: host home (rw mount)</text>
+        <text x="16" y="76" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">secrets never in chat store</text>
+      </g>
+      <g transform="translate(744,378)">
+        <rect width="232" height="92" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="16" y="24" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">Attachments</text>
+        <text x="16" y="44" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">owned by user principal</text>
+        <text x="16" y="60" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">text excerpt · image data URL</text>
+        <text x="16" y="76" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">load_owned_attachments gate</text>
+      </g>
+
+      <text x="24" y="506" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/core/chat_store.py · src/swarm/core/chat_attachments.py · src/swarm/core/responses_store.py · docs/DATABASE.md</text>
+      <text x="24" y="522" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">ASSUMPTION: exact per-attachment size caps and retention defaults beyond the documented 90-day chat age are operator-configurable and not asserted here.</text>
+    </svg>
+  </div>
+</body>
+</html>

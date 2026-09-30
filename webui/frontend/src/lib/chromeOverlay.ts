@@ -10,6 +10,7 @@ export const OPEN_TEAMS_EVENT = 'swarm:open-teams'
 export const OPEN_BLUEPRINTS_EVENT = 'swarm:open-blueprints'
 export const OPEN_HIDDEN_EVENT = 'swarm:open-hidden'
 export const OPEN_PLUGINS_EVENT = 'swarm:open-plugins'
+export const OPEN_TEMPLATES_EVENT = 'swarm:open-templates'
 export const OPEN_ROLE_PANE_EVENT = 'swarm:open-role-pane'
 export const OPEN_COMPUTER_CONTROL_EVENT = 'swarm:open-computer-control'
 export const OPEN_LLM_PROFILES_EVENT = 'swarm:open-llm-profiles'
@@ -21,6 +22,7 @@ export type ChromeOverlay =
   | 'blueprints'
   | 'hidden'
   | 'plugins'
+  | 'templates'
   | 'role'
   | 'computer-control'
   | 'llm-profiles'
@@ -31,6 +33,7 @@ const EVENT_BY_OVERLAY: Record<ChromeOverlay, string> = {
   blueprints: OPEN_BLUEPRINTS_EVENT,
   hidden: OPEN_HIDDEN_EVENT,
   plugins: OPEN_PLUGINS_EVENT,
+  templates: OPEN_TEMPLATES_EVENT,
   role: OPEN_ROLE_PANE_EVENT,
   'computer-control': OPEN_COMPUTER_CONTROL_EVENT,
   'llm-profiles': OPEN_LLM_PROFILES_EVENT,

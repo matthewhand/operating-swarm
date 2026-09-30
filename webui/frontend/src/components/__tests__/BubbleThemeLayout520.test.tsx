@@ -81,6 +81,48 @@ describe('#520.2 simple — no avatar, no speaker label', () => {
   })
 })
 
+describe('#753 regression — simple user row hugs the right edge', () => {
+  // CSS grid layout is not computable in jsdom, so we pin the DOM hooks the
+  // stylesheet keys off (`chat-end` + role/timestamp attributes) together with
+  // the explicit grid-column contract that keeps the inline clock from
+  // shoving the user bubble off the right edge.
+  it('user rows carry the end-role + inline-clock hooks the CSS aligns on', () => {
+    render(
+      <ToastProvider>
+        <ChatMessageBubble
+          theme="simple"
+          role="user"
+          agentName="You"
+          text="hello"
+          ts="2026-09-19T00:00:00Z"
+          streaming={false}
+          editing={false}
+          onCancelEdit={() => {}}
+          onSaveEdit={() => {}}
+        />
+      </ToastProvider>,
+    )
+    const row = screen.getByLabelText('You message')
+    expect(row).toHaveClass('chat-end')
+    expect(row).toHaveAttribute('data-message-role', 'user')
+    expect(row).toHaveAttribute('data-timestamp-placement', 'inline')
+    expect(screen.getByTestId('bubble-time-slot')).toHaveClass('os-bubble-time-inline')
+  })
+
+  it('CSS pins the simple clock to column 1 and the user bubble to column 2', () => {
+    const css = cssText()
+    expect(css).toMatch(
+      /\[data-bubble-theme="simple"\] \.chat-end\s*\{[\s\S]*?grid-template-columns:\s*auto 1fr/,
+    )
+    expect(css).toMatch(
+      /\[data-bubble-theme="simple"\] \.chat-end \.os-bubble-time-inline\s*\{[\s\S]*?grid-column-start:\s*1/,
+    )
+    expect(css).toMatch(
+      /\[data-bubble-theme="simple"\] \.chat-end \.chat-bubble\s*\{[\s\S]*?grid-column-start:\s*2[\s\S]*?justify-self:\s*end/,
+    )
+  })
+})
+
 describe('#520.3 irc — full agent name, legible floor', () => {
   it('#675: gutter is a fixed resizable width, body-copy size kept', () => {
     const css = cssText()

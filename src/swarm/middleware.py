@@ -13,6 +13,28 @@ from django.utils.functional import SimpleLazyObject
 logger = logging.getLogger(__name__)
 
 
+def _response_size(response):
+    """Body size of a response in bytes, or None when it is not knowable.
+
+    ``Content-Length`` is authoritative for DRF/Django responses; a streaming
+    or chunked response has no length, and that is reported as unknown rather
+    than guessed — a wrong number in a log is worse than no number.
+    """
+    try:
+        length = response.get("Content-Length")
+        if length is not None:
+            return int(length)
+        content_length = getattr(response, "content_length", None)
+        if content_length is not None:
+            return int(content_length)
+        body = getattr(response, "content", None)
+        if isinstance(body, (bytes, bytearray)):
+            return len(body)
+    except Exception:
+        return None
+    return None
+
+
 class ContentSecurityPolicyMiddleware:
     """Attach Content-Security-Policy when settings.CONTENT_SECURITY_POLICY is set.
 
@@ -188,6 +210,107 @@ class AllowAnonymousPreviewMiddleware:
         return self.get_response(request)
 
 
+# #1342 escape hatch. Anonymous preview on a host that looks public is a
+# legitimate thing to want (a public demo, a kiosk), so the guard below does
+# not forbid it — but it must not happen by accident, so enabling it on a
+# DEBUG=false deployment takes a second, deliberate, greppable opt-in.
+PUBLIC_ANONYMOUS_OPT_IN_ENV = "SWARM_ALLOW_PUBLIC_ANONYMOUS"
+
+_TRUTHY_ENV = frozenset({"1", "true", "yes", "y", "on"})
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV
+
+
+def anonymous_preview_forced_by_env() -> list[str]:
+    """Env var names that force :func:`swarm_allow_anonymous` on, in order.
+
+    Only the *explicit* switches count. The DEBUG+LAN/loopback and pytest
+    allowances are already closed when ``DJANGO_DEBUG`` is false, so they can
+    never hand a session out on the public path the #1342 guard protects.
+    """
+    forced: list[str] = []
+    if _truthy_env("SWARM_ALLOW_ANONYMOUS"):
+        forced.append("SWARM_ALLOW_ANONYMOUS")
+    from swarm.demo.mode import is_demo_mode
+
+    if is_demo_mode():
+        forced.append("SWARM_DEMO_MODE")
+    return forced
+
+
+def public_anonymous_opt_in() -> bool:
+    """True when the operator explicitly accepted public anonymous access."""
+    return _truthy_env(PUBLIC_ANONYMOUS_OPT_IN_ENV)
+
+
+def _describe_allowed_hosts() -> str:
+    """Best-effort ALLOWED_HOSTS for the boot warning (never raises)."""
+    try:
+        hosts = getattr(settings, "ALLOWED_HOSTS", None) or []
+        return ", ".join(str(h) for h in hosts) or "unset"
+    except Exception:  # settings not configured yet, or ALLOWED_HOSTS is odd
+        return "unset"
+
+
+def assert_public_anonymous_allowed() -> None:
+    """#1342: refuse anonymous preview on a public (``DEBUG=false``) host.
+
+    :class:`AllowAnonymousPreviewMiddleware` hands any unauthenticated caller a
+    full logged-in session, and that session satisfies ``HasValidTokenOrSession``
+    for the whole DRF surface — including ``/v1/responses`` (LLM spend). With
+    ``DJANGO_DEBUG`` false the deployment is meant to be reachable by strangers,
+    so an env flag alone must not open it: the operator also has to set
+    ``SWARM_ALLOW_PUBLIC_ANONYMOUS=1``.
+
+    Raises:
+        ImproperlyConfigured: ``DJANGO_DEBUG`` is false, ``SWARM_ALLOW_ANONYMOUS``
+            or ``SWARM_DEMO_MODE`` is truthy, and the public opt-in is absent.
+            The message names the offending variable, the public deployment, and
+            the opt-in escape hatch.
+
+    Returns silently (no raise) when: no anonymous flag is set; ``DJANGO_DEBUG``
+    is true, so the dev/demo path keeps working; or
+    ``SWARM_ALLOW_PUBLIC_ANONYMOUS`` is set — that case logs a loud warning with
+    ``ALLOWED_HOSTS`` so the deliberate exposure stays visible at boot.
+    """
+    forced = anonymous_preview_forced_by_env()
+    if not forced:
+        return
+
+    from swarm.utils.env_utils import is_django_debug
+
+    if is_django_debug():
+        return
+
+    names = " and ".join(forced)
+    verb = "is" if len(forced) == 1 else "are"
+    if public_anonymous_opt_in():
+        logger.warning(
+            "%s %s set on a public host (DJANGO_DEBUG=false) together with %s=1: "
+            "every unauthenticated caller gets a full logged-in session "
+            "(ALLOWED_HOSTS=%s).",
+            names,
+            verb,
+            PUBLIC_ANONYMOUS_OPT_IN_ENV,
+            _describe_allowed_hosts(),
+        )
+        return
+
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        f"{names} {verb} set but DJANGO_DEBUG is not enabled, so this deployment "
+        "looks public. AllowAnonymousPreviewMiddleware would give any "
+        "unauthenticated caller a full logged-in session, including access to "
+        f"/v1/responses (LLM spend). Unset {names} to keep a private deployment, "
+        "set DJANGO_DEBUG=true for local development, or set "
+        f"{PUBLIC_ANONYMOUS_OPT_IN_ENV}=1 to deliberately run a public anonymous "
+        "deployment (a public demo, for example)."
+    )
+
+
 class RequestTelemetryMiddleware:
     """#800: observe every request into the burst-telemetry window.
 
@@ -213,6 +336,9 @@ class RequestTelemetryMiddleware:
                 user_key=str(getattr(getattr(request, "user", None), "pk", "") or ""),
                 source=request.headers.get("X-Swarm-Client-Source", ""),
                 duration_ms=duration_ms,
+                # Response size, so the one-line request record can be
+                # correlated with payload volume without a second pass.
+                response_bytes=_response_size(response),
             )
         except Exception:
             logger.debug("request telemetry record failed", exc_info=True)

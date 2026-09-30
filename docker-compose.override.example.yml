@@ -1,9 +1,9 @@
-# Open Swarm — CLI mapping override (EXAMPLE).
+# Operating Swarm - CLI mapping override (EXAMPLE).
 #
 # The base docker-compose.yml serves the REST API only. To use any agentic-CLI
 # blueprint inside the container you must map that CLI into it yourself: its
 # executable, its runtime (e.g. node for gemini), AND its host-bound auth/state
-# folder. There is no maintained "all CLIs" image — paths, runtimes and login
+# folder. There is no maintained "all CLIs" image - paths, runtimes and login
 # state vary per host/version, so you wire in only what you have.
 #
 # HOW TO USE
@@ -14,16 +14,32 @@
 #   docker compose exec swarm sh -lc 'which claude gemini grok && claude -p hi'
 #
 # CAVEATS (why this is opt-in, not baked in)
+
+# WINDOWS DOCKER (#1718)
+#   Host bin mounts of Windows PE / Chocolatey shims exit 126 inside the
+#   Linux container. The image bakes a Linux opencode at /usr/local/bin;
+#   discovery prefers that when /.dockerenv is present. Do not rely on
+#   mounting C:\...\opencode.exe for seat runs - rebuild with make dev.
+#
+# WINDOWS BLANK HOME (#1766)
+#   Host HOME is often unset on Windows. Base compose falls back to
+#   HOME=/home/swarm and mounts named volume swarm_sandbox_home there so
+#   OpenCode state survives force-recreate. Optionally pin in override:
+#     environment:
+#       HOME: /home/swarm
+#     volumes:
+#       - swarm_sandbox_home:/home/swarm
+#   Do not leave HOME blank — OpenCode then writes /.local (EACCES).
 #   • Bind-mounting host binaries couples the container to your exact paths,
-#     runtime versions and glibc — it works on the machine that built it, it is
+#     runtime versions and glibc - it works on the machine that built it, it is
 #     NOT portable. The alternative is to install the CLI in a custom Dockerfile.
-#   • The auth folder must be writable if the CLI refreshes tokens (most do) —
+#   • The auth folder must be writable if the CLI refreshes tokens (most do) -
 #     mount it read/write (no `:ro`).
 #   • `PATH` below must list every dir holding a CLI you enabled, plus the system
 #     defaults. Trim it to match.
 #   • Paths use ${HOME} so source and target match the host; the container HOME
 #     is set to the same value in the base file. Versions (e.g. node v22.x) are
-#     examples — set yours.
+#     examples - set yours.
 
 services:
   swarm:
@@ -32,7 +48,7 @@ services:
       # Trim to only the dirs for CLIs you actually enable below.
       PATH: "${HOME}/.nvm/versions/node/v22.22.3/bin:${HOME}/.local/bin:${HOME}/.opencode/bin:/usr/local/bin:/usr/bin:/bin"
 
-      # REQ-45 runtime banner (where the *app* runs — not the browser provider).
+      # REQ-45 runtime banner (where the *app* runs - not the browser provider).
       # Mapping $HOME or SWARM_SANDBOX_ROOT below → sandbox-home (warning).
       # Leave them commented → keep base compose sandbox-isolated (green/info).
       # Native / no-container harness: SWARM_RUNTIME_MODE=bare-metal

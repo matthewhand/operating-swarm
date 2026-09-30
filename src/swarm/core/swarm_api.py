@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Swarm API launcher — production path uses ASGI (uvicorn), not runserver."""
+"""Swarm API launcher — production path uses ASGI (uvicorn), not runserver.
+
+Declares this process as serving (``SWARM_PROCESS_ROLE=serve``) before ASGI
+boots so startup hooks do not depend on the console-script name surviving
+in argv. Spawned workers rewrite argv and inherit the environment.
+"""
+
 from __future__ import annotations
 
 import argparse
 import os
 import sys
+
+from swarm.core.serving_process import mark_serving
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -49,6 +57,9 @@ def main(argv: list[str] | None = None) -> None:
         os.environ["SWARM_CONFIG_PATH"] = os.path.expanduser(args.config)
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "swarm.settings")
+    # Set before uvicorn.run so AppConfig.ready (and any spawned worker)
+    # sees a server even though argv[0] is os-api, not uvicorn.
+    mark_serving()
 
     try:
         import uvicorn
@@ -58,6 +69,15 @@ def main(argv: list[str] | None = None) -> None:
             file=sys.stderr,
         )
         raise SystemExit(1) from e
+
+    # ready() runs when uvicorn imports the ASGI app. If Django was already
+    # configured (so ready() will not run again), register hooks now.
+    from django.apps import apps as django_apps
+
+    if django_apps.ready:
+        from swarm.apps import SwarmConfig
+
+        SwarmConfig._start_serving_hooks()
 
     print(f"Launching Operating Swarm API (OS Server) on {args.host}:{args.port}")
     uvicorn.run(

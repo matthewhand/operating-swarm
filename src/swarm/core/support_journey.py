@@ -23,7 +23,7 @@ SUPPORT_KICKSTART_CANNED = (
 
 ADMIN_KICKSTART_CANNED = (
     "Configure API Provider",
-    "What is Open Swarm?",
+    "What is Operating Swarm?",
     "Local Models (Ollama)",
     "Upgrade to LLM",
 )

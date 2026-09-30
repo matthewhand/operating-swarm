@@ -12,6 +12,8 @@
  * 3. ChatPage consumes the module and no longer declares the bottom-dock
  *    JSX inline.
  */
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChatBottomDock } from '../ChatBottomDock'
@@ -194,6 +196,16 @@ describe('#856 slice H — ChatBottomDock', () => {
   })
 
   describe('Prompt rewrite action in + menu (#1069)', () => {
+    // #1220 made rewrite operator-opt-in; #1242: these tests predate that gate
+    // and must opt in explicitly, exactly like production ChatPage does via
+    // composerMenuCapabilities({ rewriteEnabled: true }).
+    const rewriteOnMenu = {
+      addFiles: { enabled: false, reason: '' },
+      compact: { enabled: false, reason: '' },
+      plugins: { enabled: false, reason: '' },
+      rewrite: { enabled: true },
+    }
+
     beforeEach(() => {
       mockEnhancePrompt.mockReset()
     })
@@ -201,7 +213,7 @@ describe('#856 slice H — ChatBottomDock', () => {
     it('renders rewrite prompt action in + menu with disabled state when draft is empty', () => {
       render(
         <ChatBottomDock
-          {...baseProps({ plusOpen: true, input: '' }) as React.ComponentProps<typeof ChatBottomDock>}
+          {...baseProps({ plusOpen: true, input: '', composerMenu: rewriteOnMenu }) as React.ComponentProps<typeof ChatBottomDock>}
         />,
       )
       const btn = screen.getByTestId('composer-enhance-button')
@@ -215,7 +227,7 @@ describe('#856 slice H — ChatBottomDock', () => {
       const setPlusOpen = vi.fn()
       render(
         <ChatBottomDock
-          {...baseProps({ plusOpen: true, input: '', addToast, setPlusOpen }) as React.ComponentProps<typeof ChatBottomDock>}
+          {...baseProps({ plusOpen: true, input: '', addToast, setPlusOpen, composerMenu: rewriteOnMenu }) as React.ComponentProps<typeof ChatBottomDock>}
         />,
       )
       const btn = screen.getByTestId('composer-enhance-button')
@@ -243,6 +255,7 @@ describe('#856 slice H — ChatBottomDock', () => {
             input: 'test prompt',
             setInput,
             setPlusOpen,
+            composerMenu: rewriteOnMenu,
           }) as React.ComponentProps<typeof ChatBottomDock>}
         />,
       )
@@ -266,6 +279,7 @@ describe('#856 slice H — ChatBottomDock', () => {
             plusOpen: true,
             input: 'failing prompt',
             addToast,
+            composerMenu: rewriteOnMenu,
           }) as React.ComponentProps<typeof ChatBottomDock>}
         />,
       )
@@ -281,5 +295,14 @@ describe('#856 slice H — ChatBottomDock', () => {
         )
       })
     })
+  })
+
+  it('the mic hold does not open a context menu', () => {
+    render(<ChatBottomDock {...baseProps({}) as React.ComponentProps<typeof ChatBottomDock>} />)
+    const mic = screen.getByTestId('composer-mic')
+    expect(mic.className).toContain('os-composer__mic')
+    expect(fireEvent.contextMenu(mic)).toBe(false)
+    const css = fs.readFileSync(path.resolve(__dirname, '../../../index.css'), 'utf8')
+    expect(css).toMatch(/\.os-composer__mic\s*\{[^}]*touch-action:\s*none/)
   })
 })

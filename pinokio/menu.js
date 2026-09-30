@@ -1,4 +1,4 @@
-// Open Swarm — Pinokio launcher (local sideload only).
+// Operating Swarm — Pinokio launcher (local sideload only).
 // Sideload via git URL. No public Discover listing from this tree.
 //
 // Loaded via the clone-root pinokio.js re-export. Menu hrefs point at
@@ -108,8 +108,8 @@ async function menu(kernel, info) {
 
 module.exports = {
   version: "2.0",
-  title: "Open Swarm",
-  description: "Open Swarm — multi-agent AI workflows as a local CLI, OpenAI-compatible API, and web UI.",
+  title: "Operating Swarm",
+  description: "Operating Swarm — multi-agent AI workflows as a local CLI, OpenAI-compatible API, and web UI.",
   icon: "assets/brand/favicon-minimal.svg",
   menu,
 }

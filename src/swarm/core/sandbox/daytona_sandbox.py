@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import SandboxBackend, SandboxConfig, SandboxExecutionResult
+from .registry import register_live_sandbox, unregister_live_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,8 @@ class DaytonaSandbox(SandboxBackend):
         daytona = Daytona(DaytonaConfig(**kwargs))
         self._client = daytona
         self._sandbox = self._create_remote(daytona)
+        # #720: expose this live microVM to the sandbox-display endpoint.
+        register_live_sandbox(self)
         self._register_cleanup()
         extra = self.config.extra_options or {}
         if getattr(self.config, "sync_workspace", False) or extra.get("sync_workspace"):
@@ -186,6 +189,79 @@ class DaytonaSandbox(SandboxBackend):
             return False
         return bool(self._api_key())
 
+    @property
+    def browser_supported(self) -> bool:
+        """Daytona microVMs can run headless Chromium + Playwright (#1200)."""
+        return True
+
+    # -- #720 live-state surface (read-only; never creates a sandbox) -------
+
+    @property
+    def sandbox_id(self) -> str | None:
+        """Remote sandbox id once a VM exists, else None (no creation)."""
+        sandbox = self._sandbox
+        if sandbox is None:
+            return None
+        value = getattr(sandbox, "id", None)
+        text = str(value).strip() if value else ""
+        return text or None
+
+    @property
+    def sandbox_status(self) -> str | None:
+        """Remote sandbox status/state once a VM exists, else None."""
+        sandbox = self._sandbox
+        if sandbox is None:
+            return None
+        for attr in ("status", "state"):
+            value = getattr(sandbox, attr, None)
+            if value is None:
+                continue
+            # SDK enums stringify to ``SandboxState.STARTED``; prefer ``.value``.
+            text = str(getattr(value, "value", value)).strip()
+            if text:
+                return text
+        return None
+
+    @property
+    def preview_url(self) -> str | None:
+        """A browser preview URL for the live VM, or None.
+
+        Resolution order: an explicit ``preview_url`` attribute/method on the
+        sandbox object, then ``sandbox.get_preview_link(port)`` for the
+        configured ``preview_port`` (default 3000). Reads only — never
+        triggers sandbox creation.
+        """
+        sandbox = self._sandbox
+        if sandbox is None:
+            return None
+
+        direct = getattr(sandbox, "preview_url", None)
+        if callable(direct):
+            try:
+                direct = direct()
+            except Exception:  # pragma: no cover — defensive
+                direct = None
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+
+        link = getattr(sandbox, "get_preview_link", None)
+        if callable(link):
+            extra = self.config.extra_options or {}
+            raw_port = extra.get("preview_port", 3000)
+            try:
+                ports = [int(raw_port)]
+            except (TypeError, ValueError):
+                ports = [3000]
+            for port in ports:
+                try:
+                    resolved = link(port)
+                except Exception:
+                    continue
+                url = getattr(resolved, "url", resolved)
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+        return None
+
     # -- #719 file transfer surface (manager-facing, honest degrade) --------
 
     def upload_bytes(self, remote_path: str, data: bytes) -> bool:
@@ -219,6 +295,8 @@ class DaytonaSandbox(SandboxBackend):
         client = self._client
         self._sandbox = None
         self._client = None
+        # #720: the display must stop showing a VM the moment it is torn down.
+        unregister_live_sandbox()
         if sandbox is None:
             return
         sandbox_id = getattr(sandbox, "id", None) or "?"
@@ -353,10 +431,15 @@ class DaytonaSandbox(SandboxBackend):
             if process is None or not hasattr(process, "exec"):
                 raise RuntimeError("Daytona sandbox has no process.exec")
             try:
-                response = process.exec(argv, timeout=timeout or self.config.timeout_seconds)
-            except TypeError:
+                # daytona>=0.5 Process.exec takes a shell string; passing the
+                # argv list trips pydantic's ValidationError (a ValueError, not
+                # a TypeError), so always join/quote first.
                 cmd = " ".join(shlex.quote(part) for part in argv)
                 response = process.exec(cmd, timeout=timeout or self.config.timeout_seconds)
+            except TypeError:
+                # Older SDKs may reject the ``timeout`` keyword.
+                cmd = " ".join(shlex.quote(part) for part in argv)
+                response = process.exec(cmd)
             exit_code = int(getattr(response, "exit_code", 0) or 0)
             stdout = str(getattr(response, "result", "") or "")
             stderr = str(getattr(response, "stderr", "") or "")

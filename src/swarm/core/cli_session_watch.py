@@ -30,6 +30,7 @@ from django.utils import timezone
 from swarm.core import chat_store
 from swarm.core.cli_sessions import (
     extract_session_id,
+    get_cli_session,
     sanitize_cli_session_id,
     session_notice_text,
 )
@@ -56,6 +57,27 @@ def _user_queue(user_key: str) -> "deque[dict[str, Any]]":
 
 
 _queues: dict[str, deque[dict[str, Any]]] = {}
+
+
+# ── Last-seen CLI session ids ───────────────────────────────────────────────
+#
+# user_key -> {cli_name: session_id}, i.e. the `last_sid` mapping the poller
+# diffs each tick.
+#
+# This binding was MISSING. All three of its uses read it through a
+# self-import (`from swarm.core.cli_session_watch import _last_sids`) inside a
+# function body, so every one of them raised
+#   ImportError: cannot import name '_last_sids' from 'swarm.core.cli_session_watch'
+# before doing any work: `start_poller` at its first statement, and
+# `_poll_and_notify` at its own first statement. The poller therefore could
+# never complete a tick and never emitted a `cli_session_update` frame.
+#
+# `ruff check --select F821` cannot see this — a self-import of a name that
+# does not exist is an ImportError at runtime, not an undefined-name load —
+# which is why the module sat broken with a clean F821 report. It needs a test
+# that actually calls the function; see
+# tests/core/test_cli_session_watch_get_cli_session.py.
+_last_sids: dict[str, dict[str, str]] = {}
 
 
 # ── Poller ──────────────────────────────────────────────────────────────────

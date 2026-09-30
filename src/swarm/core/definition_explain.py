@@ -149,7 +149,7 @@ ROLE_FALLBACK_SOURCE = {
 }
 
 SUMMARIZER_SYSTEM = (
-    "You summarise an Open Swarm role, blueprint, or team definition for an operator. "
+    "You summarise an Operating Swarm role, blueprint, or team definition for an operator. "
     "Use only the provided source and injected context. Do not invent secrets, tokens, "
     "credentials, or personal data. Write 3-6 short sentences explaining how it works "
     "at runtime (tools, handoffs, approvals, retries). No raw file dump."

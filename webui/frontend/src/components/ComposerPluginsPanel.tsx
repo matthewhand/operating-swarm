@@ -12,7 +12,7 @@ import { loadPluginCatalog, type PluginCatalogSource, type PluginTool } from '..
 import { loadEnabledPluginToolIds, setPluginToolEnabled } from '../lib/chatPluginTools'
 import { useCurrentAgent } from '../lib/currentAgent'
 import { PluginToggleRow } from './PluginToggleRow'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 
 function sourceCopy(source: PluginCatalogSource): string {
   if (source === 'live') return 'Tools from connected MCP servers.'

@@ -5,11 +5,11 @@
  * GenerationsPanel, and SessionPicker. Pure presentation — ChatPage keeps
  * the state and passes it as props.
  */
-import type * as React from 'react'
+import { Suspense, type ReactNode } from 'react'
 
 type Props = Record<string, any>
 
-export function ChatOverlays(props: Props): React.ReactNode {
+export function ChatOverlays(props: Props): ReactNode {
   const {
     COPY_EMPTY_MESSAGE,
     COPY_EMPTY_TITLE,
@@ -164,36 +164,48 @@ export function ChatOverlays(props: Props): React.ReactNode {
         </>
       )}
 
-      <TokenDiagnosticsModal
-        isOpen={tokenDiagOpen}
-        onClose={() => setTokenDiagOpen(false)}
-        agentName={selectedAgentName}
-        conversationId={conversationId}
-        tokenCount={tokenCount}
-        contextMax={contextMax}
-        inputTokens={inputTokens}
-        outputTokens={outputTokens}
-        compactsCount={summaries.length}
-        toolCallsCount={toolCallsCount}
-        messageCount={messages.length}
-        userMessageCount={userMessageCount}
-        assistantMessageCount={assistantMessageCount}
-        contextStrategy={contextStrategy}
-        lastContextEvent={contextMeta.last_event}
-      />
+      {tokenDiagOpen ? (
+        <Suspense fallback={null}>
+          <TokenDiagnosticsModal
+            isOpen={tokenDiagOpen}
+            onClose={() => setTokenDiagOpen(false)}
+            agentName={selectedAgentName}
+            conversationId={conversationId}
+            tokenCount={tokenCount}
+            contextMax={contextMax}
+            inputTokens={inputTokens}
+            outputTokens={outputTokens}
+            compactsCount={summaries.length}
+            toolCallsCount={toolCallsCount}
+            messageCount={messages.length}
+            userMessageCount={userMessageCount}
+            assistantMessageCount={assistantMessageCount}
+            contextStrategy={contextStrategy}
+            lastContextEvent={contextMeta.last_event}
+          />
+        </Suspense>
+      ) : null}
 
-      <SkillPopup
-        name={openSkillName}
-        open={openSkillName != null}
-        onClose={() => setOpenSkillName(null)}
-        catalog={skillCatalog}
-      />
+      {openSkillName != null ? (
+        <Suspense fallback={null}>
+          <SkillPopup
+            name={openSkillName}
+            open
+            onClose={() => setOpenSkillName(null)}
+            catalog={skillCatalog}
+          />
+        </Suspense>
+      ) : null}
 
-      <RawResponseModal
-        isOpen={rawResponseModalText !== null}
-        onClose={() => setRawResponseModalText(null)}
-        text={rawResponseModalText ?? ''}
-      />
+      {rawResponseModalText !== null ? (
+        <Suspense fallback={null}>
+          <RawResponseModal
+            isOpen
+            onClose={() => setRawResponseModalText(null)}
+            text={rawResponseModalText ?? ''}
+          />
+        </Suspense>
+      ) : null}
 
       <ConfirmModal
         isOpen={startFromHereWarning != null}
@@ -214,22 +226,27 @@ export function ChatOverlays(props: Props): React.ReactNode {
         </p>
       </ConfirmModal>
 
-      <GenerationsPanel
-        open={generationsOpen}
-        onClose={() => setGenerationsOpen(false)}
-        agentId={headerFaceAgentId}
-        agentName={selectedAgentName || 'Agent'}
-        contexts={generationContexts}
-        activeContextId={conversationId}
-        onSwitchContext={() => {
-          /* Single-context today; multi-context switching lands with session history UI. */
-        }}
-        toolCalls={seatToolCalls}
-      />
+      {generationsOpen ? (
+        <Suspense fallback={null}>
+          <GenerationsPanel
+            open={generationsOpen}
+            onClose={() => setGenerationsOpen(false)}
+            agentId={headerFaceAgentId}
+            agentName={selectedAgentName || 'Agent'}
+            contexts={generationContexts}
+            activeContextId={conversationId}
+            onSwitchContext={() => {
+              /* Single-context today; multi-context switching lands with session history UI. */
+            }}
+            toolCalls={seatToolCalls}
+          />
+        </Suspense>
+      ) : null}
 
-
+      {remoteThreadPicker !== null ? (
+      <Suspense fallback={null}>
       <SessionPicker
-        open={remoteThreadPicker !== null}
+        open
         title={remoteFromUrl || 'Remote'}
         sessions={remoteThreadPicker ?? []}
         onClose={() => setRemoteThreadPicker(null)}
@@ -248,6 +265,8 @@ export function ChatOverlays(props: Props): React.ReactNode {
           setRemoteThreadPicker(null)
         }}
       />
+      </Suspense>
+      ) : null}
     </>
   )
 }

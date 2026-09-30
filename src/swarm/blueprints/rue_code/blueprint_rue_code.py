@@ -3,6 +3,16 @@ RueCode Blueprint
 
 Viral docstring update: Operational as of 2025-04-18T10:14:18Z (UTC).
 Self-healing, fileops-enabled, swarm-scalable.
+
+.. warning::
+
+   **This seat does not answer.** The fileops / shell / cost tools below are
+   real ``function_tool``s, but they are never handed to a model, so there is
+   no model turn behind this seat. It used to reply with a hardcoded
+   "Code Results / Semantic Results" table instead, which reads as an analysis
+   of your repo and is not one. :meth:`RueCodeBlueprint.run` now returns the
+   shared honest refusal and marks the seat broken via ``seat_health``. Wire an
+   ``Agent`` to the tools above to make it real.
 """
 import logging
 import os
@@ -11,9 +21,20 @@ import subprocess
 import time
 from pathlib import Path
 
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.blueprints.common.operation_box_utils import display_operation_box
 from swarm.core.blueprint_ux import BlueprintUX
 from swarm.core.config_loader import load_full_configuration
+
+#: Why this seat cannot answer, and what to use instead.
+NO_MODEL_WIRING_REASON = (
+    "this recipe's fileops / shell / cost tools are never handed to a model, so "
+    "there is no agent behind it to produce a turn"
+)
+NO_MODEL_WIRING_REMEDY = (
+    "use `cli_agent` or `cli_map` for file-backed work, `codey` for code "
+    "generation, or attach these tools to an `Agent` to make this seat real"
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(asctime)s - %(name)s - %(message)s')
@@ -288,12 +309,17 @@ class RueCodeBlueprint(BlueprintBase):
     Uses Jinja2 for templating prompts and provides tools for shell commands and file operations.
     """
     metadata = {
+        **unavailable.placeholder_metadata(),
         "name": "RueCode",
-        "description": "Generates, executes code, and interacts with the file system.",
+        "title": "Rue Code (tool seat — not wired to a model)",
+        "description": (
+            "Fileops / shell / cost tools, not yet attached to an agent. This "
+            "seat does not answer; use cli_agent or codey for real turns."
+        ),
         "author": "Matthew Hand",
         "version": "0.1.0",
-        "tags": ["code", "execution", "filesystem", "developer"],
-        "llm_profile": "default_dev" # Example: Suggests a profile suitable for coding
+        "tags": ["code", "execution", "filesystem", "developer", "placeholder"],
+        "llm_profile": "default_dev"  # Example: Suggests a profile suitable for coding
     }
 
     def __init__(self, blueprint_id: str = "rue_code", config=None, config_path=None, **kwargs):
@@ -339,6 +365,14 @@ class RueCodeBlueprint(BlueprintBase):
 
     async def run(self, messages: list[dict[str, str]], **kwargs):
         # **kwargs: the API layer passes options like stream=; accept and ignore.
+        #
+        # The fileops and shell tools above are real `function_tool`s, but nothing
+        # ever handed them to a model: this recipe carried a `DummyLLM` and
+        # returned a hardcoded "Code Results / Semantic Results" table built from
+        # two literal strings. The agent sweep scored that 1.9s table as a reply,
+        # which is worse than an error — it looks like analysis of *your* repo and
+        # is fiction. There is no prompt this seat can honestly answer, so it says
+        # so instead of generating one.
         logger.info("RueCodeBlueprint run method called.")
         last_user_message = next((m['content'] for m in reversed(messages) if m['role'] == 'user'), None)
         if not last_user_message:
@@ -347,56 +381,15 @@ class RueCodeBlueprint(BlueprintBase):
                 content="I need a user message to proceed.",
                 emoji="📝"
             )
-            spinner_frames = ["Generating.", "Generating..", "Generating...", "Running..."]
-            for frame in spinner_frames:
-                yield frame
-            yield 'RueCode Error'
             yield {"messages": [{"role": "assistant", "content": self.ux.box("Error", "I need a user message to proceed.")}]}
             return
-        prompt_context = {
-            "user_request": last_user_message,
-            "history": messages[:-1],
-            "available_tools": ["rue_code"]
-        }
-        rendered_prompt = self.render_prompt("rue_code_prompt.j2", prompt_context)
-        self.spinner.start()
-        prompt_tokens = len(rendered_prompt) // 4
-        completion_tokens = 64
-        model = self._config.get('llm', {}).get('default', {}).get('model', 'gpt-3.5-turbo')
-        cost_str = llm_cost_tool(model, prompt_tokens, completion_tokens, self._config)
-        code_results = ["def foo(): ...", "def bar(): ..."]
-        semantic_results = ["This function sorts a list.", "This function calculates a sum."]
-        spinner_frames = ["Generating.", "Generating..", "Generating...", "Running..."]
-        for frame in spinner_frames:
-            yield frame
-        yield 'RueCode Code Results'
-        yield 'RueCode Semantic Results'
-        yield 'RueCode Summary'
-        for idx, label in enumerate(["code", "semantic"]):
-            self.spinner._spin()
-            display_operation_box(
-                title=f"RueCode {label.title()} Results",
-                content=self.code_vs_semantic(label, code_results if label=="code" else semantic_results),
-                style="bold cyan" if label=="code" else "bold magenta",
-                result_count=len(code_results if label=="code" else semantic_results),
-                params={"user_request": prompt_context["user_request"]},
-                spinner_state=self.spinner.current_spinner_state(),
-                progress_line=idx+1,
-                total_lines=2,
-                emoji="📝"
-            )
-        display_operation_box(
-            title="RueCode Summary",
-            content=f"{self.summary('Analyzed codebase', 4, prompt_context['user_request'])}\n\n{cost_str}",
-            emoji="📝"
+        yield unavailable.cannot_answer_chunk(
+            self.blueprint_id or "rue_code",
+            why=NO_MODEL_WIRING_REASON,
+            remedy=NO_MODEL_WIRING_REMEDY,
+            backends=["rue_code"],
         )
-        yield cost_str
-        yield {"messages": [{"role": "assistant", "content": self.ux.box(
-            "RueCode Results",
-            self.code_vs_semantic("code", code_results) + "\n" + self.code_vs_semantic("semantic", semantic_results) + f"\n\n{cost_str}",
-            summary=self.summary("Analyzed codebase", 4, prompt_context["user_request"])
-        )}]}
-        logger.info("RueCodeBlueprint run finished.")
+        logger.info("RueCodeBlueprint run finished (no model wiring).")
 
 if __name__ == "__main__":
     import asyncio

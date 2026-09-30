@@ -1,8 +1,8 @@
-# Open Swarm MCP - Static Node.js WebUI Implementation
+# Operating Swarm MCP - Static Node.js WebUI Implementation
 
 ## Overview
 
-This implementation adds a modern, static Node.js web UI to Open Swarm MCP, similar to the ChattyCommander implementation, using DaisyUI v5 components and React.
+This implementation adds a modern, static Node.js web UI to Operating Swarm MCP, similar to the ChattyCommander implementation, using DaisyUI v5 components and React.
 
 ## Changes Made
 
@@ -172,4 +172,4 @@ Potential improvements:
 
 ## Conclusion
 
-This implementation successfully integrates a modern, static Node.js web UI into Open Swarm MCP, providing a significantly improved user experience while maintaining backward compatibility with the existing Django template system.
+This implementation successfully integrates a modern, static Node.js web UI into Operating Swarm MCP, providing a significantly improved user experience while maintaining backward compatibility with the existing Django template system.

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "agent_routines_pack",
+  "object": "agent_routines_pack",
+  "routines": [
+    {
+      "key": "github_issue_solver",
+      "name": "GitHub Issue Solver (Issue → PR)",
+      "description": "Investigate new issues in {{owner_repo}} and open a fix PR.",
+      "instruction": "Investigate the issue in {{owner_repo}}, implement a fix, and open a pull request.",
+      "trigger": {
+        "kind": "github_event",
+        "event_type": "issues.opened",
+        "owner_repo": "{{owner_repo}}",
+        "filters": {
+          "exclude_authors": ["open-swarm[bot]"]
+        }
+      }
+    }
+  ]
+}

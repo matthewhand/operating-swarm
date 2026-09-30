@@ -110,6 +110,49 @@ def test_write_and_read_bytes_are_user_scoped(tmp_path):
     assert chat_attachments.read_bytes(_User(), aid, base_dir=tmp_path) == b"abc"
 
 
+def test_compose_user_content_audio_is_not_an_image_part():
+    body = chat_attachments.compose_user_content(
+        "",
+        [
+            {
+                "name": "voice-note.webm",
+                "content_type": "audio/webm",
+                "size": 4,
+                "data": b"RIFF",
+            }
+        ],
+    )
+    assert isinstance(body, str)
+    assert "image_url" not in body
+    assert "data:image" not in body
+    assert "voice-note.webm" in body
+    assert "audio/webm" in body
+
+
+def test_guess_content_type_audio_extensions():
+    assert chat_attachments.guess_content_type("voice-note.webm") == "audio/webm"
+    assert chat_attachments.guess_content_type("memo.mp3") == "audio/mpeg"
+    assert chat_attachments.is_audio_content_type("audio/webm") is True
+    assert chat_attachments.is_audio_content_type("image/png") is False
+
+
+def test_normalized_content_type_drops_parameters_and_header_injection():
+    assert (
+        chat_attachments.normalized_content_type("audio/webm;codecs=opus", "voice-note.webm")
+        == "audio/webm"
+    )
+    assert (
+        chat_attachments.normalized_content_type("text/html\r\nX-Injected: yes", "page.html")
+        == "text/html"
+    )
+    assert chat_attachments.normalized_content_type("", "voice-note.webm") == "audio/webm"
+
+
+def test_content_path_is_same_origin():
+    aid = str(uuid.uuid4())
+    assert chat_attachments.content_path(aid) == f"/v1/chat/attachments/{aid}/content"
+
+
 def test_excerpt_text_only_for_text_types():
     assert chat_attachments.excerpt_text(b"hi", "text/plain") == "hi"
     assert chat_attachments.excerpt_text(b"{}", "application/json") == "{}"

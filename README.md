@@ -7,7 +7,7 @@
 
 **Operating Swarm (OS)** is a provider-agnostic agent operating layer and harness. It runs its own native agentic execution (`os-core`), connects to external harnesses (`os-adapter-hermes`, `os-adapter-truforge`), and peers with other Operating Swarm instances (`os-peer`). Sessions persist while switching providers, harnesses, or OS nodes. OS is **not only a UI, wrapper, gateway, adapter, or supervisor.**
 
-Three interfaces sit on that core: **OS WebUI** (`os-webui`), **OS CLI** (`os-cli`, shortcut `os`), and the OpenAI-compatible **OS API** (`os-api`). Umbrella repository: **`operating-swarm`**. Python import path remains `swarm`.
+Three interfaces sit on that core: **OS WebUI** (`os-webui`), **OS CLI** (`os-cli`, shortcut `os`), and the OpenAI-compatible **OS API** (`os-api`). A fourth, optional surface is the desktop tray **`os-marchy-systray`** — it lists your bots grouped by rig/team and connects to a local OS (auto-detected) or a remote instance ([#1306](https://github.com/matthewhand/open-swarm-private/issues/1306)). Umbrella repository: **`operating-swarm`**. Python import path remains `swarm`.
 
 It seats four kinds of agents — **CLI**, **API** (true inference), **Blueprint** (programmatic / openai-agents), and **Remote** — and composes them with **handoff** and **agent-as-tool**. The same blueprint runs from `os-cli` and from `/v1/chat/completions`.
 
@@ -45,6 +45,21 @@ Compact walkthroughs of Operating Swarm's core agent capabilities — from indiv
 
 ---
 
+## What's new (2026-09, on `main`)
+
+- **Provider/model namespace safety.** API-profile ids and CLI model ids are **different namespaces**; a single validator (`swarm/core/model_namespace.py`) ensures no seat or picker ever offers/applies a model its provider cannot run — e.g. an API slug is never passed to `agy --model`, and the opencode picker hides the app-only `opencode/*` tier.
+- **Browser / computer control.** Sandbox `sandbox_browser_*` tools (navigate / click / type / snapshot / screenshot) run Playwright + Chromium **inside** the agent's sandbox over a persistent CDP port, with a **live sandbox display** (VM id/status/preview, credential env-var name) in the UI ([#1200](https://github.com/matthewhand/open-swarm-private/issues/1200), [#1201](https://github.com/matthewhand/open-swarm-private/issues/1201)).
+- **Client-side WebGPU provider** (experimental, OFF by default). A flag-gated in-browser provider with a Web Worker generate protocol, resumable model download + integrity + cache management ([#1288](https://github.com/matthewhand/open-swarm-private/issues/1288)).
+- **Desktop systray.** `os-marchy-systray` — bots in the system tray, grouped by rig/team, local auto-detect or a remote OS instance ([#1306](https://github.com/matthewhand/open-swarm-private/issues/1306)).
+- **Hack code font.** [Hack](https://sourcefoundry.org/hack/) is self-hosted and is the default **code-block** font; also selectable in Settings → Aesthetics. Provider dropdowns use brand SVG icons ([#1249](https://github.com/matthewhand/open-swarm-private/issues/1249)).
+- **Rigs.** Teams rebranded to **Rigs** with an OpenRig topology view; **`role@rig`** qualified addresses (sections = dynamic rigs, teams = static rigs) ([#1222](https://github.com/matthewhand/open-swarm-private/issues/1222), [#1224](https://github.com/matthewhand/open-swarm-private/issues/1224)).
+- **Chat polish.** Navbar Agent & Session pickers, agent-config sidepane, per-agent composer drafts (typed text survives agent switches), live WS rendering, bounded streaming with a configurable fallback base URL, configurable agent LLM timeout.
+- **Remote ask-user bridge.** A remote agent can ask a question mid-turn and resume after your answer (TrueForge pauses resume via `user.tool_response`) ([#1307](https://github.com/matthewhand/open-swarm-private/issues/1307)).
+
+Letta's dedicated remote was **removed** (Letta migrates to a plain OpenAI-compatible **API** profile) ([#1332](https://github.com/matthewhand/open-swarm-private/issues/1332)).
+
+---
+
 ## WebUI (start here)
 
 Product chrome is the Grok-like SPA: rail, remotes, sessions, Settings sheet. `/` and `/chat` are that chrome. Django trailing-slash pages (`/blueprint-library/`, `/settings/`, `/sessions/`, …) stay the operator dump — not the pitch.
@@ -78,6 +93,7 @@ Without `dist/`, `/` falls back to Django templates. Rebuild after SPA pulls. Au
 - **2026-06** — MoA, CLI fusion, `/v1/responses`. Last **published** cut: **v0.5.4** (2026-06-19). PyPI summary still says “Orchestrating AI Agent Swarms with Django.”
 - **2026-07+** — Remotes, Team handoff rosters, Herdr, Grok-like WebUI chrome — **on `main`, not in 0.5.4**.
 - **2026-09** — Kinds lock: CLI | API | Blueprint | Remote. Team = Blueprint subtype. WebUI first-class. Built on the [openai-agents SDK](https://github.com/openai/openai-agents-python).
+- **2026-09 (late)** — Provider/model namespace safety, browser control + live sandbox display, experimental client-side WebGPU provider, `os-marchy-systray`, Rigs + `role@rig`, Hack code font, per-agent composer drafts. See **What's new** above.
 
 ---
 
@@ -90,7 +106,7 @@ Four user-facing kinds. **Team is not a fifth kind.**
 | **CLI** | Host executable (`grok`, `agy`, `claude`, `gemini`, `opencode`, …). Native session. |
 | **API** | **True inference seat** — OpenAI-compatible chat completions (base URL / model / key-env). Not a graph. |
 | **Blueprint** | **Programmatic recipe** — openai-agents handoffs, MoA, custom Python. May *use* inference underneath; the seat is the recipe. Same id via CLI and API only — blueprints do not ship a webpage. The Grok-like WebUI is the product chrome. |
-| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr** (and nested Operating Swarm / OS instance). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. |
+| **Remote** | Another agentic harness. Implementations: **Hermes**, **OpenMousBot**, **Rakazo**, **Herdr**, **TrueForge** (and nested Operating Swarm / OS instance). Variants are adapters, not extra kinds. Herdr is SSH-shaped, not another HTTP remote. (Letta's dedicated remote was removed — Letta is an OpenAI-compatible **API** profile now.) |
 
 **Team** = a **Blueprint subtype**: a roster plus openai-agents **handoff / agent-as-tool** so CLI, API, Blueprint, and Remote members can see and talk. Do not call `/v1/teams` aliases a Team — those are **Profiles** (LLM-profile aliases).
 
@@ -182,11 +198,12 @@ Then **Install** → **Start** → **Open App**. Compose sets `SWARM_RUNTIME=san
 - [docs/VISION.md](docs/VISION.md) — where we are going (kinds, WebUI, remotes)
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — kinds, Team vs Profiles vs roster
 - [USERGUIDE.md](./USERGUIDE.md) — `os-cli` tasks
+- [`os-marchy-systray/`](os-marchy-systray/README.md) — desktop tray client (bots grouped by rig/team; local or remote OS)
 - [docs/REMOTE_HARNESSES.md](docs/REMOTE_HARNESSES.md) · [docs/HERDR.md](docs/HERDR.md)
 - [docs/AUTH.md](docs/AUTH.md) · [CONFIGURATION.md](./CONFIGURATION.md) (`swarm_config.example.json`)
 - [FEATURE_STATUS.md](./FEATURE_STATUS.md) · [ROADMAP.md](./ROADMAP.md)
 - [docs/DEVELOPER.md](docs/DEVELOPER.md) — gateway, `/v1/responses`, dated history, contribution pointers
-- [docs/diagrams/](docs/diagrams/README.md) — visual architecture stack, taxonomy tree, lifecycle state machine, and delegation sequence diagrams
+- [docs/diagrams/](docs/diagrams/README.md) — visual docs: hero overview, system architecture & trust boundaries, deployment, request/auth/async sequence diagrams, data flow, integrations, security, operations, and the legacy abstraction maps (editable HTML/SVG sources + generated previews)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 Recipes and pattern diagrams stay in [docs/EXAMPLES.md](docs/EXAMPLES.md) and [docs/ORCHESTRATION_PATTERNS.md](docs/ORCHESTRATION_PATTERNS.md) — they are not the front door.

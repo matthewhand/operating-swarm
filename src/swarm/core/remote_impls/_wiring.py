@@ -1,5 +1,5 @@
 """#812 slice 5 — REQ-203 harness wiring, moved verbatim out of
-``swarm.core.remotes``. The 11 ``RemoteHarness`` registrations (binders,
+``swarm.core.remotes``. The ``RemoteHarness`` registrations (binders,
 bound senders, ``_install_remote_harnesses``) live here; ``remotes``
 imports this module and calls :func:`install` once at import. References
 to ``remotes`` names go through ``R`` so monkeypatching still lands.
@@ -8,7 +8,17 @@ to ``remotes`` names go through ``R`` so monkeypatching still lands.
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # annotations only, never evaluated at runtime
+    # These names are used in ANNOTATIONS ONLY -- 'from __future__ import
+    # annotations' keeps them strings, never evaluated at runtime -- and a
+    # runtime import of swarm.core.remotes here would close the import cycle
+    # these modules exist to avoid: their bodies reach remotes through the
+    # lazily-imported module object 'R' instead. Without this declaration
+    # ruff F821 reports every one of those annotations as an undefined name
+    # and a type checker resolves them to nothing.
+    from swarm.core.remotes import HealthResult, OperateResult, RemoteSpec
 
 R: Any = importlib.import_module("swarm.core.remotes")
 
@@ -110,19 +120,6 @@ def _openwebui_send_bound(
     )
 
 
-def _letta_send_bound(
-    spec: R.RemoteSpec,
-    prompt: str,
-    target: str = "",
-    *,
-    timeout: float,
-    config: dict[str, Any] | None = None,  # noqa: ARG001
-    session_id: str | None = None,
-) -> R.OperateResult:
-    send_timeout = timeout if timeout >= 30 else R._LETTA_SEND_TIMEOUT_S
-    return R._letta_send(spec, prompt, send_timeout, session_id=session_id, target=target)
-
-
 def _omb_send_bound(
     spec: R.RemoteSpec,
     prompt: str,
@@ -169,6 +166,51 @@ def _trueforge_send_bound(
     session_id: str | None = None,
 ) -> R.OperateResult:
     return R._trueforge_send(spec, prompt, target=target, timeout=timeout, session_id=session_id)
+
+
+def _octop_send_bound(
+    spec: R.RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> R.OperateResult:
+    return R._octop_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+def _openmuse_send_bound(
+    spec: R.RemoteSpec,
+    prompt: str,
+    target: str = "",
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,  # noqa: ARG001
+    session_id: str | None = None,
+) -> R.OperateResult:
+    return R._openmuse_send(spec, prompt, timeout, session_id=session_id, target=target)
+
+
+def _openmuse_operate_bound(
+    spec: R.RemoteSpec,
+    op: str,
+    *,
+    timeout: float,
+    config: dict[str, Any] | None = None,
+    prompt: str = "",
+    target: str = "",
+    session_id: str | None = None,
+) -> R.OperateResult:
+    return R._openmuse_operate(
+        spec,
+        op,
+        timeout=timeout,
+        config=config,
+        prompt=prompt,
+        target=target,
+        session_id=session_id,
+    )
 
 
 def _trueforge_routines_bound(
@@ -222,6 +264,7 @@ def _install_remote_harnesses() -> None:
     """Map existing remotes.py adapters onto :class:`RemoteHarness` (REQ-203)."""
     from swarm.core.remote_harness import (
         BoundRemoteHarness,
+        RemoteCapabilities,
         capabilities_for,
         register_harness,
     )
@@ -289,16 +332,6 @@ def _install_remote_harnesses() -> None:
     )
     register_harness(
         BoundRemoteHarness(
-            impl_id="letta",
-            label="Letta",
-            capabilities=capabilities_for("letta"),
-            health_fn=_bind_health("letta"),
-            list_fn=_bind_http_list(R._letta_list),
-            send_fn=_letta_send_bound,
-        )
-    )
-    register_harness(
-        BoundRemoteHarness(
             impl_id="openwebui",
             label="Open WebUI",
             capabilities=capabilities_for("openwebui"),
@@ -331,11 +364,51 @@ def _install_remote_harnesses() -> None:
         BoundRemoteHarness(
             impl_id="trueforge",
             label="TrueForge",
-            capabilities=capabilities_for("trueforge"),
+            # Declared by the impl, not a core vendor table: TrueForge exposes
+            # GET /api/v1/sessions, so the picker must offer resume.
+            capabilities=RemoteCapabilities(routines=True, sessions=True, elicit_questions=True),
             health_fn=_bind_health("trueforge"),
             list_fn=_bind_http_list(R._trueforge_list),
             send_fn=_trueforge_send_bound,
             routines_fn=_trueforge_routines_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="octop",
+            label="Tencent Octop",
+            # Threads live on the Octop server. OS sends one turn and resumes
+            # agent_id:thread_id; it does not replay history or pin a model.
+            capabilities=RemoteCapabilities(
+                sessions=True,
+                server_managed_context=True,
+                transport="http",
+            ),
+            health_fn=_bind_health("octop"),
+            list_fn=_bind_http_list(R._octop_list),
+            send_fn=_octop_send_bound,
+        )
+    )
+    register_harness(
+        BoundRemoteHarness(
+            impl_id="openmuse",
+            label="OpenMuse",
+            # Declared here, not in a core vendor table: an OpenMuse *task*
+            # is the resumable unit (its id is the session id), and a task
+            # can stop on a pending question the operator answers via
+            # POST /api/agent/tasks/:id/input. So sessions + ask-user, and
+            # OpenMuse owns the context — OS never replays the task history.
+            capabilities=RemoteCapabilities(
+                sessions=True,
+                elicit_questions=True,
+                server_managed_context=True,
+                transport="http",
+            ),
+            health_fn=_bind_health("openmuse"),
+            list_fn=_bind_http_list(R._openmuse_list),
+            send_fn=_openmuse_send_bound,
+            # pause / resume / cancel / retry on one task.
+            operate_fn=_openmuse_operate_bound,
         )
     )
 

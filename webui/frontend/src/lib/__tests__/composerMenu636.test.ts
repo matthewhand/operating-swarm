@@ -1,67 +1,72 @@
 /**
- * #636 — Compact gating per seat kind.
+ * #1230 — Compact is API-only.
  *
- * API seats: unchanged. CLI seats: enabled when a default API is configured
- * (`defaultLlmReady`) OR the provider declares a native `cli_compact` hook;
- * otherwise visible-but-greyed with a reason that names the missing API.
- * Remote seats: unchanged (disabled).
+ * Supersedes the #636 CLI-seat gating: a CLI seat no longer gains Compact
+ * from a configured default API or a provider `cli_compact` hook, and a remote
+ * seat no longer gains it from `remoteCompactCapable`. Every non-API seat
+ * carries `enabled: false`, which the dock renders as ABSENT — never as a
+ * disabled/"not available" control.
  */
 import { describe, expect, it } from 'vitest'
 import { composerMenuCapabilities } from '../composerMenu'
 
-describe('#636 CLI compact gating', () => {
-  it('API seats keep Compact enabled exactly as before', () => {
+describe('#1230 Compact is API-only', () => {
+  it('API seats keep Compact enabled', () => {
     expect(composerMenuCapabilities({ isApi: true }).compact.enabled).toBe(true)
   })
 
-  it('a CLI seat with a configured default API gets Compact', () => {
-    const menu = composerMenuCapabilities({ isCli: true, defaultLlmReady: true })
-    expect(menu.compact.enabled).toBe(true)
-  })
-
-  it('a CLI seat with a provider-native compact hook gets Compact without an API', () => {
-    const menu = composerMenuCapabilities({ isCli: true, cliCompactCapable: true })
-    expect(menu.compact.enabled).toBe(true)
-  })
-
-  it('a CLI seat with neither stays disabled and the reason names the API', () => {
+  it('a CLI seat does NOT gain Compact from a configured default API', () => {
+    // #1725: `defaultLlmReady` is gone from the seat shape, so this is the
+    // strongest surviving form of the control — see the last test, which proves
+    // Compact is gated on `isApi` alone and no other input can reach it.
     const menu = composerMenuCapabilities({ isCli: true })
     expect(menu.compact.enabled).toBe(false)
-    expect(menu.compact.reason).toMatch(/no api is configured/i)
   })
 
-  it('remote seats stay disabled', () => {
-    const menu = composerMenuCapabilities({
-      isRemote: true,
-      defaultLlmReady: true,
-    })
+  it('a CLI seat does NOT gain Compact from a provider-native compact hook', () => {
+    const menu = composerMenuCapabilities({ isCli: true, cliCompactCapable: true })
     expect(menu.compact.enabled).toBe(false)
   })
 
-  it('#830: a disabled remote reason names the PROVIDER, not the kind', () => {
-    const menu = composerMenuCapabilities({ isRemote: true, providerName: 'Herdr' })
+  it('a CLI seat reason names the API-only scope (never rendered, but pinned)', () => {
+    const menu = composerMenuCapabilities({ isCli: true })
     expect(menu.compact.enabled).toBe(false)
-    expect(menu.compact.reason).toBe('Compact is not implemented for Herdr')
+    expect(menu.compact.reason).toMatch(/api-only/i)
   })
 
-  it('#830: unknown provider falls back to "this provider"', () => {
-    expect(composerMenuCapabilities({ isRemote: true }).compact.reason).toBe(
-      'Compact is not implemented for this provider',
-    )
-  })
-
-  it('#830: a remote declaring compact capability gains the action', () => {
+  it('remote seats never gain Compact, even with a provider hook', () => {
     const menu = composerMenuCapabilities({
       isRemote: true,
       providerName: 'TrueForge',
       remoteCompactCapable: true,
     })
-    expect(menu.compact.enabled).toBe(true)
+    expect(menu.compact.enabled).toBe(false)
   })
 
   it('an unresolved seat never gains Compact (positive isApi gate kept)', () => {
+    // #1725: the strongest form of this negative control. Compact is the one
+    // capability with no derived gate at all — it is `Boolean(seat.isApi)` and
+    // nothing else, so *no* combination of the other declared inputs can flip
+    // it. Asserted on the full declared input set rather than on a single
+    // removed field, so deleting a field cannot quietly weaken the test.
+    const everyInputButIsApi = {
+      isCli: false,
+      isRemote: false,
+      cliCompactCapable: true,
+      remoteCompactCapable: true,
+      pluginsSwarmOwned: true,
+      rewriteEnabled: true,
+      declaredCapabilities: {
+        compact: { enabled: true, reason: '' },
+        plugins: { enabled: true, reason: '' },
+        attach: { enabled: true, reason: '' },
+        rewrite: { enabled: true, reason: '' },
+      },
+    } as const
+    expect(composerMenuCapabilities(everyInputButIsApi).compact.enabled).toBe(false)
+    // …and the positive control still holds with those same inputs.
     expect(
-      composerMenuCapabilities({ defaultLlmReady: true }).compact.enabled,
-    ).toBe(false)
+      composerMenuCapabilities({ ...everyInputButIsApi, isApi: true }).compact.enabled,
+    ).toBe(true)
   })
 })

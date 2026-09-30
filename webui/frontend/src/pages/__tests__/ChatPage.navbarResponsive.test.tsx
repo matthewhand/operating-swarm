@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { ToastProvider } from '../../components/DaisyUI'
 import { RailChromeProvider } from '../../components/RailChrome'
 import ChatPage from '../ChatPage'
+import { declarations, rule } from '../../lib/__tests__/helpers/cssRules'
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -165,7 +166,27 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
     const title = card.querySelector('h1')
     expect(title).toHaveClass('os-navbar-identity-label')
     expect(title).toHaveClass('min-w-0')
-    expect(title).toHaveClass('flex-1')
+    // #1715 replaced `flex-1` with `w-full` here, and the old `toHaveClass(
+    // 'flex-1')` assertion is what went red with it (a pre-existing break on
+    // main, not a regression from this work). `flex-1` was a proxy for two
+    // properties — "the label may shrink" and "the label fills the card" — and
+    // #1715 could only keep the second by dropping the utility, because
+    // `flex-grow: 1` on the column main axis stretched the lone label into a
+    // box whose text sat top-biased. So the proxy is replaced by the two
+    // properties themselves, read from the rule that actually sets them:
+    // `flex: 0 1 auto` is shrink-1/grow-0 and `width: 100%` fills. A test that
+    // only checked the class could not see either number, and a test that only
+    // checked the class would pass again the moment someone re-added `flex-1`.
+    // eslint-disable-next-line testing-library/no-node-access -- the label's resolved flex behaviour is the claim
+    const labelRule = declarations(
+      rule(
+        readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8'),
+        '.os-navbar-identity-card .os-navbar-identity-label',
+      ),
+    )
+    expect(labelRule.flex).toBe('0 1 auto')
+    expect(labelRule.width).toBe('100%')
+    expect(title).toHaveClass('w-full')
     expect(title).not.toHaveClass('truncate')
 
     const controls = header.querySelector('.os-chat-header__controls')
@@ -182,9 +203,33 @@ describe('REQ-865: responsive navbar element prioritization (#255)', () => {
     // #773: no navbar token meter — the composer badge is the one meter.
     expect(screen.queryByTestId('token-meter-button')).toBeNull()
 
-    const pencilWrap = card.querySelector('.os-navbar-edit-btn')?.parentElement
+    // #1704 moved the unset-folder affordance out of `.os-navbar-identity-text`
+    // into the new `.os-agent-pill__actions` cluster and gave that button the
+    // `os-navbar-edit-btn` class too, placing it BEFORE the pencil. The old
+    // positional `card.querySelector('.os-navbar-edit-btn')` therefore began
+    // returning the FOLDER button -- whose wrapper is a bare `shrink-0` and is
+    // deliberately visible at every width -- so this assertion silently
+    // changed subject and failed. The pencil is the control REQ-865 is about
+    // (it is the one deprioritised below `sm`), so select it by its accessible
+    // name rather than by position, scoped to the card.
+    const pencil = within(card).getByRole('button', { name: 'Edit agent' })
+    const pencilWrap = pencil.parentElement
     expect(pencilWrap).toHaveClass('hidden')
     expect(pencilWrap).toHaveClass('sm:flex')
+    // Stronger than the old lookup: pin WHICH wrapper this is, so re-ordering
+    // or adding a third edit control cannot retarget the assertion again.
+    expect(pencilWrap).toHaveAttribute('data-tip', 'Edit agent')
+    // #1713: the folder affordance that used to shadow the pencil is NOT
+    // offered on this seat. `support` resolves to an API seat, and an API
+    // seat's editor destination renders a "Coming soon" stub instead of a
+    // folder control — so the button here was a dead end. It used to be
+    // asserted present on this very seat, which is the bug.
+    //
+    // The control is still covered where it belongs: `ChatHeader.folderPill1704
+    // .test.tsx` renders the cluster directly, and
+    // `ChatPage.1713FolderGate.test.tsx` asserts the offer/destination pair
+    // through the real page on both a CLI and an API seat.
+    expect(within(card).queryByRole('button', { name: 'Select folder' })).toBeNull()
   })
 
   it('does not render the rail expander on a wide viewport', async () => {

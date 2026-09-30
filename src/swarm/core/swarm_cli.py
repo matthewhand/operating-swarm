@@ -11,6 +11,9 @@ from swarm.core import paths
 from swarm.tui.cli import register_tui
 
 paths.ensure_swarm_directories_exist()
+# Importing this module must not copy the operator's real config during pytest.
+if paths.startup_should_migrate_config():
+    paths.migrate_legacy_config_root()
 
 # Workaround for Click/Typer signature mismatch in Parameter.make_metavar
 try:
@@ -949,6 +952,58 @@ def skills_command(
         f"\n{len(catalog)} skill(s). Apply via `skill=<name>` or `skills=[...]` "
         "on cli_agent or a Blueprint-backed API seat. See docs/SKILLS.md."
     )
+
+
+@app.command(name="teamai-import")
+def teamai_import_command(
+    path: str = typer.Argument(..., help="TeamAI repo (skills/, rules/, and/or agents/)."),
+    skills_dir: str = typer.Option(
+        None,
+        "--skills-dir",
+        help="Destination for copied skills. Used with --write.",
+    ),
+    write: bool = typer.Option(
+        False,
+        "--write",
+        help="Copy skills into the destination. Does not execute them or install MCP.",
+    ),
+    seed_personalities: bool = typer.Option(
+        False,
+        "--seed-personalities",
+        help="Store non-bundled reviewers as personality designs (instructions only).",
+    ),
+):
+    """Translate a TeamAI checkout into OS skills and a reviewer team pack.
+
+    Dry-run prints the plan. ``--write`` copies SKILL.md trees only.
+    Hooks are skipped. MCP servers are listed, not installed. Model pins
+    outside the API namespace are dropped.
+    """
+    import json
+
+    from swarm.core.skills import user_skills_root
+    from swarm.core.teamai_import import (
+        TeamAiImportError,
+        apply_teamai_plan,
+        translate_teamai_repo,
+    )
+
+    try:
+        plan = translate_teamai_repo(path)
+    except TeamAiImportError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    if not write:
+        typer.echo(json.dumps(plan.as_dict(), indent=2))
+        raise typer.Exit(code=0)
+    dest = skills_dir or str(user_skills_root())
+    result = apply_teamai_plan(
+        plan,
+        source=path,
+        skills_dest=dest,
+        seed_personalities=seed_personalities,
+    )
+    typer.echo(json.dumps({"wrote": dest, **result}, indent=2))
 
 
 import json as _json

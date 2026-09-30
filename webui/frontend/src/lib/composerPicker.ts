@@ -9,7 +9,7 @@
  */
 import type { ModelSearchOption } from './modelSearch'
 
-export type ComposerProviderKind = 'api' | 'cli' | 'remote' | 'team' | 'blueprint'
+export type ComposerProviderKind = 'api' | 'cli' | 'remote' | 'team' | 'blueprint' | 'webgpu'
 
 /** Stage-1 row: a provider, with the default option it would apply (if any). */
 export interface ComposerProviderOption {
@@ -32,6 +32,33 @@ export type ComposerPickerState = {
   stage: 'providers' | 'options'
   query: string
   provider: ComposerProviderOption | null
+}
+
+/**
+ * #1356 — API-profile ids and CLI model ids are different namespaces. A CLI
+ * seat may only offer ids its own provider exposes; an API / LiteLLM profile
+ * id (e.g. `litellm/orchestration`) is foreign and would just fail at
+ * `<cli> --model`. `filterCliModels` drops those foreign ids, including a
+ * stale saved model that leaked from a previous API seat.
+ *
+ * Mirrors the backend gate in `swarm.core.model_namespace`
+ * (`model_valid_for_provider`) and `cli_fusion_support.model_allowed_for_cli`,
+ * kept dependency-light for the composer surfaces.
+ */
+export function filterCliModels(
+  models: readonly string[],
+  foreignModelIds: ReadonlySet<string> | null | undefined,
+): string[] {
+  if (!foreignModelIds || foreignModelIds.size === 0) return [...models]
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of models) {
+    const id = (raw ?? '').trim()
+    if (!id || seen.has(id) || foreignModelIds.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 export function initialComposerPickerState(): ComposerPickerState {

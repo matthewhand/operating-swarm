@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Folder, GitBranch, Layers } from 'lucide-react'
-import { Badge } from './DaisyUI'
+import { Badge, Button } from './DaisyUI'
+import DirectoryPickerModal from './DirectoryPickerModal'
 import {
   API_REMOTE_WORKSPACE_LEAD,
   COMING_SOON_LABEL,
@@ -52,6 +54,7 @@ export default function AgentWorkspaceBinding({
   folderError = null,
   repoError = null,
 }: AgentWorkspaceBindingProps) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   const folderEnabled = kind === 'cli'
   const repoLooksValid = Boolean(value.githubRepo.trim()) && isValidGithubRepo(value.githubRepo)
   const shownRepoError =
@@ -111,6 +114,19 @@ export default function AgentWorkspaceBinding({
           aria-invalid={Boolean(folderError)}
           data-testid="input-cli-folder"
         />
+        {folderEnabled ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-1 w-full"
+            onClick={() => setPickerOpen(true)}
+            data-testid="browse-folder-button"
+          >
+            <Folder className="h-3.5 w-3.5" aria-hidden="true" />
+            Browse…
+          </Button>
+        ) : null}
         <span className="block text-[11px] text-base-content/60" data-testid="workspace-folder-hint">
           {FOLDER_HELP}
         </span>
@@ -200,6 +216,18 @@ export default function AgentWorkspaceBinding({
           {repoLooksValid ? COMING_SOON_LABEL : WORKSPACES_DISABLED_HINT}
         </p>
       </div>
+
+      {folderEnabled ? (
+        <DirectoryPickerModal
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          initialPath={value.folder.trim()}
+          onSelect={(path) => {
+            onChange({ ...value, folder: path })
+            setPickerOpen(false)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

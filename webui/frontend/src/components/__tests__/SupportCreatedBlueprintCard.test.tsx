@@ -9,10 +9,11 @@ import {
   type SupportNlBlueprintCard,
 } from '../../lib/supportNlBlueprint'
 import { FOCUS_AGENT_EVENT } from '../../lib/agentNotifications'
-import { createCustomBlueprint } from '../../lib/api'
+import { createCustomBlueprint, fetchCompanies } from '../../lib/api'
 
 vi.mock('../../lib/api', () => ({
   createCustomBlueprint: vi.fn(),
+  fetchCompanies: vi.fn(),
 }))
 
 const CARD: SupportNlBlueprintCard = {
@@ -55,6 +56,25 @@ function renderCard(card: SupportNlBlueprintCard = CARD, initial = '/chat') {
 
 describe('SupportCreatedBlueprintCard (REQ-158 / #440)', () => {
   beforeEach(() => {
+    vi.mocked(fetchCompanies).mockReset()
+    vi.mocked(fetchCompanies).mockResolvedValue({
+      object: 'list',
+      data: [
+        {
+          object: 'company',
+          id: 'acme-id',
+          name: 'Acme',
+          slug: 'acme',
+          model_policy: {
+            mode: 'allow_all',
+            allowed_models: [],
+            denied_models: [],
+            default_model: '',
+          },
+          default_model: '',
+        },
+      ],
+    })
     vi.mocked(createCustomBlueprint).mockReset()
     vi.mocked(createCustomBlueprint).mockResolvedValue({
       id: 'ba_eng_tester',
@@ -105,6 +125,7 @@ describe('SupportCreatedBlueprintCard (REQ-158 / #440)', () => {
           id: 'ba_eng_tester',
           kind: 'api',
           rail: true,
+          company_id: 'acme-id',
           code: CARD.code,
         }),
       )

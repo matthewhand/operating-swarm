@@ -84,7 +84,8 @@ def _hint(msg: str) -> str:
     return f"[hint] {msg}"
 
 def _xdg_config_path() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "swarm" / DEFAULT_CONFIG_FILENAME
+    """Canonical XDG ``swarm_config.json`` — same directory as create-if-missing."""
+    return get_swarm_config_file(DEFAULT_CONFIG_FILENAME)
 
 def find_config_file(
     specific_path: str | None = None,
@@ -95,7 +96,7 @@ def find_config_file(
     Locate swarm_config.json using precedence:
       1) User-specified path (explicit ``--config`` always wins)
       2) ``SWARM_CONFIG_PATH`` environment variable
-      3) XDG (~/.config/swarm/swarm_config.json)
+      3) Canonical config root (``config_root() / swarm_config.json``)
       4) Upwards search from start_dir
       5) default_dir/swarm_config.json
       6) CWD/swarm_config.json
@@ -163,46 +164,92 @@ def find_config_file(
     logger.debug(f"Config '{DEFAULT_CONFIG_FILENAME}' not found.")
     return None
 
-def load_config(config_path: Path) -> dict[str, Any]:
-    logger.debug(f"Loading config from {config_path}")
+def read_config_json(config_path: str | Path) -> dict[str, Any]:
+    """Read a swarm config file as JSON. No validation and no env substitution.
+
+    Shared by :func:`load_config` (strict) and ``config_manager.load_config``
+    (CLI helper that ``sys.exit``s). Lenient boot paths that must accept a
+    ``cli_agents``-only file keep their own readers.
+    """
+    path = Path(config_path)
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Config root must be an object: {path}")
+    return data
+
+
+def write_config_json(
+    config: dict[str, Any],
+    config_path: str | Path,
+    *,
+    mkdir: bool = True,
+) -> None:
+    """Write a swarm config dict as indented JSON."""
+    path = Path(config_path)
+    if mkdir:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
+
+
+def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """Load, validate, and env-substitute ``swarm_config.json``.
+
+    This is the single module-level implementation. A second copy used to
+    sit at the bottom of this file and silently shadowed these helpers
+    (#1435 / same class of bug as REQ-893).
+
+    An omitted path uses :func:`find_config_file`. When that discovery
+    finds nothing, return ``{}`` so no-arg consumers share one empty
+    result. An explicit path that is missing or invalid still raises.
+    """
+    if config_path is None:
+        found = find_config_file()
+        if found is None:
+            return {}
+        path = found
+    else:
+        path = Path(config_path)
+    logger.debug(f"Loading config from {path}")
     try:
-        with open(config_path) as f:
-            config = json.load(f)
-        logger.info(f"Loaded config from {config_path}")
+        config = read_config_json(path)
+        logger.info(f"Loaded config from {path}")
         validate_config(config)
-        return config
+        return _substitute_env_vars(config)
     except FileNotFoundError:
         logger.error(
-            f"Config not found: {config_path} | "
+            f"Config not found: {path} | "
             + _hint("Initialize a default config with: os-cli config init"
-                    f"{' --config ' + str(config_path) if config_path else ''}")
+                    f"{' --config ' + str(path) if path else ''}")
         )
         raise
     except json.JSONDecodeError as e:
         logger.error(
-            f"Invalid JSON in {config_path}: {e} | "
+            f"Invalid JSON in {path}: {e} | "
             + _hint("Fix the file or recreate it: mv "
-                    f"{config_path} {config_path}.bak && os-cli config init")
+                    f"{path} {path}.bak && os-cli config init")
         )
-        raise ValueError(f"Invalid JSON: {config_path}") from e
+        raise ValueError(f"Invalid JSON: {path}") from e
     except Exception as e:
-        logger.error(f"Load error {config_path}: {e}", exc_info=True)
+        logger.error(f"Load error {path}: {e}", exc_info=True)
         raise
 
-def save_config(config: dict[str, Any], config_path: Path):
+
+def save_config(config: dict[str, Any], config_path: str | Path):
     logger.info(f"Saving config to {config_path}")
+    path = Path(config_path)
     try:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with config_path.open('w') as f:
-            json.dump(config, f, indent=4)
+        write_config_json(config, path, mkdir=True)
         logger.debug("Save OK.")
     except Exception as e:
-        logger.error(f"Save failed {config_path}: {e}", exc_info=True)
+        logger.error(f"Save failed {path}: {e}", exc_info=True)
         raise
+
 
 def validate_config(config: dict[str, Any]):
     logger.debug("Validating config structure...")
-    if "llm" not in config or not isinstance(config["llm"], dict):
+    if "llm" not in config or not isinstance(config.get("llm"), dict):
         raise ValueError(
             "Config 'llm' section missing/malformed. "
             + _hint("Use: os-cli config add --section llm --name default --json "
@@ -212,6 +259,7 @@ def validate_config(config: dict[str, Any]):
         if not isinstance(prof, dict):
             raise ValueError(f"LLM profile '{name}' not dict.")
     logger.debug("Config basic structure OK.")
+
 
 def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
     profile_data = config.get("llm", {}).get(profile_name)
@@ -223,48 +271,39 @@ def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[s
         )
     if not isinstance(profile_data, dict):
         raise ValueError(f"LLM profile '{profile_name}' not dict.")
-    return _substitute_env_vars_recursive(profile_data)
+    return _substitute_env_vars(profile_data)
 
-def create_default_config(config_path: Path):
-    """Creates a default configuration file with valid JSON."""
-    default_config = {
+
+def create_default_config(config_path: str | Path):
+    """Write the CLI ``config init`` default (llm + settings + remotes)."""
+    default = {
         "llm": {
             "default": {
                 "provider": "openai",
                 "model": "gpt-4o",
                 "api_key": "${OPENAI_API_KEY}",
                 "base_url": None,
-                "description": "Default OpenAI profile. Requires OPENAI_API_KEY env var."
-            },
-            "ollama_example": {
-                "provider": "ollama",
-                "model": "llama3",
-                "api_key": "ollama",  # Usually not needed
-                "base_url": "http://localhost:11434",
-                "description": "Example for local Ollama Llama 3 model."
             }
         },
-        "agents": {},
-        "settings": {
-            "default_markdown_output": True
-        },
+        "settings": {"default_markdown_output": True},
         "remotes": {},
     }
-    logger.info(f"Creating default configuration file at {config_path}")
+    path = Path(config_path)
+    logger.info(f"Creating default configuration file at {path}")
     try:
-        save_config(default_config, config_path)  # Use save_config to write valid JSON
+        save_config(default, path)
         logger.debug("Default configuration file created successfully.")
-        # Emit a friendly post-create hint to guide the user
         logger.warning(
-            _hint("Set your API key: export OPENAI_API_KEY=sk-... "
-                  "or save to secrets file: echo 'OPENAI_API_KEY=sk-...' >> ~/.config/swarm/.env")
+            _hint("Set OPENAI_API_KEY or run config add for profiles. "
+                  "Secrets belong in the user-config .env next to swarm_config.json")
         )
     except Exception as e:
-        logger.error(f"Failed to create default config file at {config_path}: {e}", exc_info=True)
+        logger.error(f"Failed to create default config file at {path}: {e}", exc_info=True)
         raise
 
+
 def load_environment():
-    """Load XDG ``~/.config/swarm/.env`` (primary) then project-root ``.env``."""
+    """Load the user-config ``.env`` (primary) then project-root ``.env``."""
     from swarm.utils.dotenv_load import load_swarm_dotenv
 
     project_root = get_project_root_dir()
@@ -333,8 +372,7 @@ def load_full_configuration(
     base_config = {}
     if config_path.is_file():
         try:
-            with open(config_path, encoding="utf-8") as f:
-                base_config = json.load(f)
+            base_config = read_config_json(config_path)
             logger.debug(f"Successfully loaded base configuration from: {config_path}")
         except json.JSONDecodeError as e:
             raise ValueError(f"Config Error: Failed to parse JSON in {config_path}: {e}") from e
@@ -434,21 +472,27 @@ def _apply_litellm_overrides(profile_data: dict) -> dict:
     - If LITELLM_BASE_URL (or OPENAI_BASE_URL) is set, override base_url (for local gateway use).
     - If LITELLM_API_KEY (or OPENAI_API_KEY) is set, override api_key.
     - If LITELLM_MODEL (or DEFAULT_LLM) is set, override model.
+    Providers in ``PROVIDER_DEFAULTS`` (Mistral) keep their own URL, key, and
+    model. Gateway env must not send those calls at the LiteLLM proxy.
     Preserves other profile fields (temperature, max_tokens, etc.).
     Does NOT mutate input.
     """
     import os
+
+    from swarm.core.llm_provider import provider_owns_endpoint
+
     if not isinstance(profile_data, dict):
         profile_data = {}
     resolved = dict(profile_data)
+    owns_endpoint = provider_owns_endpoint(resolved.get("provider"))
     base = os.getenv("LITELLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
     key = os.getenv("LITELLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     model = os.getenv("LITELLM_MODEL") or os.getenv("DEFAULT_LLM")
-    if base:
+    if base and not owns_endpoint:
         resolved["base_url"] = base
-    if key:
+    if key and not owns_endpoint:
         resolved["api_key"] = key
-    if model:
+    if model and not owns_endpoint:
         resolved["model"] = model
     return resolved
 
@@ -522,6 +566,12 @@ def get_resolved_llm_profile(
     if "provider" not in profile:
         raise ValueError(f"'provider' missing in LLM profile '{name}'. Add a 'provider' key (e.g. 'openai').")
 
+    # Vendor defaults (Mistral's official base URL / key env) before gateway
+    # overrides, so a missing URL is the vendor endpoint rather than the proxy.
+    from swarm.core.llm_provider import apply_provider_defaults
+
+    profile = apply_provider_defaults(profile)
+
     # Apply overrides
     resolved = _apply_litellm_overrides(profile)
 
@@ -533,7 +583,7 @@ def get_resolved_llm_profile(
         names = ", ".join(missing_env)
         logger.warning(
             "LLM profile %r references %s, but %s not set; ignoring those values. "
-            "Set %s in the environment (e.g. .env or ~/.config/swarm/.env), or "
+            "Set %s in the environment (e.g. .env or the user-config .env), or "
             "replace the placeholder in swarm_config.json.",
             name,
             names,
@@ -553,69 +603,6 @@ def list_available_llm_profiles(full_config: dict) -> list[str]:
     # dedup preserve order
     seen = set()
     return [k for k in keys if not (k in seen or seen.add(k))]
-
-
-# --- Additional unification helpers (find/load/save/validate etc.) for central config management ---
-# These consolidate logic previously duplicated in extensions/config/.
-
-import logging
-from pathlib import Path
-from typing import Any
-
-logger = logging.getLogger(__name__)
-DEFAULT_CONFIG_FILENAME = "swarm_config.json"
-
-
-def load_config(config_path: Path) -> dict[str, Any]:
-    logger.debug(f"Loading config from {config_path}")
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-        validate_config(config)
-        return _substitute_env_vars(config)
-    except FileNotFoundError:
-        logger.error(f"Config not found: {config_path} | " + _hint("os-cli config init"))
-        raise
-    except Exception as e:
-        logger.error(f"Load error {config_path}: {e}", exc_info=True)
-        raise
-
-
-def save_config(config: dict[str, Any], config_path: Path):
-    logger.info(f"Saving config to {config_path}")
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open('w') as f:
-        json.dump(config, f, indent=4)
-
-
-def validate_config(config: dict[str, Any]):
-    if "llm" not in config or not isinstance(config.get("llm"), dict):
-        raise ValueError("Config 'llm' section missing/malformed. " + _hint("os-cli config add --section llm ..."))
-    logger.debug("Config structure OK.")
-
-
-def get_profile_from_config(config: dict[str, Any], profile_name: str) -> dict[str, Any]:
-    prof = config.get("llm", {}).get(profile_name)
-    if not prof:
-        raise ValueError(f"LLM profile '{profile_name}' not found. " + _hint("os-cli config list"))
-    return _substitute_env_vars(prof)
-
-
-def create_default_config(config_path: Path):
-    default = {
-        "llm": {
-            "default": {
-                "provider": "openai",
-                "model": "gpt-4o",
-                "api_key": "${OPENAI_API_KEY}",
-                "base_url": None,
-            }
-        },
-        "settings": {"default_markdown_output": True},
-        "remotes": {},
-    }
-    save_config(default, config_path)
-    logger.warning(_hint("Set OPENAI_API_KEY or run config add for profiles."))
 
 
 # Reexports for server config compat (from .server_config)

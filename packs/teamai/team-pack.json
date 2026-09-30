@@ -1,0 +1,34 @@
+{
+  "id": "teamai-reviewers",
+  "name": "TeamAI Reviewers",
+  "members": [
+    {
+      "id": "code-reviewer",
+      "name": "Code Reviewer",
+      "kind": "api",
+      "role": "skeptic",
+      "source": "blueprint:code_reviewer",
+      "description": "Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code. MUST BE USED for all code changes."
+    },
+    {
+      "id": "database-reviewer",
+      "name": "Database Reviewer",
+      "kind": "api",
+      "role": "engineer",
+      "source": "blueprint:database_reviewer",
+      "description": "PostgreSQL database specialist for query optimization, schema design, security, and performance. Use PROACTIVELY when writing SQL, creating migrations, designing schemas, or troubleshooting database performance. Incorporates Supabase best practices."
+    },
+    {
+      "id": "security-reviewer",
+      "name": "Security Reviewer",
+      "kind": "api",
+      "role": "gate",
+      "source": "blueprint:security_reviewer",
+      "description": "Security vulnerability detection and remediation specialist. Use PROACTIVELY after writing code that handles user input, authentication, API endpoints, or sensitive data. Flags secrets, SSRF, injection, unsafe crypto, and OWASP Top 10 vulnerabilities."
+    }
+  ],
+  "wires": {
+    "handoff": true,
+    "as_tool": true
+  }
+}

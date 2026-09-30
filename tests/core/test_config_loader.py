@@ -86,7 +86,12 @@ class TestLoadEnvironment:
     """Test environment loading functionality."""
 
     def test_load_environment_with_dotenv_file(self):
-        """Test loading environment from .env file."""
+        """Test loading environment from .env file.
+
+        The loader now no-ops under pytest by default (issue #1335: the real
+        ~/.config/swarm/.env was being loaded into the test run). Opt back in
+        for this test so the loading path itself stays covered.
+        """
         env_content = "TEST_KEY=test_value\nANOTHER_KEY=another_value\n"
 
         # Create a temporary directory and a .env file inside it
@@ -99,12 +104,35 @@ class TestLoadEnvironment:
             with patch('src.swarm.core.config_loader.get_project_root_dir', return_value=temp_path):
                 xdg = temp_path / "xdg"
                 xdg.mkdir()
-                with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg)}, clear=True):
+                # SWARM_ALLOW_DOTENV_IN_TESTS re-enables the load for this test.
+                with patch.dict(
+                    os.environ,
+                    {"XDG_CONFIG_HOME": str(xdg), "SWARM_ALLOW_DOTENV_IN_TESTS": "1"},
+                    clear=True,
+                ):
                     load_environment()
 
                     # Should have loaded the variables
                     assert os.environ.get("TEST_KEY") == "test_value"
                     assert os.environ.get("ANOTHER_KEY") == "another_value"
+
+    def test_dotenv_is_skipped_under_pytest_by_default(self):
+        """The guard that issue #1335 asked for, pinned.
+
+        Without this, someone can 'simplify' dotenv_disabled() back to a plain
+        env-var read and the developer's real ~/.config/swarm/.env silently
+        returns to the test run.
+        """
+        from swarm.utils.dotenv_load import dotenv_disabled
+
+        with patch.dict(os.environ, {}, clear=True):
+            # pytest is in sys.modules while this runs.
+            assert dotenv_disabled() is True
+
+        with patch.dict(
+            os.environ, {"SWARM_ALLOW_DOTENV_IN_TESTS": "1"}, clear=True
+        ):
+            assert dotenv_disabled() is False
 
     def test_load_environment_no_dotenv_file(self):
         """Test loading environment when no .env file exists."""

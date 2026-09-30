@@ -2,10 +2,19 @@ import { useId, useState } from 'react'
 import { Button, Input, Select, useToast, LoadingSpinner } from './DaisyUI'
 import { patchConfigSection, testLlmProfile } from '../lib/api'
 import {
+  LLM_MODEL_TYPES,
   LLM_PROFILE_PROVIDERS,
+  MODEL_TYPE_DESCRIPTIONS,
+  MODEL_TYPE_LABELS,
+  SYSTEM1_API_KEY_ENV,
+  SYSTEM1_BASE_URL_ENV,
+  SYSTEM1_PROVIDER_ID,
   buildLlmProfileEntry,
+  defaultsForLlmProvider,
+  normalizeModelType,
   probeHint,
   probeStateFromResult,
+  type LlmModelType,
   type LlmProbeState,
 } from '../lib/llmProfiles'
 
@@ -21,6 +30,9 @@ export default function LlmProfileAddForm({
   const { success, error: toastError } = useToast()
   const modelListId = `llm-profile-models-${useId().replace(/:/g, '')}`
   const [profileName, setProfileName] = useState('')
+  // #1745 — the model type is the first choice, not a footnote. A System1
+  // categorizer is a gate, so picking it flips the provider and the env names.
+  const [modelType, setModelType] = useState<LlmModelType>('chat')
   const [profileProvider, setProfileProvider] = useState('openai')
   const [profileModel, setProfileModel] = useState('')
   const [profileBaseUrl, setProfileBaseUrl] = useState('')
@@ -33,6 +45,47 @@ export default function LlmProfileAddForm({
   const [probeLatency, setProbeLatency] = useState<number | null>(null)
   const [probeMessage, setProbeMessage] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
+
+  const onModelTypeChange = (next: LlmModelType) => {
+    setModelType(next)
+    if (next === 'categorizer') {
+      setProfileProvider(SYSTEM1_PROVIDER_ID)
+      setProfileKeyEnv(SYSTEM1_API_KEY_ENV)
+      setProfileBaseUrl((current) =>
+        current.trim().startsWith('${') ? current : `\${${SYSTEM1_BASE_URL_ENV}}`,
+      )
+      return
+    }
+    // Leaving the gate type must not leave a System1 vendor behind.
+    if (profileProvider === SYSTEM1_PROVIDER_ID) {
+      setProfileProvider('openai')
+      const defaults = defaultsForLlmProvider('openai')
+      setProfileKeyEnv(defaults?.apiKeyEnv || 'OPENAI_API_KEY')
+      setProfileBaseUrl((current) =>
+        current === `\${${SYSTEM1_BASE_URL_ENV}}` ? '' : current,
+      )
+    }
+  }
+
+  const onProviderChange = (next: string) => {
+    const previous = defaultsForLlmProvider(profileProvider)
+    setProfileProvider(next)
+    // Picking the System1 vendor is a first-class choice, not a custom URL.
+    setModelType(normalizeModelType(next === SYSTEM1_PROVIDER_ID ? 'categorizer' : modelType))
+    const defaults = defaultsForLlmProvider(next)
+    if (defaults) {
+      setProfileKeyEnv(defaults.apiKeyEnv)
+      setProfileBaseUrl(defaults.baseUrl)
+      return
+    }
+    // Azure / Anthropic have no shared preset. Drop a previous preset's
+    // URL and key env only when the user has not edited them.
+    if (!previous) return
+    setProfileKeyEnv((current) =>
+      current === previous.apiKeyEnv ? 'OPENAI_API_KEY' : current,
+    )
+    setProfileBaseUrl((current) => (current === previous.baseUrl ? '' : current))
+  }
 
   const runProbe = async (action: 'test' | 'list_models' = 'test') => {
     const baseUrl = profileBaseUrl.trim()
@@ -79,6 +132,22 @@ export default function LlmProfileAddForm({
   return (
     <div data-testid="llm-profile-add-overlay" className={className}>
       <p className="text-sm font-medium">Add LLM profile</p>
+      <Select
+        label="Model type"
+        name="llm-profile-model-type"
+        value={modelType}
+        onChange={(event) => onModelTypeChange(event.target.value as LlmModelType)}
+        size="sm"
+      >
+        {LLM_MODEL_TYPES.map((id) => (
+          <option key={id} value={id}>
+            {MODEL_TYPE_LABELS[id]}
+          </option>
+        ))}
+      </Select>
+      <p className="text-xs text-base-content/60" data-testid="llm-profile-model-type-hint">
+        {MODEL_TYPE_DESCRIPTIONS[modelType]}
+      </p>
       <Input
         label="Name"
         name="llm-profile-id"
@@ -92,12 +161,12 @@ export default function LlmProfileAddForm({
         label="Provider"
         name="llm-profile-provider"
         value={profileProvider}
-        onChange={(event) => setProfileProvider(event.target.value)}
+        onChange={(event) => onProviderChange(event.target.value)}
         size="sm"
       >
         {LLM_PROFILE_PROVIDERS.map((id) => (
           <option key={id} value={id}>
-            {id}
+            {id === SYSTEM1_PROVIDER_ID ? `${id} (System1)` : id}
           </option>
         ))}
       </Select>
@@ -219,6 +288,7 @@ export default function LlmProfileAddForm({
                   [profileName.trim()]: buildLlmProfileEntry({
                     provider: profileProvider,
                     model: profileModel,
+                    modelType,
                     apiKeyEnv: profileKeyEnv,
                     baseUrl: profileBaseUrl,
                     temperature: profileTemperature,
@@ -227,7 +297,12 @@ export default function LlmProfileAddForm({
                   }),
                 },
               })
-              success('LLM profile saved', 'Named profile stored in swarm_config.json llm.')
+              success(
+                modelType === 'categorizer' ? 'System1 categorizer saved' : 'LLM profile saved',
+                modelType === 'categorizer'
+                  ? 'Gate model stored in swarm_config.json llm.'
+                  : 'Named profile stored in swarm_config.json llm.',
+              )
               await onSaved()
             } catch (err) {
               toastError(

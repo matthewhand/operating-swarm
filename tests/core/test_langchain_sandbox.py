@@ -256,8 +256,8 @@ class TestSandboxManagerAndTools:
     def test_as_function_tools_schema(self):
         manager = SandboxManager(config=SandboxConfig(backend_type="mock"))
         tools = manager.as_function_tools()
-        # #719: the toolset grew to six — upload/download round-trip added.
-        assert len(tools) == 6
+        # #719: six tools; #1329 added attach-to-chat → seven.
+        assert len(tools) == 7
 
         tool_names = [getattr(t, "name", getattr(t, "__name__", None)) for t in tools]
         assert "sandbox_run_python" in tool_names
@@ -266,6 +266,7 @@ class TestSandboxManagerAndTools:
         assert "sandbox_write_file" in tool_names
         assert "sandbox_upload_file" in tool_names
         assert "sandbox_download_file" in tool_names
+        assert "sandbox_attach_file" in tool_names
 
         # Each tool has a valid description
         for t in tools:
@@ -293,8 +294,8 @@ class TestSandboxManagerAndTools:
             tools=tools,
         )
         assert agent.name == "SandboxWorker"
-        # #719: six sandbox tools (run python/bash, read/write, upload/download).
-        assert len(agent.tools) == 6
+        # #719: six sandbox tools; #1329 added attach-to-chat → seven.
+        assert len(agent.tools) == 7
 
     def test_blueprint_base_make_agent_sandbox(self, monkeypatch):
         # The sandbox tool count contract assumes a real (non-TEST_MODE) run path.
@@ -323,7 +324,7 @@ class TestSandboxManagerAndTools:
             tools=[],
             sandbox=SandboxManager(config=SandboxConfig(backend_type="mock")),
         )
-        # #719: six sandbox tools (run python/bash, read/write, upload/download).
-        assert len(agent.tools) == 6
+        # #719: six sandbox tools; #1329 added attach-to-chat → seven.
+        assert len(agent.tools) == 7
         tool_names = [getattr(t, "name", "") for t in agent.tools]
         assert "sandbox_run_bash" in tool_names

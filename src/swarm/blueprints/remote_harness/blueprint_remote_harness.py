@@ -1,4 +1,4 @@
-"""remote_harness — Open Swarm as a harness *for* Hermes / OMB / Rakazo / nested swarm.
+"""remote_harness — Operating Swarm as a harness *for* Hermes / OMB / Rakazo / nested swarm.
 
 This is not a concurrent Grok / OpenMausBot / Rakazo seat clone. Specialists
 are openai-agents agent-as-tool wrappers around each remote's real HTTP API
@@ -71,14 +71,13 @@ def _list_tool(name: str = "") -> str:
     return _render_operate(result)
 
 
-def _send_tool(
+def _operate_send(
     name: str,
     prompt: str,
     target: str = "",
-    context: dict[str, Any] | None = None,
     session_id: str = "",
-) -> str:
-    """Send a job/turn to a remote harness's real API (not a local seat clone)."""
+) -> remotes_core.OperateResult:
+    """Build the per-kind send kwargs and call ``remotes.operate``."""
     kind = remotes_core.kind_of_instance(name)
     kwargs: dict[str, Any] = {
         "prompt": prompt,
@@ -88,8 +87,6 @@ def _send_tool(
         kwargs["session_id"] = session_id
     if kind == "anythingllm":
         kwargs["timeout"] = remotes_core._ANYTHINGLLM_SEND_TIMEOUT_S
-    elif kind == "letta":
-        kwargs["timeout"] = remotes_core._LETTA_SEND_TIMEOUT_S
     elif kind == "flowise":
         kwargs["timeout"] = remotes_core._FLOWISE_SEND_TIMEOUT_S
     elif kind == "n8n":
@@ -98,9 +95,62 @@ def _send_tool(
         from swarm.core.openwebui_remote import send_timeout
 
         kwargs["timeout"] = send_timeout(remotes_core._OPERATE_TIMEOUT_S)
-    result = remotes_core.operate(name, "send", **kwargs)
+    return remotes_core.operate(name, "send", **kwargs)
+
+
+def _send_tool(
+    name: str,
+    prompt: str,
+    target: str = "",
+    context: dict[str, Any] | None = None,
+    session_id: str = "",
+) -> str:
+    """Send a job/turn to a remote harness's real API (not a local seat clone)."""
+    result = _operate_send(name, prompt, target, session_id)
     _arm_omb_followup(result, name, context)
     return _render_operate(result)
+
+
+# Most clarifications a single remote turn may chain before we stop asking —
+# guards against a remote that loops on its ask tool.
+_MAX_REMOTE_QUESTIONS = 8
+
+
+async def _send_tool_with_ask_user(
+    name: str,
+    prompt: str,
+    target: str,
+    context: dict[str, Any] | None,
+    session_id: str,
+    bridge: Any,
+) -> str:
+    """Send, then answer any remote pause through *bridge* and resume.
+
+    The remote send runs off the event loop (``asyncio.to_thread``). When the
+    result ended ``awaiting_input`` and a *bridge* was installed, the question
+    is elicited through the chat ask-user UI and the answer is POSTed back as
+    the client tool response, looping while the remote keeps asking. With no
+    bridge the pause renders honestly as its lead-in (never blocks).
+    """
+    result = await asyncio.to_thread(_operate_send, name, prompt, target, session_id)
+    _arm_omb_followup(result, name, context)
+    for _ in range(_MAX_REMOTE_QUESTIONS):
+        pending = remotes_core.pending_question(name, result)
+        if pending is None or bridge is None:
+            break
+        answer = bridge(pending["question"])
+        if hasattr(answer, "__await__"):
+            answer = await answer
+        result = await asyncio.to_thread(
+            remotes_core.resume_remote,
+            name,
+            session_id=pending.get("session_id") or session_id,
+            pending_action=pending["pending_action"],
+            answer=str(answer or ""),
+        )
+        _arm_omb_followup(result, name, context)
+    return _render_operate(result)
+
 
 
 def _arm_omb_followup(
@@ -146,8 +196,35 @@ _GAP_HINTS: dict[str, str] = {
     "hermes_reply_failed": "check the Hermes gateway's log for that run, then retry.",
     "hermes_reply_timeout": "retry in a moment — the run may still be going.",
     "hermes_run_id_missing": "check the Hermes gateway returns a run id after accepting a send.",
-    "letta_agent_required": "pick a Letta agent first.",
     "n8n_workflow_required": "pick a workflow first.",
+    # #1670: the OpenMuse impl raises 23 gap codes and had no entry for any of
+    # them, so every OpenMuse failure fell through to _gap_line's generic
+    # fallback and told the operator to go look in Settings -> Remotes. Keep
+    # this block in step with remote_impls/openmuse.py; the
+    # test_every_real_gap_code_has_a_human_hint invariant enforces it.
+    "openmuse_answer_required": "answer the paused question — an empty answer is not a submission.",
+    "openmuse_auth": "export the OpenMuse access key as this remote's API-key env var in Settings → Remotes, then retry.",
+    "openmuse_control_failed": "OpenMuse refused the control call — check the host is reachable, then retry.",
+    "openmuse_control_rejected": "that task is not in a state that accepts this transition — check its status on the OpenMuse host first.",
+    "openmuse_create_failed": "OpenMuse would not create the task — check the host is up and base_url points at its API.",
+    "openmuse_goal_missing": "the task's goal is not on this OpenMuse instance — pick a task that still has one.",
+    "openmuse_input_failed": "OpenMuse would not accept the follow-up input — check the host is up, then retry.",
+    "openmuse_list_failed": "OpenMuse would not list its tasks — check the host is up and base_url points at its API.",
+    "openmuse_model_rejected": "the host's configured MODEL is not served — set it to <provider>/<model-id> there and restart it.",
+    "openmuse_no_base_url": "set a base URL for this remote in Settings → Remotes.",
+    "openmuse_no_task_id": "the host accepted the task but returned no id — check its API version, then retry.",
+    "openmuse_no_token": "sign-in returned no session token — check the access key on the OpenMuse host.",
+    "openmuse_poll_failed": "OpenMuse stopped answering while polling the task — check the host, then retry.",
+    "openmuse_prompt_rejected": "a task prompt must be 1-12000 characters — shorten it and retry.",
+    "openmuse_prompt_required": "send a prompt — an empty one cannot become a task.",
+    "openmuse_task_failed": "the task failed on the OpenMuse host — open it there to see why, then retry.",
+    "openmuse_task_id_invalid": "an OpenMuse resume key must be a task id — letters, digits, dot, dash or underscore.",
+    "openmuse_task_limit": "cancel or finish a task on the OpenMuse host, or control it from here with op=cancel / op=retry.",
+    "openmuse_task_missing": "that task no longer exists on this OpenMuse instance — pick another from the list.",
+    "openmuse_task_required": "pick a task from the list, or set a task id in Settings → Remotes.",
+    "openmuse_task_timeout": "the task is still running on the OpenMuse host — retry, or cancel it from here.",
+    "openmuse_unreachable": "check the OpenMuse host is up and base_url points at its API, then retry.",
+    "openmuse_unsupported_control": "OpenMuse control takes pause / resume / cancel / retry — check the verb.",
     "omb_reply_failed": "retry the prompt — the turn ended without a reply and without timing out.",
     "omb_reply_timeout": "wait for the bot's follow-up, or retry — it may still be working.",
     "omb_turn_error": "retry the prompt — the bot's last turn ended in an internal error.",
@@ -162,6 +239,13 @@ _GAP_HINTS: dict[str, str] = {
         "point the send at a TrueForge session id (Settings → Remotes lists the "
         "agents it can start one for), or start a session for that agent first."
     ),
+    "octop_auth": "export OCTOP_API_KEY (the JWT access_token from Octop login), then retry.",
+    "octop_agent_required": "pick an Octop agent (list rows) or resume agent_id:thread_id.",
+    "octop_approval_required": "approve the paused turn in the Octop dashboard, then retry.",
+    "octop_reply_timeout": "retry in a moment — the Octop turn may still be going.",
+    "octop_reply_empty": "check the Octop agent — the turn finished without assistant text.",
+    "octop_reply_failed": "check the Octop server log for that turn, then retry.",
+    "octop_prompt_required": "send a prompt.",
 }
 
 
@@ -224,9 +308,6 @@ def _render_operate(result: remotes_core.OperateResult) -> str:
     return f"{result.remote} {result.op}: OK — {result.detail}{gap}{data}"
 
 
-from swarm.core.kind_bases import RemoteKindBase
-
-
 class RemoteHarnessBlueprint(RemoteKindBase):
     """Connect/configure/operate Hermes, OpenMausBot, Rakazo, and nested swarm."""
 
@@ -240,8 +321,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "Grok-Bot chrome is not live."
         ),
         "version": "0.2.0",
-        "author": "Open Swarm Team",
-        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "letta", "openwebui", "flowise", "n8n", "ops", "tools"],
+        "author": "Operating Swarm Team",
+        "tags": ["remotes", "hermes", "omb", "rakazo", "swarm", "trueforge", "openwebui", "flowise", "n8n", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [
             "HERMES_BASE_URL",
@@ -257,8 +338,6 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             "TRUEFORGE_API_KEY",
             "ANYTHINGLLM_BASE_URL",
             "ANYTHINGLLM_API_KEY",
-            "LETTA_BASE_URL",
-            "LETTA_API_KEY",
             "OPENWEBUI_BASE_URL",
             "OPENWEBUI_API_KEY",
             "FLOWISE_BASE_URL",
@@ -370,16 +449,6 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 "consult_anythingllm",
                 "Hand off to the AnythingLLM remote operator (health/list/send).",
             ),
-            "letta": (
-                "LettaRemote",
-                (
-                    "You operate remote Letta via tools. List memory agents as "
-                    "sessions and send into an existing agent. Never mint a "
-                    "new Letta agent."
-                ),
-                "consult_letta",
-                "Hand off to the Letta remote operator (health/list/send).",
-            ),
             "n8n": (
                 "N8nRemote",
                 (
@@ -408,6 +477,17 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 ),
                 "consult_herdr",
                 "Hand off to the Herdr remote operator (health/list/send/interrogate).",
+            ),
+            "octop": (
+                "OctopRemote",
+                (
+                    "You operate one remote Tencent Octop server via tools. "
+                    "Experts and AgentTeams stay inside Octop — do not turn "
+                    "them into Operating Swarm seats or teams. "
+                    "Resume agent_id:thread_id. Do not pin a model."
+                ),
+                "consult_octop",
+                "Hand off to the Tencent Octop remote operator (health/list/send).",
             ),
         }
 
@@ -440,7 +520,7 @@ class RemoteHarnessBlueprint(RemoteKindBase):
             coordinator = _agent(
                 "RemoteCoordinator",
                 (
-                    "You are Open Swarm coordinating a Team of remote harnesses. "
+                    "You are Operating Swarm coordinating a Team of remote harnesses. "
                     f"Use {talk_hint} (agent-as-tool) or the remote_* function tools. "
                     "Only placed remotes can see/talk. Do not spin up concurrent local seats. "
                     "This is not the /teams/ LLM-profile alias registry."
@@ -522,8 +602,8 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 body = _list_tool(name)
             else:
                 if not name:
-                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|letta|openwebui|flowise|n8n> <prompt>"
-                elif remotes_core.kind_of_instance(name) in {"anythingllm", "letta", "openwebui", "flowise"}:
+                    body = "Usage: send <hermes|omb|rakazo|herdr|swarm|trueforge|anythingllm|openwebui|flowise|n8n|octop> <prompt>"
+                elif remotes_core.kind_of_instance(name) in {"anythingllm", "openwebui", "flowise"}:
                     stream_kind = remotes_core.kind_of_instance(name)
                     session_id = str(params.get("session_id") or target or "").strip()
                     assembled = ""
@@ -568,8 +648,18 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                     return
                 else:
                     session_id = str(params.get("session_id") or "").strip()
-                    body = _send_tool(
-                        name, prompt, target, context=self._params, session_id=session_id
+                    from swarm.core.remote_harness import REMOTE_ASK_USER_BRIDGE_ATTR
+
+                    # A capable remote that can pause on an operator question
+                    # gets the chat ask-user bridge; otherwise the pause renders
+                    # honestly as its lead-in. Either way the send is off-loop.
+                    body = await _send_tool_with_ask_user(
+                        name,
+                        prompt,
+                        target,
+                        self._params,
+                        session_id,
+                        getattr(self, REMOTE_ASK_USER_BRIDGE_ATTR, None),
                     )
             yield support.message_chunk(
                 body,

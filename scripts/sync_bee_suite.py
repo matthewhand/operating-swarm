@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync the Open Swarm bee avatar suite into its deployment surfaces.
+"""Sync the Operating Swarm bee avatar suite into its deployment surfaces.
 
 Mirrors the suite from ``assets/avatars/bee`` into:
   - Django static: ``src/swarm/static/img/avatars/bee``
@@ -74,7 +74,7 @@ def main() -> int:
     source_names = {svg.name for svg in svgs}
 
     manifest = {
-        "suite": "Open Swarm Bee Avatar Suite",
+        "suite": "Operating Swarm Bee Avatar Suite",
         "version": "1.0.0",
         "count": len(svgs),
         "icons": [

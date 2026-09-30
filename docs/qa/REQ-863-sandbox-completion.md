@@ -27,7 +27,7 @@ In **REQ-860 / #227**, an initial sandbox abstraction was introduced:
 While the foundation is merged, several critical gaps remain to make the sandbox fully operational and safe:
 
 ### Gap 1: Out-of-the-Box "Bare Metal Host (Dangerous)" Experience
-- **User Intent**: The user's primary workflow is running on **bare metal host** directly where Open Swarm operates, with full host tooling.
+- **User Intent**: The user's primary workflow is running on **bare metal host** directly where Operating Swarm operates, with full host tooling.
 - **Current Limitation — Overly Strict Path Validation**:
   `LocalSubprocessSandbox._validate_path` rejects any file path not inside `work_dir` with a `PermissionError`. For a user intentionally running in `bare_metal` (dangerous) mode, agents cannot inspect parent directories, user configs, or sibling workspaces.
 - **Current Limitation — Aggressive Environment Sanitization**:
@@ -94,3 +94,23 @@ While the foundation is merged, several critical gaps remain to make the sandbox
   - [ ] Unit tests in `tests/core/test_sandbox_bare_metal.py` verify bare metal command execution and environment inheritance.
   - [ ] Unit tests in `tests/core/test_daytona_lifecycle.py` verify sandbox cleanup and lazy degradation when SDK/key is absent.
   - [ ] `tests/views/test_sandbox_settings.py` verifies REST configuration persistence and probe endpoint.
+
+---
+
+## Addendum (2026-09-25, #1201): Daytona key wiring — operator path
+
+The `daytona_api_key_env` field stores an env-var **name** by design (no key
+material in settings). The consequence is an operator obligation: the named
+variable must exist in the **server process environment** — exporting it in a
+personal shell does not reach the backend. The probe now makes that explicit:
+
+- `POST /v1/settings/sandbox/test` for `provider: "daytona"` classifies its
+  failure (`classification`): `sdk_missing` | `env_name_unset` | `auth` |
+  `network` | `unknown`, and returns an `operator_hint` with a copyable
+  snippet naming the configured env var:
+  `systemctl --user set-environment DAYTONA_API_KEY=<key>` followed by a
+  backend restart (or an `EnvironmentFile=` line in the unit).
+- The Sandboxes pane renders both fields on failure, so first-run setup no
+  longer dead-ends at "API key missing".
+- Tests: `tests/views/test_sandbox_probe_classification.py` (classification
+  matrix + hint content); UI contract in `SandboxesSettings.test.tsx`.

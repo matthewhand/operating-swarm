@@ -1,4 +1,4 @@
-# Open Swarm brand marks
+# Operating Swarm brand marks
 
 Three approved looks from draft [#537](https://github.com/matthewhand/open-swarm/pull/537)
 tasters, wired by surface ([#768](https://github.com/matthewhand/open-swarm/issues/768)).

@@ -93,21 +93,23 @@ export function formatContextUsageLabel(usage: Pick<ContextUsage, 'tokens' | 'wi
 }
 
 /**
- * #773 — the ONE canonical meter copy: last output · input total / max, in
+ * #773 — the ONE canonical meter copy: input total / max · last output, in
  * shorthand with the unit said once. Old-format fixtures without last_output
- * degrade to just the input/max segment.
+ * degrade to just the input/max segment. #1267: `in` leads — input tokens
+ * are the window consumer the fraction measures; the last output is the
+ * secondary detail.
  */
 export function formatUsageBadgeLabel(
   usage: Pick<ContextUsage, 'tokens' | 'window' | 'estimate' | 'last_output'>,
 ): string {
   const p = usage.estimate ? '~' : ''
   const parts: string[] = []
-  if (usage.last_output > 0) {
-    parts.push(`out ${p}${formatUsageTokens(usage.last_output)}`)
-  }
   const max =
     usage.window != null && usage.window > 0 ? ` / ${formatUsageTokens(usage.window)}` : ''
   parts.push(`in ${p}${formatUsageTokens(usage.tokens)}${max} tok`)
+  if (usage.last_output > 0) {
+    parts.push(`out ${p}${formatUsageTokens(usage.last_output)}`)
+  }
   return parts.join(' · ')
 }
 

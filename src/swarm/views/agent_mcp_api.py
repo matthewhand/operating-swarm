@@ -20,6 +20,7 @@ from swarm.auth import api_permission_classes
 from swarm.core.agent_mcp import (
     KEY_MODE,
     KEY_SERVERS,
+    KEY_TOOLS,
     McpAccessError,
     execute_tool,
     get_mcp,
@@ -58,6 +59,7 @@ def _config_payload(agent_id: str, mcp: dict) -> dict:
         "mcp_mode": mcp.get(KEY_MODE),
         "mode": mcp.get(KEY_MODE),
         "mcp_servers": list(mcp.get(KEY_SERVERS) or []),
+        "mcp_tools": dict(mcp.get(KEY_TOOLS) or {}),
         "enabled": bool(mcp.get("enabled")),
     }
 

@@ -13,7 +13,7 @@ from django.db import models
 
 
 class HerdrAgent(models.Model):
-    """A named Herdr connection Open Swarm can drive via the ``herdr`` CLI."""
+    """A named Herdr connection Operating Swarm can drive via the ``herdr`` CLI."""
 
     name = models.CharField(max_length=200, unique=True)
     remote = models.CharField(

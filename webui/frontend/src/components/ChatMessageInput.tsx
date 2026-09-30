@@ -98,6 +98,24 @@ export function ChatMessageInput({
     setGhost('')
   }, [value])
 
+  // #1400: the composer stays mounted across agent and conversation changes,
+  // so a completion scored for the previous target must not land on the new
+  // one. The draft-text effect above only runs when `value` changes. A
+  // same-text switch (another conversation for this agent, or two agents
+  // sharing a draft) leaves the pending debounce alive, and that timer
+  // adopts a fresh request id when it fires — bumping the id here is not
+  // enough. Cancel the timer too. Do not re-arm: a remount did not fetch
+  // for text the user had not just edited, and neither does a target change.
+  const autocompleteTarget = `${agentId ?? ''}\0${conversationId ?? ''}`
+  const seenAutocompleteTarget = useRef(autocompleteTarget)
+  useEffect(() => {
+    if (seenAutocompleteTarget.current === autocompleteTarget) return
+    seenAutocompleteTarget.current = autocompleteTarget
+    clearDebounce()
+    requestIdRef.current += 1
+    setGhost('')
+  }, [autocompleteTarget, clearDebounce])
+
   const scheduleAutocomplete = useCallback(
     (draft: string) => {
       clearDebounce()

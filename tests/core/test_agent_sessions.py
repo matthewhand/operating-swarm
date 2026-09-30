@@ -87,7 +87,7 @@ def test_compact_does_not_leak_across_sessions(db, tmp_path, monkeypatch):
         {"role": "user", "content": "alpha question"},
         {"role": "assistant", "content": "alpha answer"},
     ]
-    compact_backlog(
+    row, _raw = compact_backlog(
         user=user,
         conversation_id=first.conversation_id,
         agent_id="jeeves",
@@ -96,7 +96,60 @@ def test_compact_does_not_leak_across_sessions(db, tmp_path, monkeypatch):
     )
     assert ConversationSummary.objects.filter(conversation_id=first.conversation_id).exists()
     assert not ConversationSummary.objects.filter(conversation_id=second.conversation_id).exists()
-    assert DEFAULT_TITLE or first.title
+
+    # The summary is bound to the compacted conversation, not merely "some
+    # conversation". A filter that matched one row while the row was attached
+    # to the other would satisfy the two assertions above.
+    assert row.conversation.conversation_id == first.conversation_id
+    assert row.body == "LLM digest of the compacted range."
+
+    # The last line here used to be `assert DEFAULT_TITLE or first.title`.
+    # `or` returns its first operand, and `DEFAULT_TITLE` is a non-empty
+    # string constant ("Session 1"), so the expression was a constant truth
+    # value: it could not fail, and it asserted nothing about `first` at all
+    # -- the name it read was never evaluated. Replaced with the property the
+    # line was reaching for: compacting one session leaves both sessions'
+    # identities alone.
+    #
+    # Nothing else in this file asserted that an explicit `title=` survives
+    # `create_empty_session`, so this is new coverage, not a restatement.
+    # (`test_schedule_session_retitle_skips_non_default_titles` below covers
+    # the *other* half of the same contract: that a curated title is not
+    # overwritten by a later retitle pass.)
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.title == "Alpha", f"compaction rewrote the title to {first.title!r}"
+    assert second.title == "Beta", f"the sibling session's title became {second.title!r}"
+    assert first.agent_id == second.agent_id == "jeeves"
+    assert first.conversation_id != second.conversation_id
+    assert ConversationSummary.objects.filter(conversation=first).count() == 1
+    assert ConversationSummary.objects.filter(conversation=second).count() == 0
+
+
+def test_default_title_is_a_renderable_label(db, tmp_path, monkeypatch):
+    """`DEFAULT_TITLE` is what an untitled session is *displayed* as.
+
+    It earned an assertion here because the tautology above referenced it
+    without checking it, and a blank default is a real user-visible defect:
+    `get_or_create_session` stores `title or DEFAULT_TITLE`, so an empty
+    constant writes an empty title and the picker renders a nameless row.
+    Whitespace-only is equally bad, so the check is on the stripped value.
+    """
+    monkeypatch.setenv("SWARM_CHAT_DIR", str(tmp_path))
+    user = _user(db, "default-title")
+    row = create_empty_session(user, "jeeves", title="")
+    assert row.title, "create_empty_session stored an empty title for an untitled session"
+    assert row.title == NEW_TITLE, (
+        f"an untitled session should fall back to NEW_TITLE, got {row.title!r}"
+    )
+    assert DEFAULT_TITLE.strip(), (
+        "DEFAULT_TITLE must be a visible label; it is stored verbatim by "
+        "get_or_create_session and rendered in the session picker"
+    )
+    assert DEFAULT_TITLE != NEW_TITLE, (
+        "a new empty session and a defaulted one must be distinguishable, or "
+        "#731's retitle gate cannot tell them apart"
+    )
 
 
 # ---- #731: session retitling via tiny/auxiliary override chain ----

@@ -11,8 +11,10 @@ import {
   deleteCustomBlueprint,
   deleteRemote,
   deleteTeamRoster,
+  fetchCompanies,
   type RemoteConnection,
 } from '../../lib/api'
+import { requireCompanyIdForCreate } from '../../lib/companyAttach'
 import {
   isUnassignedSection,
   moveAgentToSection,
@@ -40,8 +42,8 @@ import {
   duplicateRemoteId,
 } from '../../lib/railContextMenu'
 import { unpinAgent, type PinnedAgent } from '../../lib/pinnedAgents'
-import { openTeamEditor } from '../../components/TeamEditor'
-import { openSettingsSheet } from '../../components/SettingsSheet'
+import { openTeamEditor } from '../../components/teamEditorKernel'
+import { openSettingsSheet } from '../../components/settings/kernel'
 import type { RailRow, SidebarAgent } from './rows'
 import type { ContextMenuState } from './rows'
 import type { RailMenuKind } from '../../lib/railContextMenu'
@@ -160,10 +162,14 @@ export function useRailRowOps(opts: RailRowOpsOptions) {
         for (const r of fullRemotesData.configured ?? []) if (r.id) existingRemoteIds.add(r.id)
 
         const newId = duplicateRemoteId(row.entityId, existingRemoteIds)
+        const companies = (await fetchCompanies()).data || []
+        const companyId = requireCompanyIdForCreate(companies, source?.company_id || '')
         const created = await createRemote({
           id: newId,
           title: name,
           kind: source?.kind || (row.entityId ? row.entityId.split('_')[0] : 'generic'),
+          source: 'add-agent',
+          company_id: companyId,
           base_url: source?.base_url,
           api_key_env: source?.api_key_env,
           ui_url: source?.ui_url,
@@ -187,6 +193,10 @@ export function useRailRowOps(opts: RailRowOpsOptions) {
         return
       }
       const sourceEdit = loadAgentEdit(row.entityId)
+      const companies = (await fetchCompanies()).data || []
+      const inheritedCompanyId =
+        agents.find((agent) => agent.id === row.entityId || agent.id === row.agentId)?.company_id || ''
+      const companyId = requireCompanyIdForCreate(companies, inheritedCompanyId)
       const created = await createCustomBlueprint({
         name,
         description: `Copy of ${row.agentName}`,
@@ -195,6 +205,7 @@ export function useRailRowOps(opts: RailRowOpsOptions) {
         kind: 'api',
         rail: true,
         source: 'add-agent',
+        company_id: companyId,
         code: `# Copy of ${assignedBlueprintId(row.entityId)}\n`,
       })
       saveAgentEdit(created.id, {

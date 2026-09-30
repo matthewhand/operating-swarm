@@ -448,7 +448,3 @@ def unwatch_conversation(user_key: str, conversation_id: str) -> None:
 
 def watch_session(**kwargs: Any) -> HerdrWatchTrack | None:
     return get_monitor().watch_session(**kwargs)
-
-
-def note_swarm_send(**kwargs: Any) -> None:
-    get_monitor().note_swarm_send(**kwargs)

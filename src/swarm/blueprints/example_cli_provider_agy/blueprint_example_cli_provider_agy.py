@@ -54,7 +54,7 @@ class ExampleCliProviderAgyBlueprint(CliKindBase):
             "is visible before you copy the pattern."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "cli", "provider", "agy", "gemini"],
         "required_mcp_servers": [],
         "env_vars": [],

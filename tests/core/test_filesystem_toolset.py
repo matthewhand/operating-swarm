@@ -212,6 +212,6 @@ def test_dotenv_and_private_keys_denied_inside_allowlist(sandbox):
 
 def test_default_roots_exclude_project_checkout():
     """Bare defaults must not include ~/open-swarm (repo .env dump vector)."""
-    assert all("open-swarm" not in r for r in FilesystemToolset.DEFAULT_ROOTS)
+    assert all("open-swarm" not in r for r in FilesystemToolset.default_roots())
     fs = FilesystemToolset()
     assert all("open-swarm" not in str(r) for r in fs._roots)

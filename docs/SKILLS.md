@@ -28,7 +28,16 @@ A skill is **any directory** that holds a `SKILL.md`. The walker is
 
 Bundled examples live at repo-root `skills/<name>/SKILL.md`
 (`conventional-commit`, `counting-lines`, `reviewing-code`,
-`writing-changelog`, `support-session-ownership`, `self-update-pr`).
+`writing-changelog`, `support-session-ownership`, `self-update-pr`,
+`orca-cli`).
+
+The MIT TeamAI template (#1366) is vendored in the same catalog:
+`skills/ecc/` and `skills/mattpocock/` keep their upstream skill names, and
+`skills/teamai-baseline/` is the shared rules fragment. Reviewer seats are
+the `code_reviewer` (skeptic), `security_reviewer` (gate), and
+`database_reviewer` (engineer) blueprints. `teamai-cli` is not a seat.
+`swarm-cli teamai-import <repo>` copies a TeamAI checkout into a skills
+directory without executing it. Notices: `packs/teamai/ATTRIBUTION.md`.
 
 List/detail over HTTP:
 
@@ -39,6 +48,41 @@ List/detail over HTTP:
 
 `path` is the repo-relative `skills/<name>/SKILL.md` string used as the chip
 source id.
+
+## Per-agent CRUD + pack (#1392)
+
+Each seat has a prose skill list plus optional `gettingStarted.skill`.
+Skills are name / description / instructions — no binaries, assets, or
+secrets. The SPA editor is #1393.
+
+- `GET/POST /v1/agents/<id>/skills/` — list or create. POST `{name, description, instructions}` authors a skill; POST `{name}` / `{attach}` copies a library `SKILL.md` onto the seat.
+- `GET/PATCH/DELETE /v1/agents/<id>/skills/<name>/` — one attached skill.
+- `PATCH /v1/agents/<id>/skills/` with `{gettingStarted: {skill}}` — must name an attached skill.
+- `POST /v1/agents/<id>/pack/` — pack selected (or all attached) skills as prose. Body may name `skills` and `gettingStarted`. **`gettingStarted.skill` must name a packed skill** or validation fails.
+- `POST /v1/agents/<id>/pack/import/` — recreate those skills on the seat and mark `gettingStarted` for first-run (applied on the next turn).
+- `POST /v1/agent-packs/validate/` — same validation, no write.
+
+Pack JSON::
+
+    {
+      "object": "agent_pack",
+      "kind": "swarm-agent-pack",
+      "skills": [{"name": "welcome-tour", "description": "…", "instructions": "…"}],
+      "gettingStarted": {"skill": "welcome-tour"}
+    }
+
+## SPA editor + export picker (#1393)
+
+Agent editor (Model & inference) consumes the #1392 APIs:
+
+- List / create / edit / delete prose skills. The description field is labeled
+  **When to use**.
+- Attach a library `SKILL.md` (POST `{attach}`).
+- Export picker: multi-select skills + gettingStarted. **gettingStarted must
+  name a selected skill** or Export stays disabled (same backend rule).
+- Import pack JSON recreates skills and marks gettingStarted for first-run.
+  The next empty chat surfaces that skill (when-to-use chip). Backend applies
+  it on the first turn.
 
 ## Attach (one or more)
 

@@ -36,6 +36,7 @@ from swarm.blueprints.software_dev.workspace import (
 )
 from swarm.herdr.ssh import SSHNotConfiguredError, remote_command_from_ssh_argv
 from tests.blueprints.test_software_dev import FEASIBILITY, QUOTED_ISSUE, _ask
+from helpers.private_net import assert_no_private_ip
 
 
 def test_looks_like_remote_workdir_shapes():
@@ -80,7 +81,7 @@ def test_parse_remote_workdir_user_at_host_and_url():
     assert spec.user == "engineer"
     assert spec.path == "~/chatty-commander"
     assert spec.port == 22
-    assert "10.0.0." not in spec.public_label()
+    assert_no_private_ip(spec.public_label())
 
     url = parse_remote_workdir(
         {"workdir": "ssh://engineer@dev-worker-gpu.example.test:2222/home/engineer/chatty-commander"}
@@ -119,7 +120,7 @@ def test_parse_remote_workdir_refuses_guess_and_key_material():
                 "ssh_identity_env": "-----BEGIN OPENSSH PRIVATE KEY-----\nbogus\n",
             }
         )
-    assert "10.0.0." not in REMOTE_NOT_CONFIGURED
+    assert_no_private_ip(REMOTE_NOT_CONFIGURED)
 
 
 def test_local_backend_read_write_list_and_escape(tmp_path: Path):
@@ -179,7 +180,7 @@ def test_ssh_argv_is_openssh_and_never_embeds_a_key(tmp_path: Path):
     joined = " ".join(argv)
     assert "BEGIN" not in joined
     assert "PRIVATE KEY" not in joined
-    assert "10.0.0." not in joined
+    assert_no_private_ip(joined)
 
 
 def test_openssh_space_join_requires_quoted_remote_argv(tmp_path: Path):

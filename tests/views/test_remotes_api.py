@@ -55,6 +55,59 @@ class TestRemotesList:
         assert any(k["id"] == "herdr" and k["label"] == "Herdr" for k in data["kinds"])
         assert any(k["id"] == "omb" and k["label"] == "OpenMousBot" for k in data["kinds"])
 
+    @patch("swarm.views.remotes_api.remotes_core.list_team_members")
+    @patch("swarm.views.remotes_api.remotes_core.list_configured_remotes")
+    @patch("swarm.views.remotes_api.remotes_core.load_all_remotes")
+    def test_list_never_publishes_capabilities_operate(self, mock_load, mock_configured, mock_members, api_client):
+        """#1672 — the SPA reads no remote capability other than `sessions`.
+
+        `operate` used to ship as True for omb/rakazo while every computer op
+        answered `computer_operate_unwired`, and nothing in the SPA read it.
+        The wire must not offer a control the server cannot back up.
+        """
+        mock_load.return_value = {"hermes": _spec(), "omb": _spec("omb")}
+        mock_configured.return_value = [_spec("omb")]
+        mock_members.return_value = []
+        resp = api_client.get("/v1/remotes/")
+        assert resp.status_code == 200
+        data = resp.json()
+        rows = list(data["kinds"]) + list(data["data"]) + list(data["configured"])
+        assert rows, "expected catalog, data and configured rows"
+        for row in rows:
+            caps = row["capabilities"]
+            assert "operate" not in caps, row["id"]
+            # The keys a client can act on are still there.
+            assert caps["list"] is True
+            assert caps["send"] is True
+            assert caps["health"] is True
+        omb = next(row for row in data["kinds"] if row["id"] == "omb")
+        assert "sessions" in omb["capabilities"]
+
+    @patch("swarm.core.remotes.load_remote")
+    @patch("swarm.views.remotes_api.remotes_core.list_team_members")
+    @patch("swarm.views.remotes_api.remotes_core.list_configured_remotes")
+    @patch("swarm.views.remotes_api.remotes_core.load_all_remotes")
+    def test_computer_operate_still_refuses_with_a_gap(
+        self, mock_load, mock_configured, mock_members, mock_load_remote, api_client
+    ):
+        """#1672 — removing the flag did not remove the honest refusal.
+
+        The gap, not a capability key, is what a client is told, so it must
+        still arrive on the wire with the reason attached.
+        """
+        mock_load.return_value = {}
+        mock_configured.return_value = []
+        mock_members.return_value = []
+        mock_load_remote.return_value = _spec("omb")
+        resp = api_client.post(
+            "/v1/remotes/omb/operate/", {"op": "computer-status"}, format="json"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["gap"] in {"computer_operate_unwired", "computer_not_supported"}
+        assert "ADR-007" in body["detail"]
+
 
 class TestHerdrKind:
     def test_unknown_herdr_get_is_clear_error(self, api_client):

@@ -13,7 +13,17 @@ primary_region = 'syd'
 
 [env]
   PORT = '8000'
-  SWAPFILE_PATH = "/mnt/sqlite_data/swapfile" 
+  SWAPFILE_PATH = "/mnt/sqlite_data/swapfile"
+  # #1337: runtime reservation on the shared 1GB volume (384M; was a fixed 768M).
+  # A [build.args] entry never reached the shell CMD. scripts/ensure_swapfile.sh
+  # reads this value and replaces a larger file already on the volume.
+  SWAP_SIZE_MB = '384'
+  # TLS is terminated at the Fly proxy and the VM is not directly reachable,
+  # so trusting X-Forwarded-Proto is correct here (issue #1345). Required:
+  # without it Django builds the OAuth redirect_uri with an http:// scheme
+  # and GitHub/Google reject the callback. docker-compose and the systemd
+  # units publish 8000 directly and correctly leave this unset.
+  SWARM_BEHIND_TLS_PROXY = 'true'
 
 [http_service]
   internal_port = 8000

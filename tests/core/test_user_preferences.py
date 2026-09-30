@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 
 from swarm.core.user_preferences import (
+    ACTIVITY_LOG_VISIBILITY_KEY,
     coerce_values,
     is_secret_key,
     merge_values,
@@ -83,6 +84,11 @@ def test_public_payload_marks_empty_and_lists_registry():
         "theme_navbar_mode",
         "bubble_theme",
         "rail_sections",
+        "hide_unsupported_agent_picker",
+        "hide_unsupported_session_picker",
+        "operator_profile",
+        "about_me",
+        "activity_log_visibility",
     ]
     assert payload["context_auto_compress_pct"] == 80
     assert payload["context_strategy"] == "compress"
@@ -91,6 +97,9 @@ def test_public_payload_marks_empty_and_lists_registry():
     assert payload["theme"] == "system"
     assert payload["theme_navbar_mode"] == "if_not_system"
     assert payload["bubble_theme"] == ""
+    assert payload["operator_profile"] == {"name": "", "timezone": "", "about": ""}
+    assert payload["about_me"] == ""
+    assert payload["activity_log_visibility"] == "operator"
 
 
 def test_normalize_agent_dropdowns_keeps_safe_fields_only():
@@ -103,6 +112,25 @@ def test_normalize_agent_dropdowns_keeps_safe_fields_only():
         }
     )
     assert cleaned == {"cli_agent": {"cli": "grok", "model": "grok-4"}}
+
+
+def test_activity_log_visibility_pref_coerces_and_merges(tmp_path, monkeypatch):
+    from swarm.core import activity_log as al
+
+    monkeypatch.setenv(al.ENV_LOG_PATH, str(tmp_path / "activity_log.jsonl"))
+    monkeypatch.delenv(al.ENV_VISIBILITY, raising=False)
+    bag = coerce_values({"activity_log_visibility": "nope"})
+    assert bag[ACTIVITY_LOG_VISIBILITY_KEY] == "operator"
+    merged = merge_values(bag, {ACTIVITY_LOG_VISIBILITY_KEY: "all"})
+    assert merged[ACTIVITY_LOG_VISIBILITY_KEY] == "all"
+    assert al.get_activity_log_visibility() == "all"
+    payload = public_payload(
+        principal="user:alice",
+        guest=False,
+        empty=False,
+        values=merged,
+    )
+    assert payload[ACTIVITY_LOG_VISIBILITY_KEY] == "all"
 
 
 def test_normalize_hostname_override_strips_controls_and_caps_length():

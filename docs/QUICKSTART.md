@@ -1,6 +1,6 @@
-# Open Swarm Quickstart
+# Operating Swarm Quickstart
 
-This guide will help you get started with Open Swarm, install and configure blueprints (like Codey), and run your first LLM-powered agent.
+This guide will help you get started with Operating Swarm, install and configure blueprints (like Codey), and run your first LLM-powered agent.
 
 **UI / auth honesty:** day-to-day **operator UI** is Django trailing-slash
 routes (`/teams/launch/`, `/blueprint-library/`, `/settings/`, … —
@@ -11,9 +11,9 @@ cookie — Bearer does not auth WS (close **4401**). Full map:
 
 ---
 
-## 1. Install Open Swarm
+## 1. Install Operating Swarm
 
-Install the Open Swarm framework and CLI globally:
+Install the Operating Swarm framework and CLI globally:
 ```bash
 pip install --user open-swarm
 ```
@@ -111,7 +111,7 @@ curl -sf http://localhost:8000/v1/chat/completions \
 
 Notes:
 - docker-compose healthcheck probes `/health` (service name: `swarm`)
-- **PORT / LAN honesty:** greenfield compose and `swarm-api` default to **`:8000`** for Open Swarm ASGI + WebUI. On some LAN hosts (dev-worker-max) **`:8000` is LiteLLM**, Open Swarm uvicorn is typically **`:8002`**, and tip **vite** preview may be on **`:8001`** (often absent / stale). Curl Django / CSRF / chat at the **swarm** port — not LiteLLM.
+- **PORT / LAN honesty:** greenfield compose and `swarm-api` default to **`:8000`** for Operating Swarm ASGI + WebUI. On some LAN hosts (dev-worker-max) **`:8000` is LiteLLM**, Operating Swarm uvicorn is typically **`:8002`**, and tip **vite** preview may be on **`:8001`** (often absent / stale). Curl Django / CSRF / chat at the **swarm** port — not LiteLLM.
 - SPA `/` + `/chat` is baked into the Docker image; source checkouts need
   `make frontend` once (gitignored `dist/`) — [ADR-001](./ADR-001-primary-ui.md)
 - Auth is **not** “on by default”: it is on only when a token is configured.
@@ -161,7 +161,7 @@ gateway-slug distinction live in
 
 ```bash
 export LITELLM_BASE_URL=http://127.0.0.1:8000/v1   # LAN LiteLLM; stock docs often use :4000
-export LITELLM_API_KEY=sk-local-placeholder   # any non-empty value if keyless
+export LITELLM_API_KEY=sk-<token>   # any non-empty value if keyless
 # Do not set LITELLM_MODEL — that overrides every profile's model.
 
 swarm-cli config add --section llm --name orchestration --json \
@@ -276,4 +276,4 @@ See [MOA.md](./MOA.md).
 
 ---
 
-**Happy hacking with Open Swarm!**
+**Happy hacking with Operating Swarm!**

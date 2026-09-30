@@ -10,9 +10,10 @@
  */
 import { useCallback, useEffect } from 'react'
 import { agentIdFromBlueprint, clearAgentThread, patchAgentMessage, setConversationIdForAgent, DEFAULT_AGENT_ID } from '../../lib/agentChat'
-import { buildCancelTurnFrame, buildChatWsEditFrame, newConversationId } from '../../lib/chatWs'
-import { SUGGESTION_CHIP_EVENT, suggestionChipText } from '../../lib/chatQueue'
+import { buildCancelTurnFrame, buildChatWsEditFrame, buildChatWsReactionFrame, canPersistReactionFrame, newConversationId } from '../../lib/chatWs'
+import { toggleUserReaction } from '../../lib/messageReactions'
 import { turnIndexFromDisplay } from '../../lib/transcriptReconstruct'
+import { SUGGESTION_CHIP_EVENT, suggestionChipText } from '../../lib/chatQueue'
 import type { ChatMessage } from './chatMessages'
 
 export interface UseChatTurnOpsOptions {
@@ -93,13 +94,42 @@ export function useChatTurnOps(opts: UseChatTurnOpsOptions) {
    * stop cannot misfire onto a newer turn of the same agent that began
    * after the button rendered.
    */
-  const interruptRunningTurn = useCallback((agent?: string, turnId?: string) => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(buildCancelTurnFrame(agent, turnId))
-      setAwaitingAssistant(false)
-    }
-  }, [])
+  const interruptRunningTurn = useCallback(
+    (agent?: string, turnId?: string, options?: { preserveAwaiting?: boolean }) => {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(buildCancelTurnFrame(agent, turnId))
+      }
+      // #1226: acknowledge the interrupt locally instead of waiting for the
+      // server's turn_finished. The queued-drain effect and submitUserText's
+      // in-flight guard both read this state; leaving a streaming row behind
+      // after cancel made enter-to-interrupt bounce the promoted queued row
+      // (removed from the pane → re-enqueued → removed again) and left the
+      // user unsure the interrupt executed. Bare calls cancel THE active
+      // turn, so every streaming row of this thread ends; agent-scoped calls
+      // (#1096) keep the server-driven path — rows carry no agent marker, so
+      // a local clear could not respect the other-members-keep-streaming
+      // contract.
+      if (!agent) {
+        setThreads((prev) => {
+          const list = prev[threadKey] ?? []
+          if (!list.some((row) => row.streaming)) return prev
+          return {
+            ...prev,
+            [threadKey]: list.map((row) =>
+              row.streaming ? { ...row, streaming: false } : row,
+            ),
+          }
+        })
+      }
+      // #1374: a Running card can stop a sibling that is not this thread.
+      // Clearing awaiting here dropped the seat on screen's own indicator.
+      if (!options?.preserveAwaiting) {
+        setAwaitingAssistant(false)
+      }
+    },
+    [setAwaitingAssistant, setThreads, threadKey],
+  )
 
   useEffect(() => {
     const onChip = (event: Event) => {
@@ -159,6 +189,36 @@ export function useChatTurnOps(opts: UseChatTurnOpsOptions) {
     [addToast, messagesEditable, selectedBlueprint, threadKey, threads],
   )
 
+  const toggleMessageReaction = useCallback(
+    (displayIndex: number, emoji: string) => {
+      const current = threads[threadKey] ?? []
+      const target = current[displayIndex]
+      if (!target || target.streaming) return
+      const ws = wsRef.current
+      if (!ws || !canPersistReactionFrame(ws.readyState)) {
+        addToast({
+          type: 'error',
+          title: 'Could not save reaction',
+          message: 'The chat connection is down. Try again once it reconnects.',
+        })
+        return
+      }
+      setThreads((prev) => {
+        const list = prev[threadKey] ?? []
+        if (!list[displayIndex]) return prev
+        const next = list.slice()
+        next[displayIndex] = {
+          ...next[displayIndex],
+          reactions: toggleUserReaction(next[displayIndex].reactions, emoji),
+        }
+        return { ...prev, [threadKey]: next }
+      })
+      const turnIndex = turnIndexFromDisplay(current, displayIndex)
+      ws.send(buildChatWsReactionFrame(turnIndex, emoji))
+    },
+    [addToast, threadKey, threads, wsRef],
+  )
 
-  return { startFreshCliSession, retryCliSession, clearCliSessionHistory, interruptRunningTurn, saveEditedMessage }
+
+  return { startFreshCliSession, retryCliSession, clearCliSessionHistory, interruptRunningTurn, saveEditedMessage, toggleMessageReaction }
 }

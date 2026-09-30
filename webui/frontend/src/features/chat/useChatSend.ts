@@ -14,9 +14,11 @@ import {
   cliAgentChatParams,
   mergeChatSendParams,
 } from '../../lib/chatWs'
-import { attachmentCaption, readyAttachmentIds } from '../../lib/chatAttachments'
+import { DEFAULT_BUBBLE_THEME } from '../../lib/bubbleTheme'
+import { readyAttachmentIds } from '../../lib/chatAttachments'
+import { composeOutboundDisplayText } from '../../lib/voiceNotes'
 import type { PendingAttachment } from '../../lib/chatAttachments'
-import { enabledToolsParam } from '../../lib/chatPluginTools'
+import { chatTurnToolParams } from '../../lib/mcpTurnParams'
 import { railSectionsParam } from '../../lib/railSections'
 import { isOpenMousBotKind } from '../../lib/remoteKinds'
 import {
@@ -24,6 +26,7 @@ import {
   OMB_SELECT_AGENT_WARNING,
   ombSendTarget,
 } from '../../lib/ombBots'
+import type { OmbBotOption } from '../../lib/ombBots'
 import { remoteChatTurnParams, remoteListsSessions } from '../../lib/remoteSessions'
 import { remoteEndpointLabel } from '../../lib/cliRemote'
 import { ALL_MEMBERS_TARGET } from '../../lib/teamRosters'
@@ -34,6 +37,7 @@ import { chatFolderParams } from '../../lib/agentFolder'
 import { buildSkillParams, parseComposerSkillNames } from '../../lib/skills'
 import { loadElicitQuestions } from '../../lib/elicitQuestions'
 import { recordBackendUse } from '../../lib/backendAudit'
+import { modelForCompanyRoute } from '../../lib/companyRoute'
 import type { AgentKind } from '../../lib/agentKind'
 
 export interface UseChatSendOptions {
@@ -50,6 +54,8 @@ export interface UseChatSendOptions {
   currentCliSource: string | null
   currentCliModel: string
   persistedDropdown: Partial<Record<string, string>>
+  /** #1317: Company route used only when this API seat has no explicit model. */
+  companyRoute?: { applied?: boolean; model?: string } | null
   agentKind: AgentKind
   selectedAgentName: string
   searchParams: URLSearchParams
@@ -59,8 +65,11 @@ export interface UseChatSendOptions {
   messages: unknown[]
   remoteFromUrl: string
   sessionFromUrl: string
+  ombBots: readonly OmbBotOption[]
   addToast: (toast: { type: 'warning'; title: string; message: string }) => void
   activeChatAgentId: string | null
+  /** #1411: active bubble theme, so the agent tool schema matches the picker. */
+  bubbleTheme?: string
 }
 
 export function useChatSend({
@@ -77,6 +86,7 @@ export function useChatSend({
   currentCliSource,
   currentCliModel,
   persistedDropdown,
+  companyRoute,
   agentKind,
   selectedAgentName,
   searchParams,
@@ -86,24 +96,23 @@ export function useChatSend({
   messages,
   remoteFromUrl,
   sessionFromUrl,
+  ombBots,
   addToast,
   activeChatAgentId,
+  bubbleTheme,
 }: UseChatSendOptions) {
   const sendText = useCallback(
     (text: string): boolean => {
       const ws = wsRef.current
       const attachIds = readyAttachmentIds(pendingAttachments)
-      const trimmed =
-        text.trim() ||
-        (attachIds.length > 0
-          ? attachmentCaption(pendingAttachments.map((item) => item.name))
-          : '')
+      const trimmed = composeOutboundDisplayText(text, pendingAttachments)
       if (!trimmed || !ws || ws.readyState !== WebSocket.OPEN) return false
       lastUserTextRef.current = trimmed
       // Team compose adds params { team, target: "all" | memberId }.
       // #516: the allowlist is the **agent's**, keyed by the same seat id the
       // toggles and the badge read — never the conversation id.
-      const pluginParams = enabledToolsParam(activeChatAgentId || '')
+      // #1313: a saved mcp_tools map omits enabled_tools so the turn uses the grant.
+      const pluginParams = chatTurnToolParams(activeChatAgentId || '')
       const sectionParams = railSectionsParam()
       const attachArg = attachIds.length > 0 ? attachIds : undefined
       if (teamFromUrl) {
@@ -120,7 +129,7 @@ export function useChatSend({
       }
       if (remoteFromUrl) {
         if (isOpenMousBotKind(remoteFromUrl)) {
-          const target = ombSendTarget(sessionFromUrl, remoteFromUrl)
+          const target = ombSendTarget(sessionFromUrl, remoteFromUrl, ombBots)
           if (!target) {
             addToast({
               type: 'warning',
@@ -170,10 +179,15 @@ export function useChatSend({
         ? supportTurnExtras()
         : undefined
       const persistedModel = (persistedDropdown.model || persistedDropdown.api || '').trim()
-      const selectedModelParam = (
+      const explicitModelParam = (
         (searchParams.get('model') ?? '').trim() ||
         (isCliAgent ? currentCliModel : persistedModel)
       ).trim()
+      // #1317: API turns with no manual model pick send the Company route.
+      // CLI/remote/team frames keep their own model namespace.
+      const selectedModelParam = isApiAgent
+        ? modelForCompanyRoute(explicitModelParam, companyRoute)
+        : explicitModelParam
       const agentIdForInference =
         runtimeBlueprint || selectedBlueprint || SUPPORT_AGENT_ID
       const inferenceSeats = loadInferenceList(agentIdForInference)
@@ -244,6 +258,13 @@ export function useChatSend({
             sectionParams,
             elicitParams,
             cliParams,
+            // REQ-49: only send an explicit bubble_theme when the user has
+            // actually chosen a non-default theme; the server already
+            // defaults to 'speech' (REQ-844) and test payloads assert the
+            // minimal shape.
+            bubbleTheme && bubbleTheme !== DEFAULT_BUBBLE_THEME
+              ? { bubble_theme: bubbleTheme }
+              : undefined,
           ),
           attachArg,
         ),
@@ -271,6 +292,7 @@ export function useChatSend({
       persistedDropdown.model,
       persistedDropdown.cli,
       persistedDropdown.api,
+      companyRoute,
       isApiAgent,
       agentKind,
       selectedAgentName,
@@ -281,10 +303,12 @@ export function useChatSend({
       messages.length,
       remoteFromUrl,
       sessionFromUrl,
+      ombBots,
       addToast,
       pendingAttachments,
       clearPendingAttachments,
       activeChatAgentId,
+      bubbleTheme,
     ],
   )
   return sendText

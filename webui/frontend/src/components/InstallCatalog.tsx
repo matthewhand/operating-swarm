@@ -17,6 +17,7 @@ import {
   filterCatalogItems,
   installAndProbe,
   mergeCatalog,
+  sourceStatusLines,
   usesBackendInstall,
   type CatalogKindFilter,
   type CatalogSurface,
@@ -100,6 +101,7 @@ export default function InstallCatalog({
   const [kind, setKind] = useState<CatalogKindFilter>('all')
   const [loaded, setLoaded] = useState<InstallCatalogItem[]>(itemsProp || [])
   const [warnings, setWarnings] = useState<string[]>(warningsProp || [])
+  const [sourceStatus, setSourceStatus] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [installStates, setInstallStates] = useState<Record<string, InstallStatus>>({})
@@ -143,6 +145,7 @@ export default function InstallCatalog({
       })
       setLoaded(merged.items)
       setWarnings([...scanWarnings, ...merged.warnings])
+      setSourceStatus(sourceStatusLines(backend))
       setLoading(false)
     })()
     return () => {
@@ -298,6 +301,17 @@ export default function InstallCatalog({
         ))}
       </div>
 
+      {sourceStatus.map((line) => (
+        <p
+          key={line}
+          className="px-4 text-xs text-base-content/60"
+          role="status"
+          data-testid="os-catalog-source-status"
+        >
+          {line}
+        </p>
+      ))}
+
       {warnings.map((warning) => (
         <p key={warning} className="px-4 text-xs text-warning" role="status">
           {warning}
@@ -316,7 +330,7 @@ export default function InstallCatalog({
           className="os-install-cards"
           role="list"
           aria-label={
-            surface === 'skills' ? 'Skill packs' : surface === 'teams' ? 'Team packs' : 'Tool catalog'
+            surface === 'skills' ? 'Skill packs' : surface === 'teams' ? 'Rig packs' : 'Tool catalog'
           }
         >
           {emptySkills ? (
@@ -463,7 +477,7 @@ export default function InstallCatalog({
                 {(selected.members || []).length === 0 ? (
                   <p className="text-xs text-base-content/60">Open the pack to load members before install.</p>
                 ) : (
-                  <ul className="text-xs" aria-label="Team members">
+                  <ul className="text-xs" aria-label="Rig members">
                     {(selected.members || []).map((member) => (
                       <li key={member.id}>
                         {member.name || member.id} ({member.kind}

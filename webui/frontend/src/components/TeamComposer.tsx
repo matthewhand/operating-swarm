@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GripVertical, Plus, Tags, Users, Wrench } from 'lucide-react'
 import { Alert, Badge, Button, Modal, Tabs, Textarea } from './DaisyUI'
@@ -80,18 +81,37 @@ import {
   deriveToolMatrix,
   toggleToolMatrixCell,
 } from '../lib/teamRoster'
+import { buildRigTopology } from '../lib/rigTopology'
+import RigTopologyView from './RigTopologyView'
+import GroupAvatar from './GroupAvatar'
+import { TEAM_CREATED_EVENT } from './teamComposerKernel'
 
-export const OPEN_TEAM_COMPOSER_EVENT = 'swarm:open-team-composer'
-/** #793: fired after a NEW roster is created so the rail can bump it to the
-    top of Unassigned immediately — a fresh team must never hide below the
-    fold looking like the creation failed. */
-export const TEAM_CREATED_EVENT = 'swarm:team-created'
+export { OPEN_TEAM_COMPOSER_EVENT, TEAM_CREATED_EVENT } from './teamComposerKernel'
 
 interface ContextMenuState {
   mode: 'add' | 'remove'
   agent: TeamAgent
   x: number
   y: number
+  /** Top-layer host (the open `<dialog>`). Portal target so `position: fixed`
+      stays viewport-relative instead of being trapped by `.modal-box`'s
+      `translate` (which establishes a containing block). */
+  host: HTMLElement | null
+}
+
+/**
+ * The context menu is a single ~10rem row. Fixed estimates keep it on-screen
+ * even when the pointer is near the right/bottom edge; the real box is measured
+ * by the browser but never exceeds these caps.
+ */
+const CONTEXT_MENU_W = 176
+const CONTEXT_MENU_H = 52
+
+function contextMenuHost(target: EventTarget | null): HTMLElement | null {
+  const el = target as HTMLElement | null
+  const dialog = el?.closest?.('dialog.modal') as HTMLElement | null
+  if (dialog) return dialog
+  return typeof document !== 'undefined' ? document.body : null
 }
 
 export interface TeamComposerProps {
@@ -136,7 +156,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   // #780: roster-first — the team's identity/membership is not a tab. The
   // roster block sits permanently above the facet tabs; tier selects which
   // configuration facet renders below it.
-  const [tier, setTier] = useState<'roles' | 'tools' | 'catalog'>('roles')
+  const [tier, setTier] = useState<'roles' | 'tools' | 'topology' | 'catalog'>('roles')
   const [instructionsOpen, setInstructionsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const cosChoices = useMemo(() => eligibleCosMembers(members), [members])
@@ -340,6 +360,18 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
   // toggling a matrix cell mutates roleSlots/toolSlots directly.
   const roleMatrix = useMemo(() => deriveRoleMatrix(members, roleSlots), [members, roleSlots])
   const toolMatrix = useMemo(() => deriveToolMatrix(members, toolSlots), [members, toolSlots])
+  // #1222: the topology reads the same members/tools the composer edits.
+  const topology = useMemo(() => {
+    const tools = serializeToolSlots(toolSlots)
+    return buildRigTopology({
+      id: savedId ?? '',
+      name: name.trim(),
+      members,
+      tools,
+      wires: deriveWiresFromTools(tools),
+      chief_of_staff_id: chiefOfStaffId,
+    })
+  }, [savedId, name, members, toolSlots, chiefOfStaffId])
 
   const clearForeignDrag = (event: React.DragEvent<HTMLElement>) => {
     try {
@@ -581,7 +613,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     mutationFn: async () => {
       const trimmed = name.trim()
       if (!trimmed) {
-        throw new Error('Team name is required.')
+        throw new Error('Group chat name is required.')
       }
       const stamped = stampCosRole(members, chiefOfStaffId)
       const tools = serializeToolSlots(toolSlots)
@@ -661,7 +693,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Manage Teams"
+      title="Group chats"
       size="2xl"
       className="max-h-[90vh]"
     >
@@ -672,24 +704,24 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       <div className="space-y-4">
         <p className="text-sm text-base-content/60">
-          Compose a roster of API, CLI, and remote agents to collaborate on
+          Build a group chat: add API, CLI, and remote agents to collaborate on
           complex tasks.
         </p>
 
         <div className="flex flex-wrap items-end gap-2 pb-3 border-b border-base-300/60">
           <label className="flex flex-1 min-w-[14rem] flex-col gap-1 text-sm">
-            <span className="font-medium text-xs text-base-content/70">Select team</span>
+            <span className="font-medium text-xs text-base-content/70">Select group chat</span>
             <select
               className="select select-sm w-full"
               value={savedId ?? ''}
-              aria-label="Select team"
+              aria-label="Select group chat"
               onChange={(event) => {
                 const next = savedRosters.find((row) => row.id === event.target.value)
                 if (next) loadRoster(next)
                 else resetDraft()
               }}
             >
-              <option value="" disabled={Boolean(savedId)}>Choose a team…</option>
+              <option value="" disabled={Boolean(savedId)}>Choose a group chat…</option>
               {savedRosters.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name}
@@ -702,12 +734,12 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
               save path still requires one — a new team could not be named
               at all. Restored alongside the team picker (#780 cluster). */}
           <label className="flex flex-1 min-w-[12rem] flex-col gap-1 text-sm">
-            <span className="font-medium text-xs text-base-content/70">Team name</span>
+            <span className="font-medium text-xs text-base-content/70">Group chat name</span>
             <input
               type="text"
               className="input input-sm w-full"
               value={name}
-              aria-label="Team name"
+              aria-label="Group chat name"
               placeholder="e.g. Research Squad"
               onChange={(event) => setName(event.target.value)}
             />
@@ -721,13 +753,13 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             onClick={resetDraft}
           >
             <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
-            Create Team
+            Create group chat
           </Button>
         </div>
 
         {savedRosters.length > 0 && (
           <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">Saved rosters</span>
+            <span className="font-medium">Saved group chats</span>
             <select
               className="select select-sm"
               value={savedId ?? ''}
@@ -736,9 +768,9 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                 if (next) loadRoster(next)
                 else resetDraft()
               }}
-              aria-label="Saved rosters"
+              aria-label="Saved group chats"
             >
-              <option value="">New team</option>
+              <option value="">New group chat</option>
               {savedRosters.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name}
@@ -753,7 +785,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           data-testid="team-cos-fieldset"
         >
           <legend className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-base-content/45">
-            Team Lead
+            Group chat lead
           </legend>
           <label className="flex flex-col gap-1 text-sm">
             <select
@@ -790,15 +822,15 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
             <p className="mt-2 text-xs text-base-content/50">{COS_EMPTY_ROSTER_HINT}</p>
           ) : (
             <p className="mt-2 text-xs text-base-content/50" data-testid="team-lead-hint">
-              The Team Lead is the primary agent you converse with directly. Other
-              team members assist the lead either as internal tools or via direct
-              handoff. Remotes stay off this list until runtime can inject a CoS brief.
+              The group chat lead is the primary agent you converse with directly.
+              Other group chat members assist the lead either as internal tools or
+              via direct handoff. Remotes stay off this list until runtime can inject a CoS brief.
             </p>
           )}          {instructionsOpen ? (
             <Textarea
               id="team-cos-instructions"
               data-testid="team-cos-instructions"
-              label="How to use this team"
+              label="How to use this group chat"
               size="sm"
               rows={3}
               disabled={!chiefOfStaffId}
@@ -860,7 +892,20 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           }>
             <div className="mb-3 flex items-center gap-2 text-sm font-medium text-base-content/70">
               <Users className="h-4 w-4" aria-hidden="true" />
-              Roster
+              <span>Group chat members</span>
+              {members.length > 0 ? (
+                <GroupAvatar
+                  members={members}
+                  size="sm"
+                  label={`${members.length} member${members.length === 1 ? '' : 's'} in this group chat`}
+                />
+              ) : null}
+              <span
+                className="ml-auto text-xs font-normal text-base-content/45"
+                data-testid="group-chat-member-count"
+              >
+                {members.length} {members.length === 1 ? 'member' : 'members'}
+              </span>
             </div>
             {members.length === 0 ? (
               <div className="flex h-[13rem] flex-col items-center justify-center text-center text-base-content/45">
@@ -901,6 +946,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                             agent,
                             x: event.clientX,
                             y: event.clientY,
+                            host: contextMenuHost(event.currentTarget),
                           })
                         }}
                       >
@@ -953,7 +999,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           </section>
 
           <section aria-label="Available agents" className="min-h-[18rem]">
-            <div className="mb-3 text-sm font-medium text-base-content/70">Available agents</div>
+            <div className="mb-3 text-sm font-medium text-base-content/70">Add agents</div>
             {agentsQuery.isPending && availableAgents.length === 0 ? (
               <p className="text-sm text-base-content/45">Loading agents…</p>
             ) : (
@@ -1002,6 +1048,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
                                   agent,
                                   x: event.clientX,
                                   y: event.clientY,
+                                  host: contextMenuHost(event.currentTarget),
                                 })
                               }}
                               className="flex cursor-grab items-center gap-2 rounded-lg border border-base-300 bg-base-100 px-3 py-2 active:cursor-grabbing"
@@ -1042,6 +1089,7 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
           tabs={[
             { key: 'roles', label: 'Roles' },
             { key: 'tools', label: 'Tools' },
+            { key: 'topology', label: 'Topology' },
             { key: 'catalog', label: 'Catalog' },
           ]}
           activeTab={tier}
@@ -1526,44 +1574,60 @@ export default function TeamComposer({ isOpen, onClose }: TeamComposerProps) {
         </div>
         )}
 
+        {tier === 'topology' && (
+          <div data-testid="team-topology-pane">
+            <RigTopologyView topology={topology} />
+          </div>
+        )}
+
         {tier === 'catalog' && (
-          <div className="border-t border-base-300 pt-3" aria-label="Get more teams">
+          <div className="border-t border-base-300 pt-3" aria-label="Get more group chats">
             <InstallCatalog surface="teams" />
           </div>
         )}
       </div>
       </div>
 
-      {menu && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={`Actions for ${agentDisplayName(menu.agent)}`}
-          className="fixed z-[80] min-w-[10rem] rounded-lg border border-base-300 bg-neutral py-1 text-sm shadow-xl"
-          style={{ left: menu.x, top: menu.y }}
-        >
-          {menu.mode === 'add' ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-300/50"
-              onClick={() => addFromAgent(menu.agent)}
+      {menu && menu.host
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              aria-label={`Actions for ${agentDisplayName(menu.agent)}`}
+              className="fixed z-[80] min-w-[10rem] rounded-lg border border-base-300 bg-neutral py-1 text-sm text-neutral-content shadow-xl"
+              style={(() => {
+                const vw = typeof window !== 'undefined' ? window.innerWidth : 1024
+                const vh = typeof window !== 'undefined' ? window.innerHeight : 768
+                return {
+                  left: Math.max(8, Math.min(menu.x, vw - CONTEXT_MENU_W - 8)),
+                  top: Math.max(8, Math.min(menu.y, vh - CONTEXT_MENU_H - 8)),
+                }
+              })()}
             >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add
-            </button>
-          ) : (
-            <button
-              type="button"
-              role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-300/50"
-              onClick={() => removeFromAgent(menu.agent)}
-            >
-              Remove
-            </button>
-          )}
-        </div>
-      )}
+              {menu.mode === 'add' ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-300/50"
+                  onClick={() => addFromAgent(menu.agent)}
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-base-300/50"
+                  onClick={() => removeFromAgent(menu.agent)}
+                >
+                  Remove
+                </button>
+              )}
+            </div>,
+            menu.host,
+          )
+        : null}
       </div>
     </Modal>
   )

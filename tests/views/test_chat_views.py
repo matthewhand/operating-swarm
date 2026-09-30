@@ -477,3 +477,6 @@ class TestHealthCheckView:
         assert response.status_code == status.HTTP_200_OK
         data = response.data
         assert data["status"] == "ok"
+        from swarm.core.paths import config_root
+
+        assert data["config_root"] == str(config_root())

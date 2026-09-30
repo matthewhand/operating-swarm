@@ -40,6 +40,9 @@ export interface ConfigOwnershipPayload {
   advanced_sections: string[]
   inventory: ConfigOwnershipRow[]
   default_llm_profile?: EnvBadge
+  /** Resolved ``config_root()`` (#1434). Override with ``SWARM_CONFIG_DIR``. */
+  config_root?: string
+  config_root_env?: string
 }
 
 export interface ConfigSectionPayload {

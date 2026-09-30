@@ -57,14 +57,15 @@ function remotesCatalog() {
   }
 }
 
-function operateListBody() {
+function operateListBody(withCos = false) {
   return {
     remote: 'omb',
     op: 'list',
     ok: true,
-    detail: 'OpenMousBot listed 2 bot(s) via GET /api/bots',
+    detail: 'OpenMousBot listed bot(s) via GET /api/bots',
     data: {
       bots: [
+        ...(withCos ? [{ id: 'cos-1', name: 'Chief of Staff' }] : []),
         { id: 'desk-1', name: 'Desk', messages: [{ role: 'assistant', content: FAT_MESSAGE }] },
         { id: 'spec-9', name: 'Specialist', messages: [{ role: 'user', content: FAT_MESSAGE }] },
       ],
@@ -72,14 +73,14 @@ function operateListBody() {
   }
 }
 
-function stubFetch() {
+function stubFetch(withCos = false) {
   return vi.fn().mockImplementation(async (input: RequestInfo) => {
     const url = String(input)
     if (url.includes('/operate/')) {
       return {
         ok: true,
         status: 200,
-        json: async () => operateListBody(),
+        json: async () => operateListBody(withCos),
       } as Response
     }
     if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
@@ -184,6 +185,34 @@ describe('ChatPage OMB navbar agents (#102)', () => {
         name: 'omb',
         op: 'send',
         target: 'desk-1',
+      },
+    })
+  })
+
+  it('defaults send target to the chief of staff when no agent is selected', async () => {
+    vi.stubGlobal('fetch', stubFetch(true))
+    renderChat('/chat?remote=omb')
+    const ws = await openSocket()
+    const pill = await screen.findByTestId('routing-pill-agent')
+    await waitFor(() => {
+      expect(pill).toHaveTextContent('Chief of Staff')
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+      target: { value: 'hello cos' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }))
+    const frame = ws.send.mock.calls
+      .map((c) => String(c[0]))
+      .find((s) => !s.includes('"kind":"subscribe"'))
+    expect(frame).toBeTruthy()
+    expect(JSON.parse(String(frame))).toMatchObject({
+      message: 'hello cos',
+      blueprint: 'remote_harness',
+      params: {
+        remote: 'omb',
+        name: 'omb',
+        op: 'send',
+        target: 'cos-1',
       },
     })
   })

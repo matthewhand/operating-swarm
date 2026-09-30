@@ -1,0 +1,90 @@
+name: Barebones install (#1334)
+
+# The base `dependencies` list in pyproject.toml is deliberately minimal and the
+# Dockerfile installs `.[deploy]`. That means the *server* runs against a
+# dependency set that CI never reproduces: 38 of 40 workflows use
+# `uv sync --all-extras`, one uses `--extra test`, and none install without
+# extras. A module-level import of something that has become an extra therefore
+# resolves happily in CI and breaks only in a clean container.
+#
+# Two real bugs got through that gap before this job existed:
+#   * `pytz` was never declared -- blueprints/suggestion and blueprints/jeeves
+#     import it at module scope and blueprint discovery imports every blueprint,
+#     so a barebones `pip install .` failed discovery. It had only ever been
+#     present transitively, via mem0ai in the `memory` extra.
+#   * `gunicorn` stayed in base after being moved out.
+#
+# This job is the gate for that class of bug. It is fast: `find_spec` never
+# imports, and the walk imports each module exactly once.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  barebones-import:
+    name: barebones install (no extras)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the base package (no extras -- this is the point)
+        run: |
+          uv venv
+          # Deliberately NOT --all-extras. `uv pip install .` is what the
+          # Dockerfile does, so this reproduces the container's dependency set.
+          uv pip install .
+
+      - name: Import every swarm module
+        run: |
+          DJANGO_DEBUG=true \
+          DJANGO_SECRET_KEY=ci-only-not-a-secret \
+          DJANGO_ALLOW_ASYNC_UNSAFE=true \
+          SWARM_SKIP_DOTENV=1 \
+          uv run --no-sync python .github/scripts/import_all_swarm_modules.py
+
+  deploy-profile-import:
+    name: deploy profile (.[deploy])
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the profile the Dockerfile uses
+        run: |
+          uv venv
+          uv pip install '.[deploy]'
+
+      - name: Import every swarm module
+        run: |
+          DJANGO_DEBUG=true \
+          DJANGO_SECRET_KEY=ci-only-not-a-secret \
+          DJANGO_ALLOW_ASYNC_UNSAFE=true \
+          SWARM_SKIP_DOTENV=1 \
+          uv run --no-sync python .github/scripts/import_all_swarm_modules.py

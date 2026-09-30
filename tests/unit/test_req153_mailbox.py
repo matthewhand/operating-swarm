@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from helpers.private_net import assert_no_private_ip
+
 REPO = Path(__file__).resolve().parents[2]
 MAILBOX = REPO / "src" / "swarm" / "core" / "agent_mailbox.py"
 REL = REPO / "src" / "swarm" / "core" / "agent_relationships.py"
@@ -17,8 +19,10 @@ POINTER = REPO / "docs" / "requirements" / "REQ-153.md"
 
 def _no_secrets(text: str) -> None:
     lowered = text.lower()
-    for needle in ("sk-", "github_pat_", "ghp_", "10.0.0."):
+    for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered
+    # "10.0.0." was one /24 out of 10/8 and let #1712's literals through.
+    assert_no_private_ip(text)
 
 
 def test_pointer_is_github_issue_only():

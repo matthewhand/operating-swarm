@@ -20,6 +20,12 @@ Delivered payloads land on the **target** agent's chat JSON transcript
 chrome ``Message from {sender}``. Writes are scoped to the caller's
 ``user_key`` (no cross-tenant). Secrets are redacted in logs — never persist
 or log raw key-shaped payloads.
+
+#1255: ``send_message`` also accepts ``agent_id="all"`` / ``broadcast=true`` to
+fan out to every discoverable API peer. A target with a **live turn** cannot
+take an interleaved turn, so inbound messages are queued FIFO in
+``agent_turn_queue`` and flushed into its transcript (attributed) when the turn
+ends — see ``install_mailbox_on_blueprint``.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
+from swarm.core import agent_turn_queue
 from swarm.core.agent_kind import AgentKind, classify_agent_kind
 from swarm.core.agent_relationships import RelationshipEdge, iter_edges
 from swarm.core.agent_roles import (
@@ -37,6 +44,7 @@ from swarm.core.agent_roles import (
     is_chief_of_staff,
     normalize_agent_role,
 )
+from swarm.core.agent_turn_queue import QueuedMessage
 from swarm.core.section_talk import (
     REASON_INTERNAL_ONLY,
     REASON_TARGET_LOCKED,
@@ -55,6 +63,9 @@ logger = logging.getLogger(__name__)
 V1_KIND: AgentKind = "api"
 LIST_TOOL_NAME = "list_agents"
 SEND_TOOL_NAME = "send_message"
+
+#: ``agent_id`` values that fan a message out to every discoverable peer.
+BROADCAST_IDS = frozenset({"all", "*", "broadcast", "everyone"})
 
 ERROR_UNKNOWN_ID = "unknown_id"
 ERROR_KIND_MISMATCH = "kind_mismatch"
@@ -159,6 +170,11 @@ class Peer:
     sections: set[str] = field(default_factory=set)
     archived: bool = False
     source: str = ""
+    name: str = ""
+    description: str = ""
+
+    def display_name(self) -> str:
+        return self.name or self.id
 
 
 def _peer_from_member(member: dict[str, Any], team_id: str) -> Peer | None:
@@ -183,6 +199,8 @@ def _peer_from_member(member: dict[str, Any], team_id: str) -> Peer | None:
         teams={team_id} if team_id else set(),
         archived=archived,
         source=str(member.get("source") or ""),
+        name=str(member.get("name") or "").strip(),
+        description=str(member.get("description") or "").strip(),
     )
 
 
@@ -221,10 +239,16 @@ def catalog_from_rosters(
                 sections=set(peer.sections),
                 archived=peer.archived,
                 source=peer.source,
+                name=peer.name,
+                description=peer.description,
             )
             continue
         existing.teams.update(peer.teams)
         existing.sections.update(peer.sections)
+        if peer.name and not existing.name:
+            existing.name = peer.name
+        if peer.description and not existing.description:
+            existing.description = peer.description
         if is_chief_of_staff(peer.role) or normalize_agent_role(peer.role) == ROLE_SUPPORT:
             existing.role = peer.role
         existing.archived = existing.archived or peer.archived
@@ -318,6 +342,73 @@ def _safe_log_payload(content: str) -> str:
     return text
 
 
+def deliver_to_transcript(
+    *,
+    user_key: str,
+    chat_base_dir: Path | str | None,
+    sender_id: str,
+    target_id: str,
+    content: str,
+) -> bool:
+    """Append one attributed inbound turn to the target's chat transcript."""
+    from swarm.core import chat_store
+
+    if not user_key:
+        logger.info("mailbox deliver skipped (no user_key) %s -> %s", sender_id, target_id)
+        return False
+    base = Path(chat_base_dir) if chat_base_dir else None
+    record = chat_store.load_or_django(user_key, target_id, base_dir=base)
+    if record is None:
+        record = chat_store.empty_record(user_key=user_key, agent_id=target_id)
+    turns = list(record.get("messages") or [])
+    events = list(record.get("ui_events") or [])
+    stored = redact_sensitive_data(content)
+    if not isinstance(stored, str):
+        stored = str(stored)
+    append_turn(turns, events, "user", stored, name=sender_id)
+    append_event(turns, events, "status", f"Message from {sender_id}", kind="hop")
+    path = chat_store.save(
+        user_key,
+        target_id,
+        turns,
+        conversation_id=str(record.get("conversation_id") or ""),
+        ui_events=events,
+        base_dir=base,
+    )
+    return path is not None
+
+
+def flush_pending_for(agent_id: str) -> list[dict[str, Any]]:
+    """Drain an agent's queued inbound messages into its transcript (FIFO).
+
+    Called when a target's live turn ends so queued peer messages are processed
+    in arrival order, each attributed to its sender. Never raises.
+    """
+    from swarm.core.agent_turn_queue import drain
+
+    results: list[dict[str, Any]] = []
+    for item in drain(agent_id):
+        try:
+            delivered = deliver_to_transcript(
+                user_key=item.user_key,
+                chat_base_dir=item.chat_base_dir,
+                sender_id=item.sender_id,
+                target_id=agent_id,
+                content=item.content,
+            )
+        except Exception:
+            logger.exception("mailbox flush failed %s -> %s", item.sender_id, agent_id)
+            delivered = False
+        results.append(
+            {
+                "target_id": agent_id,
+                "sender_id": item.sender_id,
+                "delivered": delivered,
+            }
+        )
+    return results
+
+
 @dataclass
 class MailboxContext:
     """Bound caller + graph + tenant store for one tool session."""
@@ -381,6 +472,36 @@ class MailboxContext:
     def _is_archived(self, peer: Peer) -> bool:
         return peer.archived or peer.id in self.archived_ids
 
+    def resolve_rig_target(self, agent_id: str) -> tuple[str, PeerMailboxError | None]:
+        """Resolve a ``role@rig`` address to one peer id (#1224).
+
+        Bare ids pass through unchanged. A qualified address resolves against
+        the section (dynamic rig) / roster (static rig) topology; an unknown
+        rig or role is an honest error, never a silent fallback to a sibling
+        seat.
+        """
+        raw = str(agent_id or "").strip()
+        if "@" not in raw:
+            return raw, None
+        from swarm.core import agent_sections
+        from swarm.core.rig_addresses import build_rig_catalog, resolve_rig_address
+
+        try:
+            sections = agent_sections.load_sections()
+        except Exception:
+            sections = None
+        catalog = build_rig_catalog(
+            self.catalog().values(),
+            rosters=self.rosters,
+            sections=sections,
+        )
+        resolved = resolve_rig_address(raw, catalog=catalog)
+        if not resolved.ok:
+            return raw, PeerMailboxError(
+                resolved.error or ERROR_UNKNOWN_ID, resolved.message
+            )
+        return resolved.agent_id, None
+
     def discoverable_ids(self, *, kind: str = V1_KIND) -> set[str]:
         """Ids ``list_agents`` may return (same-kind, graph, ACL, not hidden/archived)."""
         if self.caller_kind != V1_KIND:
@@ -440,8 +561,11 @@ class MailboxContext:
             agents.append(
                 {
                     "id": peer.id,
+                    "name": peer.display_name(),
                     "kind": peer.kind,
                     "role": peer.role,
+                    "specialty": peer.role,
+                    "description": peer.description,
                     "teams": sorted(peer.teams),
                 }
             )
@@ -489,6 +613,7 @@ class MailboxContext:
             )
 
     def send(self, agent_id: str, content: str) -> dict[str, Any]:
+        """Unicast. Queues (FIFO) when the target has a live turn (#1255)."""
         target = str(agent_id or "").strip()
         body = content if isinstance(content, str) else str(content or "")
         if not target:
@@ -499,6 +624,15 @@ class MailboxContext:
             err = PeerMailboxError(ERROR_EMPTY_CONTENT, "Message content is required.")
             logger.info("mailbox send rejected: %s", err.reason)
             return err.as_dict()
+        target, resolve_error = self.resolve_rig_target(target)
+        if resolve_error is not None:
+            logger.info(
+                "mailbox send rejected %s -> %s (%s)",
+                self.caller_id,
+                target,
+                resolve_error.reason,
+            )
+            return resolve_error.as_dict()
         try:
             self._reject_send(target)
         except PeerMailboxError as exc:
@@ -510,65 +644,112 @@ class MailboxContext:
             )
             return exc.as_dict()
 
-        delivered = self._deliver(target, body)
-        logger.info(
-            "mailbox send %s -> %s delivered=%s payload=%s",
-            self.caller_id,
-            target,
-            delivered,
-            _safe_log_payload(body),
-        )
+        queued = False
+        if target != self.caller_id and agent_turn_queue.is_agent_busy(target):
+            depth = agent_turn_queue.enqueue(
+                target,
+                QueuedMessage(
+                    sender_id=self.caller_id,
+                    content=body,
+                    user_key=self.user_key,
+                    chat_base_dir=str(self.chat_base_dir) if self.chat_base_dir else None,
+                ),
+            )
+            delivered = False
+            queued = True
+            logger.info(
+                "mailbox send %s -> %s queued depth=%s payload=%s",
+                self.caller_id,
+                target,
+                depth,
+                _safe_log_payload(body),
+            )
+        else:
+            delivered = self._deliver(target, body)
+            logger.info(
+                "mailbox send %s -> %s delivered=%s payload=%s",
+                self.caller_id,
+                target,
+                delivered,
+                _safe_log_payload(body),
+            )
         result = {
             "ok": True,
             "target_id": target,
             "delivered": delivered,
+            "queued": queued,
             "sender_id": self.caller_id,
             "sender_hop": f"Messaged {target}",
         }
-        if not delivered:
+        if queued:
+            result["warning"] = "queued_target_busy"
+        elif not delivered:
             result["warning"] = "delivery_skipped_no_user_key"
         self._maybe_fire_mailbox_routines(target, body)
         return result
 
-    def _deliver(self, target_id: str, content: str) -> bool:
-        from swarm.core import chat_store
+    def send_broadcast(self, content: str) -> dict[str, Any]:
+        """Fan out one message to every discoverable peer in the roster."""
+        body = content if isinstance(content, str) else str(content or "")
+        if not body.strip():
+            err = PeerMailboxError(ERROR_EMPTY_CONTENT, "Message content is required.")
+            logger.info("mailbox broadcast rejected: %s", err.reason)
+            return err.as_dict()
+        if self.caller_kind != V1_KIND:
+            err = PeerMailboxError(
+                ERROR_CALLER_KIND,
+                "Peer mailbox v1 is API↔API only. CLI/remote tools ship later.",
+            )
+            logger.info("mailbox broadcast rejected: %s", err.reason)
+            return err.as_dict()
+        targets = sorted(self.discoverable_ids(kind=V1_KIND))
+        deliveries = [self.send(ident, body) for ident in targets]
+        delivered = [row for row in deliveries if row.get("delivered")]
+        queued = [row for row in deliveries if row.get("queued")]
+        failed = [row for row in deliveries if row.get("ok") is False]
+        logger.info(
+            "mailbox broadcast %s targets=%s delivered=%s queued=%s payload=%s",
+            self.caller_id,
+            len(targets),
+            len(delivered),
+            len(queued),
+            _safe_log_payload(body),
+        )
+        result: dict[str, Any] = {
+            "ok": True,
+            "broadcast": True,
+            "target_id": "all",
+            "sender_id": self.caller_id,
+            "recipients": targets,
+            "delivered_count": len(delivered),
+            "queued_count": len(queued),
+            "failed_count": len(failed),
+            "deliveries": deliveries,
+        }
+        if not targets:
+            result["warning"] = "no_discoverable_peers"
+        return result
 
-        if not self.user_key:
-            logger.info("mailbox deliver skipped (no user_key) %s -> %s", self.caller_id, target_id)
-            return False
-        user_key = self.user_key
-        base = self.chat_base_dir
-        record = chat_store.load(user_key, target_id, base_dir=base)
-        if record is None:
-            record = chat_store.empty_record(user_key=user_key, agent_id=target_id)
-        turns = list(record.get("messages") or [])
-        events = list(record.get("ui_events") or [])
-        stored = redact_sensitive_data(content)
-        if not isinstance(stored, str):
-            stored = str(stored)
-        append_turn(
-            turns,
-            events,
-            "user",
-            stored,
-            name=self.caller_id,
+    def send_message(
+        self,
+        agent_id: str,
+        content: str,
+        broadcast: bool = False,
+    ) -> dict[str, Any]:
+        """Unicast to one peer, or broadcast to ``all`` when asked."""
+        wants_broadcast = bool(broadcast) or str(agent_id or "").strip().lower() in BROADCAST_IDS
+        if wants_broadcast:
+            return self.send_broadcast(content)
+        return self.send(agent_id, content)
+
+    def _deliver(self, target_id: str, content: str) -> bool:
+        return deliver_to_transcript(
+            user_key=self.user_key,
+            chat_base_dir=self.chat_base_dir,
+            sender_id=self.caller_id,
+            target_id=target_id,
+            content=content,
         )
-        append_event(
-            turns,
-            events,
-            "status",
-            f"Message from {self.caller_id}",
-            kind="hop",
-        )
-        path = chat_store.save(
-            user_key,
-            target_id,
-            turns,
-            conversation_id=str(record.get("conversation_id") or ""),
-            ui_events=events,
-            base_dir=base,
-        )
-        return path is not None
 
     def _maybe_fire_mailbox_routines(self, target_id: str, content: str) -> None:
         """Best-effort: fire Active mailbox_message routines. Never raises."""
@@ -589,8 +770,13 @@ class MailboxContext:
     def list_agents_tool(self, kind: str = V1_KIND) -> dict[str, Any]:
         return self.list_peers(kind=kind)
 
-    def send_message_tool(self, agent_id: str, content: str) -> dict[str, Any]:
-        return self.send(agent_id, content)
+    def send_message_tool(
+        self,
+        agent_id: str,
+        content: str,
+        broadcast: bool = False,
+    ) -> dict[str, Any]:
+        return self.send_message(agent_id, content, broadcast=broadcast)
 
     def as_callables(self) -> list[Any]:
         """Plain callables with ``name`` / ``description`` (SDK-optional)."""
@@ -599,19 +785,26 @@ class MailboxContext:
             """List peer agents this caller may message (same kind, team-scoped)."""
             return self.list_peers(kind=kind)
 
-        def send_message(agent_id: str, content: str) -> dict[str, Any]:
-            """Send a message to a peer agent's chat transcript."""
-            return self.send(agent_id, content)
+        def send_message(
+            agent_id: str,
+            content: str,
+            broadcast: bool = False,
+        ) -> dict[str, Any]:
+            """Send a message to one peer agent, or broadcast to all."""
+            return self.send_message(agent_id, content, broadcast=broadcast)
 
         list_agents.name = LIST_TOOL_NAME
         list_agents.description = (
             "List peer agents you may message. v1: same kind (api), team members "
-            "plus relationship edges. Support/CoS see all same-kind peers."
+            "plus relationship edges. Support/CoS see all same-kind peers. "
+            "Returns id, name, role/specialty, and description."
         )
         send_message.name = SEND_TOOL_NAME
         send_message.description = (
             "Send a message to another agent's chat transcript. v1: API→API only. "
-            "Fails on unknown, hidden, archived, or cross-kind / out-of-graph ids."
+            "Pass agent_id='all' or broadcast=true to reach every discoverable peer. "
+            "Messages to a busy target are queued FIFO until its turn ends. Fails on "
+            "unknown, hidden, archived, or cross-kind / out-of-graph ids."
         )
         return [list_agents, send_message]
 
@@ -627,9 +820,13 @@ class MailboxContext:
             """List peer agents this caller may message (same kind, team-scoped)."""
             return self.list_peers(kind=kind)
 
-        def send_message(agent_id: str, content: str) -> dict[str, Any]:
-            """Send a message to a peer agent's chat transcript."""
-            return self.send(agent_id, content)
+        def send_message(
+            agent_id: str,
+            content: str,
+            broadcast: bool = False,
+        ) -> dict[str, Any]:
+            """Send to one peer by id, or agent_id='all' / broadcast=true to message every peer."""
+            return self.send_message(agent_id, content, broadcast=broadcast)
 
         return [function_tool(list_agents), function_tool(send_message)]
 
@@ -732,7 +929,41 @@ def install_mailbox_on_blueprint(blueprint: Any, ctx: MailboxContext) -> list[st
         blueprint.create_starting_agent = wrapped
         blueprint._mailbox_wrapped = True
 
+    _wrap_run_for_turn_queue(blueprint, ctx)
     return attach_mailbox_tools(blueprint, ctx)
+
+
+def _wrap_run_for_turn_queue(blueprint: Any, ctx: MailboxContext) -> None:
+    """Mark this agent busy for its turn and flush queued inbound on exit (#1255).
+
+    Only wraps blueprints whose ``run`` is an async generator. The target's own
+    transcript is untouched while its turn is live; peers that message it are
+    queued FIFO and delivered, attributed, when the turn ends.
+    """
+    import inspect
+
+    original_run = getattr(blueprint, "run", None)
+    if (
+        not callable(original_run)
+        or not inspect.isasyncgenfunction(original_run)
+        or getattr(blueprint, "_mailbox_run_wrapped", False)
+    ):
+        return
+
+    async def run_with_mailbox(*args: Any, **kwargs: Any):
+        agent_turn_queue.begin_agent_turn(ctx.caller_id)
+        try:
+            async for chunk in original_run(*args, **kwargs):
+                yield chunk
+        finally:
+            agent_turn_queue.end_agent_turn(ctx.caller_id)
+            try:
+                flush_pending_for(ctx.caller_id)
+            except Exception:
+                logger.debug("mailbox queue flush failed", exc_info=True)
+
+    blueprint.run = run_with_mailbox
+    blueprint._mailbox_run_wrapped = True
 
 
 def hidden_ids_for_user(user: Any) -> frozenset[str]:
@@ -843,6 +1074,7 @@ def install_mailbox_for_runtime(
 
 
 __all__ = [
+    "BROADCAST_IDS",
     "ERROR_CALLER_KIND",
     "ERROR_EMPTY_CONTENT",
     "ERROR_KIND_FILTER",
@@ -865,6 +1097,8 @@ __all__ = [
     "attach_to_agent",
     "catalog_from_rosters",
     "context_from_runtime",
+    "deliver_to_transcript",
+    "flush_pending_for",
     "hidden_ids_for_user",
     "install_mailbox_for_runtime",
     "install_mailbox_on_blueprint",

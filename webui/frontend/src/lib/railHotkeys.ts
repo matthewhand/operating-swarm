@@ -46,7 +46,17 @@ export interface RailHotkeyTarget {
   isHerdr?: boolean
 }
 
-/** The rail's visual order: visible pins, then every row in section order. */
+/**
+ * The rail's visual order: visible pins first — in pin-grid order (the order
+ * of the `pins`/`visiblePins` array) — then every unpinned row in section
+ * order.
+ *
+ * A pinned id is the SAME id as its unpinned row, so it must be emitted
+ * exactly once, at its pinned position. Without the `seen` dedupe a caller
+ * that still has the row in `orderedRows` would visit the pin once at the top
+ * and again in its old Unassigned/section position, so Alt+Arrow would appear
+ * to ignore the pinned layout.
+ */
 export function computeRailNavSequence({
   visiblePins,
   orderedRows,
@@ -55,8 +65,11 @@ export function computeRailNavSequence({
   orderedRows: RailRow[]
 }): RailHotkeyTarget[] {
   const targets: RailHotkeyTarget[] = []
+  const seen = new Set<string>()
 
   for (const pin of visiblePins) {
+    if (seen.has(pin.id)) continue
+    seen.add(pin.id)
     // #543: herdr seats chat like every other kind — the pin targets the
     // agent's own conversation, not the settings-adjacent members page.
     const herdr = isHerdrAgent(pin)
@@ -70,7 +83,10 @@ export function computeRailNavSequence({
   }
 
   for (const row of orderedRows) {
+    // Already visited at its pinned position (or a duplicate row).
+    if (seen.has(row.id)) continue
     if (row.kind === 'team' && row.team) {
+      seen.add(row.id)
       targets.push({
         id: row.id,
         kind: 'team',
@@ -78,6 +94,7 @@ export function computeRailNavSequence({
         href: `/chat?team=${encodeURIComponent(row.team.id)}`,
       })
     } else if (row.kind === 'remote' && row.remote) {
+      seen.add(row.id)
       targets.push({
         id: row.id,
         kind: 'remote',
@@ -85,6 +102,7 @@ export function computeRailNavSequence({
         href: `/chat?remote=${encodeURIComponent(row.remote.id)}`,
       })
     } else if (row.agent) {
+      seen.add(row.id)
       const herdr = isHerdrAgent(row.agent)
       targets.push({
         id: row.id,

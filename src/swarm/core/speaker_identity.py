@@ -87,6 +87,11 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "path": "delimiter",
         "notes": "One-shot argv/stdin prompt; no message objects.",
     },
+    "cli:ocr": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": "ocr review --format json takes no positional prompt.",
+    },
     "remote:hermes": {
         "name_field": "stripped",
         "path": "delimiter",
@@ -98,14 +103,6 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "notes": (
             "Thread chat POST takes a prompt string and replies with "
             "textResponse; no Chat Completions message objects."
-        ),
-    },
-    "remote:letta": {
-        "name_field": "stripped",
-        "path": "delimiter",
-        "notes": (
-            "Agent message POST takes a prompt string and replies with "
-            "assistant_message content; no Chat Completions message objects."
         ),
     },
     "remote:openwebui": {
@@ -150,6 +147,22 @@ ADAPTER_NAME_FIELD: dict[str, dict[str, str]] = {
         "name_field": "stripped",
         "path": "delimiter",
         "notes": "Harness send is a prompt string via sessions/turns.",
+    },
+    "remote:octop": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "Octop dashboard WebSocket turn. Resume key is agent_id or "
+            "agent_id:thread_id. Prompt is a string, not Chat Completions messages."
+        ),
+    },
+    "remote:openmuse": {
+        "name_field": "stripped",
+        "path": "delimiter",
+        "notes": (
+            "OpenMuse task create takes a prompt string and the task detail "
+            "returns the reply text; the session is a task id."
+        ),
     },
 }
 

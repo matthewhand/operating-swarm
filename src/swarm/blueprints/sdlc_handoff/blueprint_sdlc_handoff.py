@@ -29,6 +29,7 @@ from typing import Any, ClassVar
 from openai import AsyncOpenAI
 
 from swarm.blueprints.common import cli_fusion_support as support
+from swarm.blueprints.common import unavailable_seat as unavailable
 from swarm.core.kind_bases import ApiKindBase, TeamKindBase
 from swarm.core.handoff_graph import (
     PIPELINE_GRAPH_ID,
@@ -41,6 +42,21 @@ from swarm.core.handoff_graph import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Appended to every seat's system prompt. The graph nodes each carry a working
+#: instruction ("Capture Intent, Success, Constraints, Owner"), and a model
+#: handed a work item will sometimes answer with the *artifact* that instruction
+#: describes — a `---BEGIN BRIEF---` block restating the user's ask instead of
+#: an answer to it. That reads as a leaked internal plan, not a turn. The seat
+#: still produces the artifact when asked; it just must not substitute it for
+#: the reply.
+_ANSWER_THE_USER = (
+    "\n\nYour reply goes straight to the person who asked. Answer their question "
+    "in this persona's voice. Do not restate their request back to them, do not "
+    "emit your working notes / brief / plan as the answer, and do not describe "
+    "this graph or these seats. Produce a brief, plan, or handoff only when the "
+    "person explicitly asks for one."
+)
 
 VARIANT_ALIASES = {
     "pipeline": PIPELINE_GRAPH_ID,
@@ -68,7 +84,7 @@ class SdlcHandoffBlueprint(TeamKindBase):
             "CLI and remote harnesses stay native. Not extra Grok Bot seats."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["sdlc", "handoff", "openai-agents", "demo", "ba", "engineer", "tester"],
         "aliases": ["sdlc-handoff", "sdlc_pipeline"],
         "workflow": "handoff",
@@ -179,6 +195,7 @@ class SdlcHandoffBlueprint(TeamKindBase):
             f"When this seat is done, hand off only to: {dest}. "
             "Do not skip seats or invent others. Reply as this persona."
             + (f" {extra}" if extra else "")
+            + _ANSWER_THE_USER
         )
 
     def _llm_messages(self, messages: list[dict[str, Any]], seat: str) -> list[dict[str, str]]:
@@ -268,11 +285,20 @@ class SdlcHandoffBlueprint(TeamKindBase):
             body = await self._chat_llm(messages)
         except Exception as exc:
             logger.warning("sdlc_handoff LLM call failed: %s", exc)
-            body = (
-                f"Error: LLM call failed ({exc}). "
-                "Check the saved LLM profile (base URL + model). "
-                "This seat does not echo the user message."
+            yield unavailable.cannot_answer_chunk(
+                self.blueprint_id or "sdlc_handoff",
+                why=(
+                    f"the {self._seat_id()} seat's model turn raised "
+                    f"{type(exc).__name__}: {str(exc)[:200]}"
+                ),
+                remedy=(
+                    "check the seat's LLM profile (Settings → LLM profiles) has a "
+                    "model and base URL the provider accepts, then send the "
+                    "message again; `graph` still reports the wiring offline"
+                ),
+                backends=["sdlc_handoff", self._seat_id()],
             )
+            return
         yield support.message_chunk(
             body,
             final=True,

@@ -145,9 +145,8 @@ test('gear opens a DaisyUI modal-end settings sheet over chat', async ({ page })
   await sections.getByRole('button', { name: 'Retention' }).click()
   await expect(page.getByRole('heading', { name: 'Retention' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save retention' })).toHaveCount(0)
-  await expect(
-    page.getByRole('link', { name: 'Server retention dashboard' }),
-  ).toHaveAttribute('href', '/settings/#chat-retention-title')
+  await expect(page.getByRole('link', { name: 'Server retention dashboard' })).toHaveCount(0)
+  await expect(page.getByTestId('settings-retention-pane')).toBeVisible()
 
   await page.getByRole('button', { name: 'Hostname' }).click()
   await page.getByRole('textbox', { name: 'Hostname override' }).fill('swarm.example.com')

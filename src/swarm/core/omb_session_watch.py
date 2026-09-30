@@ -443,7 +443,7 @@ class OmbSessionMonitor:
 def _load_track_record(track: OmbWatchTrack) -> tuple[dict[str, Any], str]:
     from swarm.core import chat_store
 
-    record = chat_store.load(
+    record = chat_store.load_or_django(
         track.user_key,
         track.agent_id,
         conversation_id=track.conversation_id,
@@ -451,7 +451,7 @@ def _load_track_record(track: OmbWatchTrack) -> tuple[dict[str, Any], str]:
     )
     if record is not None:
         return record, track.conversation_id
-    record = chat_store.load(
+    record = chat_store.load_or_django(
         track.user_key,
         track.agent_id,
         conversation_id=track.conversation_id,

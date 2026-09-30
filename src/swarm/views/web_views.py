@@ -2,18 +2,27 @@
 Web UI views for Open Swarm Core.
 Handles rendering index, blueprint pages, login, and serving config.
 """
+import hashlib
 import json
 import mimetypes
+import os
 import subprocess
 import sys
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.utils.cache import patch_vary_headers
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 
 # Import config loader if needed, or assume config is loaded elsewhere
 # Import the function to discover blueprints dynamically
@@ -29,7 +38,12 @@ def load_team_rosters_safe():
 
 # Import the setting for the blueprints directory
 from swarm.settings import BLUEPRINT_DIRECTORY
-from swarm.utils.env_utils import *
+from swarm.utils.env_utils import *  # noqa: F401,F403
+
+# Explicit even though the star import above already provides it: the throttle
+# reads SWARM_LOGIN_THROTTLE_* on the unauthenticated path, so it must not
+# depend on a wildcard staying in place.
+from swarm.utils.env_utils import is_truthy
 from swarm.utils.logger_setup import setup_logger
 
 from .utils import (
@@ -277,26 +291,494 @@ def index(request):
     return resp
 
 
+def _oauth_providers() -> list[dict]:
+    """Social providers to offer on the login page.
+
+    A provider appears only when it is fully usable: the URLs are mounted, its
+    key and secret are present, and an allowlist is configured. Advertising a
+    button that dead-ends at the provider's "client_id is not configured"
+    error, or one the allowlist will refuse, is worse than not offering it.
+    """
+    if not getattr(settings, "SOCIAL_AUTH_AVAILABLE", False):
+        return []
+    from swarm.urls import social_urlpatterns_mounted
+
+    if not social_urlpatterns_mounted():
+        return []
+    # Reuse the pipeline's own parsing so the button and the gate cannot
+    # disagree. This used to re-derive truthiness with raw os.getenv(), which
+    # rendered a dead button for SWARM_OAUTH_ALLOW_ANY=false / "off".
+    from swarm.oauth_pipeline import allow_any, allowed_domains, allowed_emails
+
+    if not (allow_any() or allowed_emails() or allowed_domains()):
+        return []
+
+    candidates = (
+        # (backend slug, settings prefix, label). The settings prefix is
+        # separate because it is NOT slug.upper(): "google-oauth2" would give
+        # SOCIAL_AUTH_GOOGLE-OAUTH2_KEY, and that setting does not exist, so
+        # the Google button could never render.
+        ("github", "SOCIAL_AUTH_GITHUB", "Sign in with GitHub"),
+        ("google-oauth2", "SOCIAL_AUTH_GOOGLE_OAUTH2", "Sign in with Google"),
+    )
+    providers = []
+    for backend, prefix, label in candidates:
+        key = getattr(settings, f"{prefix}_KEY", None)
+        secret = getattr(settings, f"{prefix}_SECRET", None)
+        if key and secret:
+            providers.append({"backend": backend, "label": label})
+    return providers
+
+
+# ---------------------------------------------------------------------------
+# #1336 — sign-in hardening for the password login form
+#
+# `custom_login` is a plain Django function view, so none of the DRF machinery
+# guards it: `AnonRateThrottle` (settings.py) only applies to DRF views, and
+# the password form is the one sign-in route NOT behind the
+# `SWARM_OAUTH_ALLOWED_*` allowlist. Before this, an unauthenticated caller
+# could script `POST /login/` with unlimited credential guesses -- which on a
+# weak, reused or default operator password is full host compromise, LLM
+# spend included (`/v1/responses`).
+#
+# Why this is NOT layered onto `swarm.core.request_telemetry` (which does
+# already record client IP + path, and is wired in as middleware): that ring
+# is a *diagnostic* buffer. It is keyed by IP only (no username dimension, so
+# a shared NAT/proxy IP would lock out unrelated operators), it is written by
+# middleware *after* the view returns, it counts successful logins and plain
+# GETs against the same budget, and its per-client dict is bounded per record
+# count but not per key. Making a forensics ring load-bearing for enforcement
+# would couple a security control to a module whose contract is "observational,
+# never blocks". It also cannot express the per-username budget, which is the
+# dimension that actually stops credential stuffing.
+#
+# What replaces it is deliberately the same shape of state: in-process only,
+# no new dependency, no new cross-process store. `django-axes` remains the
+# drop-in if a real audit/lockout model is ever wanted.
+
+# The single error string for every failed or refused password attempt. Kept
+# verbatim in the throttled response so a 429 tells an attacker nothing about
+# whether the username exists (and tells a rate-limit probe nothing they
+# could not already infer from the status code).
+_INVALID_CREDENTIALS_MESSAGE = "Invalid username or password."
+
+
+def _vary_cookie(view_func):
+    """Add ``Vary: Cookie`` alongside ``@never_cache``.
+
+    ``@never_cache`` emits ``Cache-Control: ... no-store ...`` but NOT
+    ``Vary: Cookie``. Django only adds that header from SessionMiddleware when
+    the session is actually *accessed*, and an anonymous GET of the login
+    page never touches it. Without it an intermediary can serve a cached
+    ``/accounts/login/?next=...`` body -- including a previous visitor's
+    ``next`` -- to the next requester.
+    """
+
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        response = view_func(request, *args, **kwargs)
+        patch_vary_headers(response, ("Cookie",))
+        return response
+
+    return _wrapped
+
+
+# --- throttle configuration (env-driven, read per request) ------------------
+
+LOGIN_THROTTLE_ENABLED_ENV = "SWARM_LOGIN_THROTTLE_ENABLED"
+LOGIN_THROTTLE_MAX_ATTEMPTS_ENV = "SWARM_LOGIN_THROTTLE_MAX_ATTEMPTS"
+LOGIN_THROTTLE_MAX_IP_ATTEMPTS_ENV = "SWARM_LOGIN_THROTTLE_MAX_IP_ATTEMPTS"
+LOGIN_THROTTLE_WINDOW_ENV = "SWARM_LOGIN_THROTTLE_WINDOW_SECONDS"
+LOGIN_THROTTLE_MAX_KEYS_ENV = "SWARM_LOGIN_THROTTLE_MAX_KEYS"
+LOGIN_THROTTLE_TRUST_FORWARDED_ENV = "SWARM_LOGIN_THROTTLE_TRUST_FORWARDED_FOR"
+
+# Defaults. Chosen generous on purpose:
+#   * 10 failures / 15 min for one (IP, username) pair is far above any human
+#     typo rate (a fat-fingering operator burns ~3) while cutting an online
+#     guesser from 10^9 tries to ~40/hour. This is the load-bearing limit:
+#     it is what bounds how often any single account can be guessed.
+#   * 60 / 15 min per IP is above any plausible burst of *legitimate* failures
+#     from one caller (whose per-username counter does not add up across their
+#     own accounts) and is set high because behind a TLS-terminating proxy
+#     (settings.SECURE_PROXY_SSL_HEADER) every client shares one REMOTE_ADDR --
+#     a tight per-IP budget would let one stranger lock a whole deployment out
+#     of password login, which is an availability incident they get to trigger
+#     for free. It still caps spraying at ~4 attempts/minute. Set
+#     SWARM_LOGIN_THROTTLE_TRUST_FORWARDED_FOR=true on such a deployment to
+#     bucket by the real client instead, and lower this if you want.
+# The trade-off is deliberate: the throttle is ON by default, because the
+# alternative (a security control that only exists if an operator reads the
+# docs) leaves the weakest link in the sign-in surface wide open. It only ever
+# blocks the *password* form, it is a 429 with the identical generic error
+# body plus a Retry-After, and SWARM_LOGIN_THROTTLE_ENABLED=false is the
+# documented off switch.
+_DEFAULT_LOGIN_THROTTLE_MAX_ATTEMPTS = 10
+_DEFAULT_LOGIN_THROTTLE_MAX_IP_ATTEMPTS = 60
+_DEFAULT_LOGIN_THROTTLE_WINDOW_SECONDS = 900
+_DEFAULT_LOGIN_THROTTLE_MAX_KEYS = 4096
+
+
+@dataclass(frozen=True)
+class _LoginThrottleConfig:
+    enabled: bool
+    window_seconds: float
+    max_attempts_per_user: int
+    max_attempts_per_ip: int
+    max_keys: int
+
+
+def _login_throttle_env_int(name: str, default: int, *, minimum: int) -> int:
+    """Read a positive int from the env, falling back on junk.
+
+    Never raises and never returns below ``minimum``: a typo in the limit must
+    not silently turn into "limit 0" (which would lock every operator out) or
+    "limit -1" (which would disable the throttle without anyone noticing).
+    """
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Non-integer %s=%r; using default %d.", name, raw, default)
+        return default
+    if value < minimum:
+        logger.warning("%s=%d is below the minimum of %d; clamping.", name, value, minimum)
+        return minimum
+    return value
+
+
+def login_throttle_config() -> _LoginThrottleConfig:
+    """Resolve the throttle config from the environment.
+
+    Read on every call (never cached at import) so a container env change or a
+    test's ``monkeypatch.setenv`` takes effect immediately, and so an operator
+    can be un-throttled without a code deploy.
+    """
+    return _LoginThrottleConfig(
+        enabled=is_truthy(os.getenv(LOGIN_THROTTLE_ENABLED_ENV, "true")),
+        window_seconds=float(
+            _login_throttle_env_int(
+                LOGIN_THROTTLE_WINDOW_ENV, _DEFAULT_LOGIN_THROTTLE_WINDOW_SECONDS, minimum=1
+            )
+        ),
+        max_attempts_per_user=_login_throttle_env_int(
+            LOGIN_THROTTLE_MAX_ATTEMPTS_ENV, _DEFAULT_LOGIN_THROTTLE_MAX_ATTEMPTS, minimum=1
+        ),
+        max_attempts_per_ip=_login_throttle_env_int(
+            LOGIN_THROTTLE_MAX_IP_ATTEMPTS_ENV, _DEFAULT_LOGIN_THROTTLE_MAX_IP_ATTEMPTS, minimum=1
+        ),
+        max_keys=_login_throttle_env_int(
+            LOGIN_THROTTLE_MAX_KEYS_ENV, _DEFAULT_LOGIN_THROTTLE_MAX_KEYS, minimum=1
+        ),
+    )
+
+
+# --- the bounded in-process store -----------------------------------------
+
+
+class LoginFailureThrottle:
+    """Sliding-window count of *failed* login attempts, keyed by caller.
+
+    Keys are ``"<kind>:<sha256>"`` digests (see :func:`_login_user_key` /
+    :func:`_login_ip_key`), so what is held in memory is a fixed-width digest
+    rather than a raw IP/username pair, and a caller cannot grow the key
+    space with a 10 kB username field.
+
+    Memory bound: at most ``max_keys`` live keys. The cap exists because the
+    key space is attacker-controlled -- a script that varies the username (or
+    spoofs nothing at all and just rotates source addresses through a botnet)
+    would otherwise grow this dict without limit and turn a rate limiter into
+    an OOM. When the cap is hit, expired keys are swept first, then the
+    oldest-inserted keys are dropped. Dropping the oldest is deliberately the
+    *lenient* direction: an evicted counter costs the attacker their own
+    budget, and a legitimate operator's counter is only evicted if the store
+    is already full of newer failures.
+
+    In-process by design, like :mod:`swarm.core.request_telemetry`: a restart
+    resets it. It is a rate limiter, not an audit log.
+    """
+
+    def __init__(self, *, clock=time.monotonic) -> None:
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._failures: dict[str, deque[float]] = {}
+
+    @staticmethod
+    def _trim(bucket: deque, now: float, window: float) -> None:
+        """Drop stamps that have slid out of the window (oldest first)."""
+        cutoff = now - window
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+
+    def _enforce_capacity_locked(self, now: float, window: float, max_keys: int) -> None:
+        cutoff = now - window
+        expired = [k for k, v in self._failures.items() if not v or v[-1] < cutoff]
+        for key in expired:
+            del self._failures[key]
+        # +1: make room for the key about to be inserted.
+        overflow = len(self._failures) - max_keys + 1
+        if overflow > 0:
+            for key in list(self._failures)[:overflow]:
+                del self._failures[key]
+
+    def register_failure(self, key: str, *, window: float, max_keys: int, now: float | None = None) -> None:
+        """Record one failed attempt for ``key``."""
+        ts = self._clock() if now is None else float(now)
+        with self._lock:
+            bucket = self._failures.get(key)
+            if bucket is None:
+                # Sweep only at capacity: an unconditional sweep on every failed
+                # login would make each miss O(keys).
+                if len(self._failures) >= max_keys:
+                    self._enforce_capacity_locked(ts, window, max_keys)
+                bucket = deque()
+                self._failures[key] = bucket
+            self._trim(bucket, ts, window)
+            bucket.append(ts)
+
+    def failure_count(self, key: str, *, window: float, now: float | None = None) -> int:
+        """Failures for ``key`` inside the trailing ``window`` seconds."""
+        ts = self._clock() if now is None else float(now)
+        with self._lock:
+            bucket = self._failures.get(key)
+            if not bucket:
+                return 0
+            self._trim(bucket, ts, window)
+            if not bucket:
+                del self._failures[key]
+                return 0
+            return len(bucket)
+
+    def retry_after_seconds(self, key: str, *, window: float, now: float | None = None) -> int:
+        """Seconds until ``key``'s oldest failure leaves the window."""
+        ts = self._clock() if now is None else float(now)
+        with self._lock:
+            bucket = self._failures.get(key)
+            oldest = bucket[0] if bucket else None
+        if oldest is None:
+            return max(1, int(window))
+        return max(1, int(oldest + window - ts))
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._failures.pop(key, None)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._failures.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._failures)
+
+    def __contains__(self, key: str) -> bool:
+        with self._lock:
+            return key in self._failures
+
+
+_login_throttle = LoginFailureThrottle()
+
+
+def login_throttle_store() -> LoginFailureThrottle:
+    """Process-wide throttle store (the one place tests should reset from)."""
+    return _login_throttle
+
+
+def reset_login_throttle() -> None:
+    """Clear every recorded failure. Used by tests and by the off switch."""
+    _login_throttle.reset()
+
+
+def _login_throttle_client_ip(request) -> str:
+    """Client address used for bucketing.
+
+    ``REMOTE_ADDR`` only, which is also what the telemetry middleware records.
+    ``X-Forwarded-For`` is attacker-controlled on any deployment that is not
+    provably behind a trusted proxy, so honouring it unconditionally would let
+    anyone reset their own counter with a random header -- the exact opposite
+    of the fix. Deployments that *are* behind a proxy opt in explicitly via
+    SWARM_LOGIN_THROTTLE_TRUST_FORWARDED_FOR, taking the left-most (client)
+    entry of the chain.
+    """
+    if is_truthy(os.getenv(LOGIN_THROTTLE_TRUST_FORWARDED_ENV, "")):
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR") or ""
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first[:64]
+    return (request.META.get("REMOTE_ADDR") or "").strip()[:64] or "unknown"
+
+
+def _login_throttle_digest(*parts: str) -> str:
+    payload = "\x00".join(parts).encode("utf-8", "replace")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _login_user_key(client_ip: str, username: str | None) -> str:
+    """Key for one (client, username) pair.
+
+    Username is normalised (stripped, lowercased, length-capped) so that
+    ``Alice``/``alice``/``" alice "`` share one budget instead of getting a
+    fresh allowance per spelling.
+    """
+    normalized = str(username or "").strip().lower()[:150]
+    return "u:" + _login_throttle_digest(str(client_ip or ""), normalized)
+
+
+def _login_ip_key(client_ip: str) -> str:
+    """Key for one client address, independent of username (spray detection)."""
+    return "i:" + _login_throttle_digest(str(client_ip or ""))
+
+
+def _login_is_throttled(request, username: str | None) -> bool:
+    """True when this caller has already spent its failed-attempt budget.
+
+    FAILS OPEN. Every failure mode -- unreadable env, broken store, a bug in
+    this function -- logs and allows the attempt through. The throttle must
+    never be able to lock every operator out of the one sign-in path that is
+    not behind the OAuth allowlist; a slower attacker is a survivable
+    incident, a deployment nobody can sign into is not.
+    """
+    try:
+        config = login_throttle_config()
+        if not config.enabled:
+            return False
+        client_ip = _login_throttle_client_ip(request)
+        store = login_throttle_store()
+        window = config.window_seconds
+        user_count = store.failure_count(_login_user_key(client_ip, username), window=window)
+        ip_count = store.failure_count(_login_ip_key(client_ip), window=window)
+        if (
+            user_count >= config.max_attempts_per_user
+            or ip_count >= config.max_attempts_per_ip
+        ):
+            # Logged here rather than at the call site so the logging can never
+            # itself become the reason a login 500s.
+            logger.warning(
+                "Throttled login attempt for user %r from %r "
+                "(%d/%d per-username, %d/%d per-IP failures in the last %ds).",
+                username,
+                client_ip,
+                user_count,
+                config.max_attempts_per_user,
+                ip_count,
+                config.max_attempts_per_ip,
+                int(window),
+            )
+            return True
+        return False
+    except Exception:  # noqa: BLE001 - deliberate fail-open guard
+        logger.warning(
+            "Login throttle check failed; allowing the attempt (fail-open).", exc_info=True
+        )
+        return False
+
+
+def _register_login_failure(request, username: str | None) -> None:
+    """Count one failed attempt against both budgets. Fails open (never raises)."""
+    try:
+        config = login_throttle_config()
+        if not config.enabled:
+            return
+        client_ip = _login_throttle_client_ip(request)
+        store = login_throttle_store()
+        for key in (_login_user_key(client_ip, username), _login_ip_key(client_ip)):
+            store.register_failure(
+                key, window=config.window_seconds, max_keys=config.max_keys
+            )
+    except Exception:  # noqa: BLE001 - deliberate fail-open guard
+        logger.warning(
+            "Could not record failed login attempt; continuing (fail-open).", exc_info=True
+        )
+
+
+def _clear_login_failures(request, username: str | None) -> None:
+    """A correct password forgives the per-username budget. Fails open."""
+    try:
+        config = login_throttle_config()
+        if not config.enabled:
+            return
+        client_ip = _login_throttle_client_ip(request)
+        login_throttle_store().clear(_login_user_key(client_ip, username))
+    except Exception:  # noqa: BLE001 - deliberate fail-open guard
+        logger.warning(
+            "Could not clear login failure counter; continuing (fail-open).", exc_info=True
+        )
+
+
+def _throttled_login_response(request, oauth_providers: list[dict]):
+    """429 for a throttled attempt.
+
+    Same status-family body as any other failure -- identical template, same
+    generic error string, no hint about the username -- plus an honest
+    ``Retry-After`` so a legitimate client can back off instead of hammering.
+    """
+    retry_after = 60
+    try:
+        config = login_throttle_config()
+        client_ip = _login_throttle_client_ip(request)
+        username = request.POST.get("username")
+        store = login_throttle_store()
+        retry_after = store.retry_after_seconds(
+            _login_user_key(client_ip, username), window=config.window_seconds
+        )
+    except Exception:  # noqa: BLE001 - a header is never worth failing a request over
+        logger.warning("Could not compute Retry-After for a throttled login.", exc_info=True)
+    response = render(
+        request,
+        "account/login.html",
+        {
+            "error": _INVALID_CREDENTIALS_MESSAGE,
+            "oauth_providers": oauth_providers,
+        },
+        status=429,
+    )
+    response["Retry-After"] = str(max(1, retry_after))
+    return response
+
+
+@never_cache
+@_vary_cookie
 def custom_login(request):
     """Handle custom login at /accounts/login/, redirecting to 'next' URL on success."""
+    oauth_providers = _oauth_providers()
     if request.method == "POST":
         username = request.POST.get("username")
         password = request.POST.get("password")
+        # Checked *before* authenticate() so a throttled caller cannot make the
+        # process burn a password hash per attempt.
+        if _login_is_throttled(request, username):
+            return _throttled_login_response(request, oauth_providers)
         user = authenticate(request, username=username, password=password)
 
         if user is not None:
             # User authenticated successfully
+            _clear_login_failures(request, username)
             login(request, user)
             raw_next = request.POST.get("next") or request.GET.get("next") or _DEFAULT_POST_LOGIN_REDIRECT
             next_url = _safe_post_login_redirect(request, raw_next)
             if next_url != (raw_next or "").strip():
-                logger.warning(f"Invalid 'next' URL detected: '{raw_next}'. Falling back to default.")
+                # %r + lazy args, not an f-string: raw_next is attacker
+                # controlled, and interpolating the rejected value verbatim
+                # lets a valid-credential request forge log lines (or inject
+                # terminal escapes) into the audit trail. Matches
+                # swarm/oauth_pipeline.py.
+                logger.warning(
+                    "Invalid 'next' URL detected: %r. Falling back to default.", raw_next
+                )
 
-            logger.info(f"User '{username}' logged in successfully. Redirecting to '{next_url}'.")
+            # %r + lazy args: `username` is POST-controlled. The f-string
+            # form let an unauthenticated request forge log lines / terminal
+            # escapes in the audit trail.
+            logger.info(
+                "User %r logged in successfully. Redirecting to %r.", username, next_url
+            )
             return redirect(next_url)
         else:
             # Authentication failed
-            logger.warning(f"Failed login attempt for user '{username}'.")
+            # Unauthenticated path -- attacker-controlled input.
+            logger.warning("Failed login attempt for user %r.", username)
+            _register_login_failure(request, username)
             # Dev-only 'testuser' auto-login. Honoured ONLY when BOTH
             # ALLOW_TESTUSER_AUTOLOGIN=true AND DJANGO_DEBUG=true.
             # is_testuser_autologin_allowed() raises ImproperlyConfigured if the
@@ -317,18 +799,50 @@ def custom_login(request):
                     next_url = _safe_post_login_redirect(request, raw_next)
                     if next_url != (raw_next or "").strip():
                         logger.warning(
-                            f"Invalid 'next' URL detected during auto-login: '{raw_next}'. Falling back to default."
+                            "Invalid 'next' URL detected during auto-login: %r. Falling back to default.",
+                            raw_next,
                         )
                     logger.info("Auto-logged in as 'testuser' (dev-only convenience). Redirecting.")
+                    # The presented password was wrong (that is what got us
+                    # here), but the operator is now authenticated -- don't
+                    # leave their per-username budget spent.
+                    _clear_login_failures(request, username)
                     return redirect(next_url)
                 except Exception as auto_login_err:
                      logger.error(f"Error during 'testuser' auto-login attempt: {auto_login_err}")
 
             # If authentication failed and auto-login didn't happen/failed
-            return render(request, "account/login.html", {"error": "Invalid username or password."})
+            return render(request, "account/login.html", {
+                "error": _INVALID_CREDENTIALS_MESSAGE,
+                "oauth_providers": oauth_providers,
+            })
 
     # If GET request, just render the login form
-    return render(request, "account/login.html")
+    return render(request, "account/login.html", {"oauth_providers": oauth_providers})
+
+
+@never_cache
+@_vary_cookie
+def custom_logout(request):
+    """End the session at /accounts/logout/.
+
+    POST performs the logout; every other method (GET, HEAD, PUT, PATCH,
+    DELETE, OPTIONS) renders the confirmation form and touches nothing. The
+    predicate is written positively as "POST logs out" rather than
+    ``!= "POST"`` so a future method with unsafe semantics fails closed into
+    the inert branch instead of ending someone's session.
+
+    Logout is not CSRF-exempt here -- it is a normal unsafe method, so the
+    POST path goes through CsrfViewMiddleware. A GET-only logout would be
+    exploitable via a third-party <img src>, which is why GET only confirms.
+    """
+    if request.method == "POST":
+        logout(request)
+        logger.info("User session ended via /accounts/logout/.")
+        return redirect(_safe_post_login_redirect(request, request.POST.get("next")))
+
+    return render(request, "account/logout.html")
+
 
 # Default config structure to return if the actual file is missing/invalid
 DEFAULT_CONFIG = {

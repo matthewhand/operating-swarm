@@ -178,3 +178,85 @@ def test_get_model_instance_accepts_litellm_provider(monkeypatch):
     inst = bp._get_model_instance("orchestration")
     assert captured["model"] == "orchestration"
     assert isinstance(inst, _Model)
+
+
+def test_get_model_instance_accepts_mistral_provider(monkeypatch):
+    bp = ChatbotBlueprint(blueprint_id="chatbot")
+    profile = {
+        "provider": "mistralai",
+        "model": "mistral-large-latest",
+        "api_key": "sk-mistral-test",
+    }
+    monkeypatch.setattr(bp, "get_llm_profile", lambda _name: dict(profile))
+    monkeypatch.setattr(
+        "swarm.core.config_loader.named_profile_model",
+        lambda *_a, **_k: "mistral-large-latest",
+    )
+    captured = {}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    class _Model:
+        def __init__(self, model, openai_client):
+            captured["model"] = model
+            captured["client"] = openai_client
+
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.AsyncOpenAI",
+        _Client,
+    )
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.OpenAIChatCompletionsModel",
+        _Model,
+    )
+    inst = bp._get_model_instance("mistral-chat")
+    assert captured["model"] == "mistral-large-latest"
+    assert captured["kwargs"]["base_url"] == "https://api.mistral.ai/v1"
+    assert captured["kwargs"]["api_key"] == "sk-mistral-test"
+    assert isinstance(inst, _Model)
+
+
+def test_mistral_client_ignores_litellm_gateway_env(monkeypatch):
+    """Gateway env must not replace the official Mistral URL or key."""
+    monkeypatch.setenv("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1")
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-gateway")
+    monkeypatch.setenv("LITELLM_MODEL", "auxiliary")
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    bp = ChatbotBlueprint(blueprint_id="chatbot")
+    # Class-level caches survive earlier tests that built the same base URL.
+    bp._openai_client_cache = {}
+    bp._model_instance_cache = {}
+    bp._config = {
+        "llm": {
+            "mistral-chat": {
+                "provider": "mistral",
+                "model": "mistral-large-latest",
+                "api_key": "${MISTRAL_API_KEY}",
+            }
+        }
+    }
+    captured = {}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+    class _Model:
+        def __init__(self, model, openai_client):
+            captured["model"] = model
+
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.AsyncOpenAI",
+        _Client,
+    )
+    monkeypatch.setattr(
+        "swarm.blueprints.chatbot.blueprint_chatbot.OpenAIChatCompletionsModel",
+        _Model,
+    )
+    bp._get_model_instance("mistral-chat")
+    assert captured["model"] == "mistral-large-latest"
+    assert captured["kwargs"]["base_url"] == "https://api.mistral.ai/v1"
+    assert "api_key" not in captured["kwargs"]
+    assert "${MISTRAL_API_KEY}" not in str(captured["kwargs"])

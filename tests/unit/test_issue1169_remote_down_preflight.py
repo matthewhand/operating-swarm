@@ -19,42 +19,42 @@ from swarm.core import remotes
 
 
 def _cfg():
-    return {"remotes": {"letta-demo": {"kind": "letta"}}}
+    return {"remotes": {"trueforge-demo": {"kind": "trueforge"}}}
 
 
 def test_down_gateway_produces_preflight_copy():
     health = remotes.HealthResult(
-        remote="letta-demo", ok=False, state="DOWN",
+        remote="trueforge-demo", ok=False, state="DOWN",
         detail="connection refused", http_status=None,
     )
     with patch.object(remotes, "check_health", return_value=health):
-        text = remotes.remote_down_preflight("letta-demo", config=_cfg())
+        text = remotes.remote_down_preflight("trueforge-demo", config=_cfg())
     assert text is not None
-    assert "letta-demo" in text
+    assert "trueforge-demo" in text
     assert "connection refused" in text
     assert "Settings" in text or "remotes" in text.lower()
 
 
 def test_up_gateway_returns_none():
     health = remotes.HealthResult(
-        remote="letta-demo", ok=True, state="UP", detail="fine", http_status=200,
+        remote="trueforge-demo", ok=True, state="UP", detail="fine", http_status=200,
     )
     with patch.object(remotes, "check_health", return_value=health):
-        assert remotes.remote_down_preflight("letta-demo", config=_cfg()) is None
+        assert remotes.remote_down_preflight("trueforge-demo", config=_cfg()) is None
 
 
 def test_unknown_and_auth_do_not_abort():
     for state in ("UNKNOWN", "AUTH"):
         health = remotes.HealthResult(
-            remote="letta-demo", ok=False, state=state, detail="meh",
+            remote="trueforge-demo", ok=False, state=state, detail="meh",
         )
         with patch.object(remotes, "check_health", return_value=health):
-            assert remotes.remote_down_preflight("letta-demo", config=_cfg()) is None, state
+            assert remotes.remote_down_preflight("trueforge-demo", config=_cfg()) is None, state
 
 
 def test_probe_crash_never_aborts():
     with patch.object(remotes, "check_health", side_effect=RuntimeError("boom")):
-        assert remotes.remote_down_preflight("letta-demo", config=_cfg()) is None
+        assert remotes.remote_down_preflight("trueforge-demo", config=_cfg()) is None
 
 
 def test_unconfigured_remote_returns_none():

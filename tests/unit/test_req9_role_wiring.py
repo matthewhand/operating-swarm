@@ -4,8 +4,6 @@ from helpers.source_surface import sidebar_surface
 
 from pathlib import Path
 
-import pytest
-
 from swarm.core.agent_roles import ROLE_CSS_CLASSES
 
 REPO = Path(__file__).resolve().parents[2]
@@ -90,13 +88,21 @@ def test_sidepane_css_class_names_exist_django_and_spa():
     assert 'value="suggestions"' in team
 
 
-def test_codegen_unwired_still_calls_wrap_but_gate_is_none():
-    try:
-        from swarm.views.agent_creator_views import _render_swarm_blueprint_code
-    except Exception as exc:
-        pytest.skip(f"django stack unavailable: {exc}")
+# #1730: this used to be `except Exception -> pytest.skip`, which turned every
+# import-time defect in the module under test -- a circular import, a NameError
+# from a bad refactor, a syntax error -- into a SKIP. The generated-blueprint
+# role wiring this test exists to pin would then be silently unverified and CI
+# stayed green. Only a genuinely absent dependency is an environment fact;
+# anything else is a defect and must fail here.
+def _render_swarm_blueprint_code():
+    from swarm.views.agent_creator_views import _render_swarm_blueprint_code as render
 
-    code = _render_swarm_blueprint_code(_team())
+    return render
+
+
+def test_codegen_unwired_still_calls_wrap_but_gate_is_none():
+    render = _render_swarm_blueprint_code()
+    code = render(_team())
     assert "wrap_tools_with_gate" in code
     assert "run_with_skeptic" in code
     assert "find_role_agent(self._agents, \"gate\")" in code
@@ -105,12 +111,8 @@ def test_codegen_unwired_still_calls_wrap_but_gate_is_none():
 
 
 def test_codegen_wires_gate_and_skeptic_roles():
-    try:
-        from swarm.views.agent_creator_views import _render_swarm_blueprint_code
-    except Exception as exc:
-        pytest.skip(f"django stack unavailable: {exc}")
-
-    code = _render_swarm_blueprint_code(_team(gate=True, skeptic=True))
+    render = _render_swarm_blueprint_code()
+    code = render(_team(gate=True, skeptic=True))
     assert "attach_gate_as_tool" in code
     assert "attach_skeptic_as_tool" in code
     assert "attach_suggestions_as_tool" in code

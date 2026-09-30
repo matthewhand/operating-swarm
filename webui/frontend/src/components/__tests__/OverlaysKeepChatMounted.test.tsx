@@ -32,14 +32,18 @@ class MockWebSocket {
   }
 }
 
-function renderAppAt(path: string) {
+async function renderAppAt(path: string) {
   window.history.pushState({}, '', path)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: the chat surface is a lazy chunk now; wait for the first painted
+  // frame (including ChatHeader) instead of racing the dynamic import.
+  await screen.findByRole('button', { name: 'Open settings' })
+  return view
 }
 
 describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
@@ -64,13 +68,13 @@ describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
     localStorage.clear()
   })
 
-  it('keeps the composer mounted when the settings sheet opens over chat', () => {
-    renderAppAt('/chat')
+  it('keeps the composer mounted when the settings sheet opens over chat', async () => {
+    await renderAppAt('/chat')
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     expect(composer).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open settings' }))
-    const sheet = screen.getByRole('dialog', { name: 'Settings', hidden: true })
+    const sheet = await screen.findByRole('dialog', { name: 'Settings', hidden: true })
     expect(sheet).toHaveClass('modal-end')
     expect(sheet).toHaveClass('modal-open')
 
@@ -79,13 +83,13 @@ describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
     expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument()
   })
 
-  it('keeps the composer and rail mounted when Search opens as an overlay', () => {
-    renderAppAt('/chat')
+  it('keeps the composer and rail mounted when Search opens as an overlay', async () => {
+    await renderAppAt('/chat')
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
     const rail = screen.getByRole('navigation', { name: 'Agent list' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-    expect(screen.getByRole('dialog', { name: 'Search' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: 'Search' })).toBeInTheDocument()
 
     expect(screen.getByRole('textbox', { name: 'Chat message' })).toBe(composer)
     expect(screen.getByRole('navigation', { name: 'Agent list' })).toBe(rail)
@@ -93,7 +97,7 @@ describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
   })
 
   it('keeps chat mounted when the computer-icon Routines pane opens (REQ-80 / #432)', async () => {
-    renderAppAt('/chat')
+    await renderAppAt('/chat')
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Computer control' }))
@@ -105,12 +109,12 @@ describe('overlays keep chat mounted (REQ-72 / #364 / #322 / #320)', () => {
     expect(window.location.pathname).toBe('/chat')
   })
 
-  it('keeps chat mounted when the Plugins overlay opens (PR #322)', () => {
-    renderAppAt('/chat')
+  it('keeps chat mounted when the Plugins overlay opens (PR #322)', async () => {
+    await renderAppAt('/chat')
     const composer = screen.getByRole('textbox', { name: 'Chat message' })
 
     fireEvent.click(screen.getByRole('button', { name: /Plugins/i }))
-    const plugins = screen.getByRole('dialog', { name: 'Plugins' })
+    const plugins = await screen.findByRole('dialog', { name: 'Plugins' })
     expect(plugins).toHaveClass('os-search-palette')
     expect(within(plugins).getByRole('combobox', { name: 'Filter tools' })).toBeInTheDocument()
 

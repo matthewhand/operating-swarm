@@ -225,3 +225,160 @@ class TestLlmProfilesUpsertRoundTrip:
         assert resp.json()["code"] == "plaintext_secret"
         assert "sk-live" not in path.read_text(encoding="utf-8")
 
+
+# --- #1745 — System1 is a first-class model type on this endpoint ---
+
+
+def _system1_config() -> dict:
+    """Chat model + System1 gate. Env placeholders only, no credentials."""
+    return {
+        "llm": {
+            "default": {
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "${OPENAI_API_KEY}",
+            },
+            "system1-filter": {
+                "provider": "system1",
+                "model": "system1-categorizer",
+                "model_type": "categorizer",
+                "base_url": "${SYSTEM1_BASE_URL}",
+                "api_key": "${SYSTEM1_API_KEY}",
+            },
+        },
+        "settings": {"default_llm_profile": "default"},
+    }
+
+
+class TestLlmProfilesModelType:
+    @patch("swarm.core.llm_task_routing.load_swarm_config", return_value=_system1_config())
+    def test_get_lists_system1_with_its_model_type(self, _mock_load, api_client):
+        resp = api_client.get("/v1/llm-profiles/")
+        assert resp.status_code == 200
+        data = resp.json()
+        by_id = {row["id"]: row for row in data["profiles"]}
+        # A first-class type, not a hidden custom base URL.
+        assert by_id["system1-filter"]["model_type"] == "categorizer"
+        assert by_id["system1-filter"]["source"] == "config"
+        assert by_id["default"]["model_type"] == "chat"
+        assert "categorizer" in data["model_types"]
+        # The credential is a reference, never a value, and never echoed.
+        blob = json.dumps(data)
+        assert "api_key" not in blob
+        assert "${SYSTEM1_API_KEY}" not in blob
+        assert "sk-" not in blob
+
+    def test_post_system1_profile_round_trips_type(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps({"llm": {}, "settings": {}}), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            created = api_client.post(
+                "/v1/llm-profiles/",
+                {
+                    "id": "system1-filter",
+                    "model": "system1-categorizer",
+                    "provider": "system1",
+                    "model_type": "System1",
+                    "base_url": "${SYSTEM1_BASE_URL}",
+                    "api_key": "${SYSTEM1_API_KEY}",
+                },
+                format="json",
+            )
+            assert created.status_code == 200
+            listed = api_client.get("/v1/llm-profiles/")
+        assert listed.status_code == 200
+        by_id = {row["id"]: row for row in listed.json()["profiles"]}
+        assert by_id["system1-filter"]["model_type"] == "categorizer"
+        # "System1" is normalised, and the vendor alone would have sufficed.
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        assert raw["llm"]["system1-filter"]["model_type"] == "categorizer"
+        assert raw["llm"]["system1-filter"]["api_key"] == "${SYSTEM1_API_KEY}"
+        assert "sk-" not in path.read_text(encoding="utf-8")
+
+    def test_post_plaintext_system1_key_is_400(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps({"llm": {}}), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.post(
+                "/v1/llm-profiles/",
+                {
+                    "id": "system1-filter",
+                    "model": "system1-categorizer",
+                    "provider": "system1",
+                    "model_type": "categorizer",
+                    "api_key": "sk-live-system1",
+                },
+                format="json",
+            )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "plaintext_secret"
+        assert "sk-live" not in path.read_text(encoding="utf-8")
+
+    def test_post_categorizer_as_set_default_is_400(self, api_client, tmp_path: Path):
+        """A gate is not a chat model — the default write is refused, not fixed."""
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps({"llm": {}, "settings": {}}), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.post(
+                "/v1/llm-profiles/",
+                {
+                    "id": "system1-filter",
+                    "model": "system1-categorizer",
+                    "provider": "system1",
+                    "model_type": "categorizer",
+                    "set_default": True,
+                },
+                format="json",
+            )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "categorizer_not_default"
+        assert "System1" in resp.json()["error"]
+        assert json.loads(path.read_text(encoding="utf-8"))["llm"] == {}
+
+    def test_patch_default_to_a_categorizer_is_400(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps(_system1_config()), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.patch(
+                "/v1/llm-profiles/",
+                {"default_llm_profile": "system1-filter"},
+                format="json",
+            )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "categorizer_not_chat"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        assert stored["settings"]["default_llm_profile"] == "default"
+
+    def test_patch_task_map_to_a_categorizer_is_400(self, api_client, tmp_path: Path):
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps(_system1_config()), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.patch(
+                "/v1/llm-profiles/",
+                {
+                    "override_per_task": True,
+                    "task_llm_profiles": {"compaction": "system1-filter"},
+                },
+                format="json",
+            )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "categorizer_not_chat"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        assert "task_llm_profiles" not in stored["settings"]
+
+    def test_patch_chat_defaults_still_succeed(self, api_client, tmp_path: Path):
+        """The guard is narrow: ordinary chat routing is untouched."""
+        path = tmp_path / "swarm_config.json"
+        path.write_text(json.dumps(_system1_config()), encoding="utf-8")
+        with patch("swarm.core.remotes.load_raw_config", side_effect=_load_from_disk(path)):
+            resp = api_client.patch(
+                "/v1/llm-profiles/",
+                {
+                    "override_per_task": True,
+                    "task_llm_profiles": {"compaction": "default"},
+                },
+                format="json",
+            )
+        assert resp.status_code == 200
+        assert resp.json()["task_llm_profiles"]["compaction"] == "default"
+

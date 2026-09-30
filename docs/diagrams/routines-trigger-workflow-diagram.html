@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Routine Triggers &amp; Execution · Workflow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:  #2d3142;
+      --color-ink:    #f5f5f5;
+      --color-muted:  #bfc0c0;
+      --color-accent: #f08a59;
+      --font-sans:    'Geist', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1100px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.2vw + 0.8rem, 2.2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Workflow · Operating Swarm</p>
+    <h1>Routine Triggers, Dispatch &amp; Execution</h1>
+
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="rout-title rout-desc">
+      <title id="rout-title">Routine trigger dispatch and execution workflow</title>
+      <desc id="rout-desc">Fan-in workflow: six trigger kinds (interval, cron, one-shot, GitHub PR merged, GitHub event, mailbox message) collect into the in-process schedule engine, which fires a routine that resolves a target blueprint, runs one non-streaming turn, appends the reply to a conversation, and records success or error history. Run-now and test-run bypass the clock.</desc>
+      <defs>
+        <pattern id="dots-rout" width="22" height="22" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.9" fill="rgba(245,245,245,0.10)"/>
+        </pattern>
+        <marker id="rout-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#bfc0c0"/>
+        </marker>
+        <marker id="rout-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#f08a59"/>
+        </marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#2d3142"/>
+      <rect width="100%" height="100%" fill="url(#dots-rout)" opacity="0.55"/>
+
+      <!-- Fan-in bus -->
+      <line x1="340" y1="106" x2="340" y2="426" stroke="#bfc0c0" stroke-width="1.2"/>
+      <line x1="284" y1="106" x2="340" y2="106" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="284" y1="170" x2="340" y2="170" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="284" y1="234" x2="340" y2="234" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="284" y1="298" x2="340" y2="298" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="284" y1="362" x2="340" y2="362" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="284" y1="426" x2="340" y2="426" stroke="#bfc0c0" stroke-width="1"/>
+      <line x1="340" y1="266" x2="360" y2="266" stroke="#f08a59" stroke-width="2" marker-end="url(#rout-arrow-accent)"/>
+      <rect x="300" y="248" width="36" height="12" rx="2" fill="#2d3142"/>
+      <text x="318" y="257" fill="#f08a59" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">FAN-IN</text>
+
+      <!-- Dispatch -> execution -->
+      <line x1="636" y1="266" x2="696" y2="266" stroke="#f08a59" stroke-width="2" marker-end="url(#rout-arrow-accent)"/>
+
+      <!-- Column headers -->
+      <text x="24" y="36" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">TRIGGER KINDS</text>
+      <text x="364" y="120" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">DISPATCH</text>
+      <text x="700" y="120" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">EXECUTE &amp; RECORD</text>
+
+      <!-- Trigger chips -->
+      <g transform="translate(24,80)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">interval</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">every N seconds</text>
+      </g>
+      <g transform="translate(24,144)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">cron</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">cron expression</text>
+      </g>
+      <g transform="translate(24,208)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">one_shot</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">fires once</text>
+      </g>
+      <g transform="translate(24,272)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">github_pr_merged</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">PR merged webhook</text>
+      </g>
+      <g transform="translate(24,336)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">github_event</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">generic repository event</text>
+      </g>
+      <g transform="translate(24,400)">
+        <rect width="260" height="52" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="22" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">mailbox_message</text>
+        <text x="14" y="40" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">peer mailbox trigger</text>
+      </g>
+
+      <!-- Dispatch box -->
+      <rect x="364" y="140" width="272" height="252" rx="8" fill="rgba(240,138,89,0.06)" stroke="rgba(240,138,89,0.55)" stroke-width="1.5"/>
+      <text x="384" y="166" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="13" font-weight="600">schedule_engine (Django)</text>
+      <text x="384" y="184" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">ticks in-process · no distributed claims</text>
+      <g transform="translate(384,200)">
+        <rect width="232" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="116" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">fire_routine(agent, trigger)</text>
+        <text x="116" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">store: agent_routines.json</text>
+      </g>
+      <g transform="translate(384,260)">
+        <rect width="232" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="116" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">run_now / test_run</text>
+        <text x="116" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">bypass the clock</text>
+      </g>
+      <text x="384" y="330" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">Schema 2 · backward-compatible with schema 1.</text>
+      <text x="384" y="346" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">Triggers may be inactive or have a next_run.</text>
+      <text x="384" y="362" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">No secrets are stored in the routine record.</text>
+
+      <!-- Execution box -->
+      <rect x="700" y="140" width="276" height="300" rx="8" fill="rgba(245,245,245,0.03)" stroke="rgba(245,245,245,0.20)" stroke-width="1"/>
+      <g transform="translate(716,156)">
+        <rect width="244" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">1 · Resolve target blueprint</text>
+        <text x="14" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">get_blueprint_instance(agent_id)</text>
+      </g>
+      <g transform="translate(716,216)">
+        <rect width="244" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">2 · Run one turn</text>
+        <text x="14" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">stream=False · collect text chunks</text>
+      </g>
+      <g transform="translate(716,276)">
+        <rect width="244" height="48" rx="6" fill="#353a4e" stroke="rgba(245,245,245,0.22)" stroke-width="1"/>
+        <text x="14" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">3 · Append reply</text>
+        <text x="14" y="37" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8">webhook conversation · reviewable</text>
+      </g>
+      <g transform="translate(716,336)">
+        <rect width="244" height="48" rx="6" fill="#383d54" stroke="#f08a59" stroke-width="1.5"/>
+        <text x="14" y="20" fill="#f5f5f5" font-family="'Geist', sans-serif" font-size="11" font-weight="600">4 · Record history</text>
+        <text x="14" y="37" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8">status · duration_ms · token_cost</text>
+      </g>
+      <g transform="translate(716,400)">
+        <rect width="118" height="28" rx="6" fill="rgba(191,192,192,0.06)" stroke="#bfc0c0" stroke-width="1"/>
+        <text x="59" y="19" fill="#f5f5f5" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">success</text>
+      </g>
+      <g transform="translate(842,400)">
+        <rect width="118" height="28" rx="6" fill="rgba(240,138,89,0.10)" stroke="#f08a59" stroke-width="1"/>
+        <text x="59" y="19" fill="#f08a59" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">error (cause recorded)</text>
+      </g>
+
+      <!-- Legend -->
+      <line x1="24" y1="500" x2="976" y2="500" stroke="rgba(245,245,245,0.10)" stroke-width="0.8"/>
+      <text x="24" y="524" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+      <line x1="110" y1="520" x2="146" y2="520" stroke="#f08a59" stroke-width="2" marker-end="url(#rout-arrow-accent)"/>
+      <text x="158" y="524" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Dispatch path</text>
+      <line x1="330" y1="520" x2="366" y2="520" stroke="#bfc0c0" stroke-width="1.2" marker-end="url(#rout-arrow)"/>
+      <text x="378" y="524" fill="#bfc0c0" font-family="'Geist', sans-serif" font-size="12">Fan-in trigger (no arrowhead on collector stubs)</text>
+      <text x="24" y="566" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">SOURCES: src/swarm/core/routines.py · src/swarm/core/routine_jobs.py · src/swarm/views/routines_api.py · docs/routines.md (docs/requirements)</text>
+      <text x="24" y="582" fill="#bfc0c0" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.06em" opacity="0.75">ASSUMPTION: GitHub-event delivery is webhook-driven (no live GitHub polling in the store); mailbox triggers are local peer-mailbox messages.</text>
+    </svg>
+  </div>
+</body>
+</html>

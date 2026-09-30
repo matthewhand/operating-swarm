@@ -229,6 +229,8 @@ export function useQueuedSends(conversationId: string): {
   /** #223: drop every queued row for this conversation. */
   clearAll: () => void
   restore: (row: QueuedSendRow) => void
+  /** #1232: pull a row to the top of the queue so the drain sends it next. */
+  moveToTop: (id: string) => void
 } {
   // #885: the key is canonicalized so a remote seat's base↔session id
   // transition reads and writes the same queue instead of orphaning rows.
@@ -268,8 +270,19 @@ export function useQueuedSends(conversationId: string): {
     setRows((prev) => prependQueuedSend(prev, row))
   }, [])
 
+  // #1232: out-of-order sends — promote the picked row to the head so the
+  // drain effect (or the post-interrupt drain) sends that message first,
+  // without dropping any other queued rows.
+  const moveToTop = useCallback((id: string) => {
+    setRows((prev) => {
+      const picked = prev.find((row) => row.id === id)
+      if (!picked) return prev
+      return [picked, ...prev.filter((row) => row.id !== id)]
+    })
+  }, [])
+
   return useMemo(
-    () => ({ rows, enqueue, update, remove, clearAll, restore }),
-    [rows, enqueue, update, remove, clearAll, restore],
+    () => ({ rows, enqueue, update, remove, clearAll, restore, moveToTop }),
+    [rows, enqueue, update, remove, clearAll, restore, moveToTop],
   )
 }

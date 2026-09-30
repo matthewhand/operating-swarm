@@ -108,10 +108,12 @@ def list_summaries(*, base_dir: Path | None = None, limit: int | None = 200) -> 
     """Lightweight summaries of stored sessions, newest first.
 
     Each summary: ``{id, model, status, created_at, execution_ms, output_preview,
-    delegations, owner}`` where ``delegations`` is the per-role progress array
+    preview_class, delegations, owner}`` where ``delegations`` is the per-role progress array
     (possibly empty) and ``owner`` is the creating principal (or None for legacy).
     Used by the Session Explorer web UI; reads each record once.
     """
+    from swarm.core.cli_session_error import classify_output_preview
+
     base = base_dir or _store_dir()
     if not base.is_dir():
         return []
@@ -123,14 +125,25 @@ def list_summaries(*, base_dir: Path | None = None, limit: int | None = 200) -> 
         except (OSError, json.JSONDecodeError):
             continue
         resp = record.get("response") or {}
-        text = resp.get("output_text") or ""
+        status = str(resp.get("status") or "")
+        text = str(resp.get("output_text") or "").strip()
+        if not text:
+            err = resp.get("error")
+            if isinstance(err, dict):
+                text = str(err.get("message") or "").strip()
+            elif isinstance(err, str):
+                text = err.strip()
+        preview = (text[:160] + "…") if len(text) > 160 else text
+        # Classify the full text. A 160-character preview can cut off the
+        # fatal-config phrase that decides the class.
         summaries.append({
             "id": resp.get("id") or record.get("id"),
             "model": resp.get("model"),
             "status": resp.get("status"),
             "created_at": resp.get("created_at") or resp.get("started_at") or 0,
             "execution_ms": resp.get("execution_ms"),
-            "output_preview": (text[:160] + "…") if len(text) > 160 else text,
+            "output_preview": preview,
+            "preview_class": classify_output_preview(text, status=status) if text else "",
             "delegations": resp.get("progress") or [],
             "owner": record.get("owner"),
         })

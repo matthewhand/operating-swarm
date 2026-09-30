@@ -13,7 +13,7 @@ import {
 import { fetchDefinition, summarizeDefinition } from '../lib/definitionApi'
 import { agentRole } from '../lib/agentRoles'
 import { agentLabel } from '../lib/supportAgent'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 
 export interface DefinitionPaneProps {
   kind: DefinitionKind

@@ -1,5 +1,5 @@
 {
-  "name": "Open Swarm",
+  "name": "Operating Swarm",
   "user": "ubuntu",
   "install": "bash .cursor/install.sh",
   "start": "export PATH=\"$HOME/.local/bin:$PATH\" && DJANGO_DEBUG=true DJANGO_DB_NAME=/tmp/db.sqlite3 uv run python manage.py migrate --noinput",

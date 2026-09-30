@@ -302,4 +302,48 @@ describe('ChatPage hydrate honesty (REQ-171A-4 / #604)', () => {
       'false',
     )
   })
+
+  it('#1322 hydrates a textless voice note as an audio bubble after reload', async () => {
+    const note =
+      '![Voice note](/v1/chat/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/content?media=audio)'
+    const stub = () =>
+      vi.fn().mockImplementation(async (input: RequestInfo) => {
+        const url = String(input)
+        if (url.includes('/chat/thread/')) {
+          return okJson({
+            agent_id: 'codey',
+            conversation_id: 'agt-codey',
+            messages: [{ role: 'user', content: note }],
+          })
+        }
+        return okJson({ data: [] })
+      })
+
+    vi.stubGlobal('fetch', stub())
+    const first = renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const player = await screen.findByTestId('voice-note-player')
+    expect(player.tagName).toBe('AUDIO')
+    expect(player).toHaveAttribute('controls')
+    expect(player).toHaveAttribute(
+      'src',
+      '/v1/chat/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/content?media=audio',
+    )
+    expect(screen.queryByText(/Attached/i)).not.toBeInTheDocument()
+    first.unmount()
+
+    MockWebSocket.instances = []
+    vi.stubGlobal('fetch', stub())
+    renderChat('/chat?blueprint=codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const again = await screen.findByTestId('voice-note-player')
+    expect(again).toHaveAttribute(
+      'src',
+      '/v1/chat/attachments/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/content?media=audio',
+    )
+  })
 })

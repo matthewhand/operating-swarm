@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-08-18)
 - **See also:** [ADR-002 config ownership](./adr/002-config-ownership.md) (`.env` / XDG / Django SoT); [ADR-003 desktop packaging](./adr/003-desktop-packaging.md) (Windows pane of glass; no installer in that PR); [ADR-004 virtualized chat](./adr/004-virtualized-chat-history.md) (`@tanstack/react-virtual`, REQ-163)
-- **Context:** Open Swarm grew a Django/HTMx operator UI and a React SPA in parallel. Builder/AgentCreator SPA routes were unmounted; Teams/Blueprints SPA pages are leftovers while bare paths redirect to Django. Dual maintenance and confused docs were flagged as a senior-review P0.
+- **Context:** Operating Swarm grew a Django/HTMx operator UI and a React SPA in parallel. Builder/AgentCreator SPA routes were unmounted; Teams/Blueprints SPA pages are leftovers while bare paths redirect to Django. Dual maintenance and confused docs were flagged as a senior-review P0.
 
 ## Decision
 1. **Canonical operator chrome** = Django trailing-slash routes (`/teams/launch/`, `/blueprint-library/`, `/agent-creator/`, `/settings/`, `/sessions/`, …).

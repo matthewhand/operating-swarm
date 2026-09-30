@@ -95,6 +95,31 @@ class CustomSeatError(ValueError):
     """Honest create/update failure for Add-agent CLI/API seats."""
 
 
+def _reject_incapable_seat_role(item: Mapping[str, Any], kind: str) -> None:
+    """#1706 D.16 — refuse a role write this seat kind cannot carry.
+
+    ``build_custom_rail_item`` is the one chokepoint every custom rail-seat
+    write passes through, so putting the check here means a caller cannot
+    reach a stored role that ``validate_role_for_kind`` would refuse. The
+    check is on the *write*: a row that already carries a role but is being
+    updated for an unrelated field (name, model, code) is not blocked, because
+    that would make every later edit to a mislabelled seat impossible.
+    """
+    from swarm.core.agent_roles import validate_role_for_kind
+
+    raw_role = item.get("role")
+    if raw_role is None or not str(raw_role).strip():
+        return
+    # The kind on the row is the seat kind; fall back to the id so a `team:`
+    # row is classified even when its `kind` field is absent.
+    from swarm.core.agent_roles import role_seat_kind_for
+
+    seat_kind = kind or role_seat_kind_for(item.get("id"))
+    error = validate_role_for_kind(str(raw_role), seat_kind)
+    if error:
+        raise CustomSeatError(error)
+
+
 def metadata_rail(meta: Mapping[str, Any] | None) -> bool:
     """True only when discovery metadata explicitly opts the recipe onto the rail."""
     if not meta:
@@ -334,6 +359,13 @@ def build_custom_rail_item(body: Mapping[str, Any], *, existing: Mapping[str, An
     if kind == "cli" and not command:
         raise CustomSeatError(CLI_COMMAND_REQUIRED_ERROR)
 
+    # #1706 D.16 — every rail-seat create/update funnels through here
+    # (the custom-blueprint POST and PATCH, the lifecycle create tool, the
+    # Support NL path), so this is where a role the seat cannot carry is
+    # refused. It asks the single decision point rather than restating the
+    # rule, which is what kept the API and the editor from disagreeing.
+    _reject_incapable_seat_role(merged, kind)
+
     if kind in ADD_AGENT_SEAT_KINDS:
         merged["kind"] = kind
         merged["rail"] = True
@@ -363,6 +395,8 @@ def custom_library_to_blueprint_rows(
     items: Iterable[Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Shape custom-library rail seats for ``GET /v1/blueprints/`` (newest first)."""
+    from swarm.core.agent_roles import normalize_agent_role
+
     rows: list[dict[str, Any]] = []
     for raw in items or []:
         if not isinstance(raw, Mapping):
@@ -374,6 +408,8 @@ def custom_library_to_blueprint_rows(
             continue
         kind = infer_custom_kind(raw) or "api"
         command = extract_cli_command(raw)
+        plugins = [str(name) for name in (raw.get("plugins") or []) if str(name).strip()]
+        required = list(raw.get("required_mcp_servers") or plugins)
         rows.append(
             {
                 "id": ident,
@@ -381,7 +417,8 @@ def custom_library_to_blueprint_rows(
                 "name": raw.get("name") or ident,
                 "description": raw.get("description") or "",
                 "abbreviation": raw.get("abbreviation"),
-                "required_mcp_servers": list(raw.get("required_mcp_servers") or []),
+                "required_mcp_servers": required,
+                "plugins": plugins or required,
                 "tags": list(raw.get("tags") or []),
                 "installed": True,
                 "compiled": True,
@@ -396,11 +433,14 @@ def custom_library_to_blueprint_rows(
                 "remote": raw.get("remote") if kind == "cli" else None,
                 "source": raw.get("source") or ADD_AGENT_SOURCE,
                 "user_created": True,
-                "role": "default",
+                "role": normalize_agent_role(raw.get("role")),
                 # #932: the agent popup's inline customisation reads these.
                 "instructions": raw.get("instructions") or "",
                 "provider": raw.get("provider") or None,
                 "model": raw.get("model") or None,
+                "company_id": raw.get("company_id") or None,
+                "company_slug": raw.get("company_slug") or None,
+                "company_name": raw.get("company_name") or None,
                 "navbar_items": (
                     [{"id": "token_counter", "kind": "token_counter", "label": "Tokens"}]
                     if kind == "api"

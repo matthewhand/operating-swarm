@@ -5,6 +5,7 @@ import logging
 import re
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,75 @@ def _should_sandbox_blueprint_dir(blueprint_dir: Path, sandboxed: bool | None) -
     except Exception:
         return False
 
+
+def _imported_from_same_file(module_import_path: str, py_file_path: Path) -> ModuleType | None:
+    """The live module for *module_import_path* if it came from *py_file_path*.
+
+    Returns None when discovery genuinely has to execute the file.
+
+    Discovery used to unconditionally re-execute every blueprint file and
+    rebind ``sys.modules[dotted]`` to the fresh module object, leaving the
+    parent package attribute still pointing at the object an earlier *normal*
+    import had put there. One dotted name, two live objects, and the seam
+    splits down the middle:
+
+    * ``importlib.import_module`` — what ``agent_router.engines._RouterRef``
+      calls on **every** attribute access, and therefore a ``sys.modules`` read;
+    * ``from pkg import mod`` and ``monkeypatch.setattr("pkg.mod.X", ...)`` —
+      which pytest's ``_pytest.monkeypatch.resolve()`` walks with ``getattr``,
+      so the **package attribute** wins.
+
+    The patch then lands on the object nobody reads: the real ``agents.Agent``
+    is built with a stub model, the run raises, and the seat silently degrades
+    to its canned text. A patch that only lands because the stale half happens
+    to be the one the view bound is just as broken, which is why re-executing
+    is the wrong half of the seam to fix — reconciling the parent attribute
+    after the fact just moves the split onto every already-bound by-name
+    reference (``listed_remote_specs`` at ``blueprint_agent_router.py:37``,
+    read at ``:692``, is the one that bites).
+
+    A module already loaded from this very file *is* this file: same code, same
+    globals, hence the one object every import route must agree on. Reuse it.
+    That removes the fork instead of reconciling after it.
+
+    A module whose own ``exec_module`` is still on the stack (discovery
+    re-entered from a blueprint's module level) is reused half-built, exactly
+    as a cyclic import behaves; the class scan below then simply finds nothing
+    yet and the outer call advertises it.
+    """
+    module = sys.modules.get(module_import_path)
+    if module is None:
+        return None
+    origin = getattr(module, "__file__", None)
+    if not origin:
+        return None
+    try:
+        if Path(origin).resolve() != py_file_path.resolve():
+            return None
+    except OSError:  # pragma: no cover - unreadable origin: just execute
+        return None
+    return module
+
+
+def _publish_on_parent(module_import_path: str, module: ModuleType) -> None:
+    """Bind *module* on its parent package, mirroring ``importlib._bootstrap._load``.
+
+    A normal import sets the submodule attribute on the parent as part of the
+    same operation, so ``sys.modules[dotted]`` and ``getattr(parent, leaf)`` can
+    never diverge. Discovery did the ``sys.modules`` half only.
+
+    The parent is read with ``sys.modules.get`` and never imported: only an
+    *already imported* parent is reconciled, so this cannot re-trigger the
+    ``agent_router`` import cycle pinned by
+    ``tests/core/test_agent_router_import_cycle.py`` (that package's ``__init__``
+    is a lazy PEP 562 export precisely so importing it stays side-effect free).
+    """
+    parent_name, _, child = module_import_path.rpartition(".")
+    if not parent_name:
+        return
+    parent = sys.modules.get(parent_name)
+    if parent is not None and getattr(parent, child, None) is not module:
+        setattr(parent, child, module)
 
 # This function was defined but not used in the original discover_blueprints.
 # It might be useful if blueprint names from directories need canonicalization.
@@ -202,10 +272,24 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                             read_err,
                         )
                         continue
-                module = importlib.util.module_from_spec(module_spec)
-                # Register module before execution to handle circular imports within blueprint
-                sys.modules[module_import_path] = module
-                module_spec.loader.exec_module(module)
+                module = _imported_from_same_file(module_import_path, py_file_path)
+                if module is not None:
+                    logger.debug(
+                        "Reusing already-imported %s (same file, not re-executing)",
+                        module_import_path,
+                    )
+                else:
+                    module = importlib.util.module_from_spec(module_spec)
+                    # Register module before execution to handle circular imports within blueprint
+                    sys.modules[module_import_path] = module
+                    module_spec.loader.exec_module(module)
+                    # Re-assert: a re-entrant discovery call for the same path
+                    # (only reachable from a blueprint's own module level) may
+                    # have rebound this key while we were executing.
+                    sys.modules[module_import_path] = module
+                # Both routes converge on one object per dotted name, so the
+                # sys.modules read and the parent-attribute read cannot disagree.
+                _publish_on_parent(module_import_path, module)
                 logger.debug(f"Successfully loaded module: {module_import_path}")
 
                 found_bp_class_details = None
@@ -331,7 +415,32 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                 logger.warning(f"Could not create module spec for {py_file_path}")
 
         except Exception as e:
-            logger.error(f"Error processing blueprint file '{py_file_path}': {e}", exc_info=True)
+            # A package that fails to import is NOT advertised: the id never
+            # reaches the returned map, and every seat whose turn resolves
+            # through it must not be advertised either. Say so loudly and by id,
+            # so "the roster shows a seat that 404s" is traceable to a named
+            # blueprint instead of reading as a silent skip.
+            hint = ""
+            if isinstance(e, ImportError) and "cannot import name" in str(e):
+                # Discovery registers the module in sys.modules *before*
+                # executing it, so a package __init__ that eagerly imports that
+                # same module reads a half-initialized module and raises. Only a
+                # lazy (PEP 562) package export breaks the loop.
+                hint = (
+                    " — likely an import cycle: the package __init__ must not "
+                    "eagerly import the module discovery loads by file path"
+                )
+            logger.error(
+                "Blueprint %r is not advertised: could not import %s from %s "
+                "(%s: %s)%s",
+                blueprint_key_name,
+                py_file_path.name,
+                py_file_path,
+                type(e).__name__,
+                e,
+                hint,
+                exc_info=True,
+            )
             # Clean up sys.modules if import failed partway
             if module_import_path in sys.modules:
                 del sys.modules[module_import_path]

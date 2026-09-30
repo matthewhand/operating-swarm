@@ -1,4 +1,4 @@
-# Open Swarm TODO
+# Operating Swarm TODO
 
 > **This page has moved.** Project status and priorities are consolidated to
 > avoid drift:

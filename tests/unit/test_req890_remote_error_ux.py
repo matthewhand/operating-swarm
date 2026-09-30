@@ -91,7 +91,6 @@ def test_rakazo_401_names_the_fix_and_keeps_the_fail_prefix():
         "rakazo",
         "trueforge",
         "anythingllm",
-        "letta",
         "openwebui",
         "flowise",
         "n8n",
@@ -117,16 +116,57 @@ def test_no_remote_dumps_json_on_failure(remote):
 # A gap code is lowercase snake_case; a comparison operand like "timed out" is not.
 _CODE_SHAPE = re.compile(r"^[a-z][a-z0-9_]*$")
 
+# The name of the field the code travels in. Never itself a code.
+_GAP_FIELD = "gap"
+
 
 def _string_constants(node: ast.AST) -> set[str]:
-    """Every code-shaped string literal inside an expression."""
+    """Every code-shaped string literal inside an expression.
+
+    ``gap`` itself is excluded: it is the *field name*, not a code. Octop
+    passes its gap straight through (``gap=str(outcome.get("gap") or "")``),
+    and a walk of that expression sees the key ``"gap"`` and would demand a
+    hint for it.
+    """
     return {
         n.value
         for n in ast.walk(node)
         if isinstance(n, ast.Constant)
         and isinstance(n.value, str)
         and _CODE_SHAPE.match(n.value)
+        and n.value != _GAP_FIELD
     }
+
+
+def _gap_value_codes(node: ast.AST | None) -> set[str]:
+    """Codes written *directly* into a ``gap`` slot.
+
+    Deliberately tighter than :func:`_string_constants`: the dict forms below
+    also appear as ``"gap": state["gap"]`` (a reference, not a code), and an
+    unrestricted walk would harvest the key out of that subscript.
+    """
+    if node is None:
+        return set()
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value} if _CODE_SHAPE.match(node.value) else set()
+    if isinstance(node, ast.JoinedStr):
+        return _string_constants(node)
+    if isinstance(node, ast.IfExp):
+        return _gap_value_codes(node.body) | _gap_value_codes(node.orelse)
+    return set()
+
+
+def _is_gap_key(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Constant) and node.value == _GAP_FIELD
+
+
+def _is_gap_subscript(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Subscript):
+        return False
+    sl = node.slice
+    if isinstance(sl, ast.Index):  # pragma: no cover — py<3.9
+        sl = sl.value
+    return _is_gap_key(sl)
 
 
 def _gap_codes_in_source() -> set[str]:
@@ -136,6 +176,12 @@ def _gap_codes_in_source() -> set[str]:
     assignment as a multi-line conditional (``else "omb_reply_timeout"``), which
     the literal-only pattern read as "no raiser" — a false dead entry that would
     have deleted a live hint.
+
+    #1670 found the same blind spot in a second shape. Octop reports a turn's
+    failure as a plain dict, so it writes the gap as ``"gap": "octop_reply_timeout"``
+    or ``state["gap"] = "octop_reply_failed"`` and passes it through to
+    ``OperateResult(gap=...)`` later. Reading only the ``gap=`` keyword therefore
+    saw *four live Octop codes* as dead and would have deleted working hints.
     """
     found: set[str] = set()
     for path in SRC.rglob("*.py"):
@@ -146,11 +192,19 @@ def _gap_codes_in_source() -> set[str]:
             found.update(re.findall(r'gap="([a-z0-9_]+)"', source))
             continue
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            for kw in node.keywords:
-                if kw.arg == "gap":
-                    found.update(_string_constants(kw.value))
+            if isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if kw.arg == _GAP_FIELD:
+                        found.update(_string_constants(kw.value))
+            elif isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if _is_gap_key(key):
+                        found.update(_gap_value_codes(value))
+            elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if _is_gap_subscript(target):
+                        found.update(_gap_value_codes(node.value))
     return found
 
 

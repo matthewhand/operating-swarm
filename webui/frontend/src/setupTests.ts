@@ -1,6 +1,6 @@
 import { afterEach, beforeEach } from 'vitest'
 import { configure } from '@testing-library/dom'
-import { resetRemotesFetchCacheForTests } from './lib/api'
+import { __resetGetSchedulerForTests, resetRemotesFetchCacheForTests } from './lib/api'
 import { resetChatConnection } from './lib/chatConnection';
 import { resetExpectedSpaVersion } from './lib/spaHello';
 import { __resetUserPrefsCacheForTests } from './lib/userPrefs';
@@ -8,6 +8,7 @@ import { resetGithubReleaseCache } from './lib/githubRelease';
 import { setBakedSpaVersionForTests } from './lib/spaVersion';
 import { resetSpaSocketForTests } from './lib/spaSocket';
 import { resetAgentTurnStoreForTests } from './lib/agentTurnStore';
+import { resetChatHeaderSurfaceForTests } from './lib/chatHeaderSurface';
 
 import '@testing-library/jest-dom';
 
@@ -21,6 +22,9 @@ configure({ asyncUtilTimeout: 4000 })
 // into the next mount (that made the remote-backed-teams test order-dependent).
 afterEach(() => {
     resetRemotesFetchCacheForTests()
+    // Cold-mount GET pacing holds module-level slots, so a never-settling mock
+    // must not leak an occupied slot into the next case.
+    __resetGetSchedulerForTests()
 })
 
 afterEach(() => {
@@ -33,6 +37,7 @@ afterEach(() => {
     // WebSocket and poking instances[0]) independent of each other.
     resetSpaSocketForTests();
     resetAgentTurnStoreForTests();
+    resetChatHeaderSurfaceForTests();
     if (typeof window !== 'undefined') {
         // #1098: innerWidth is a getter-only accessor in this jsdom/Node pair.
         // defineProperty survives tests that redefined it (clamp/viewport

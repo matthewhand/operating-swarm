@@ -7,11 +7,6 @@ from swarm.core import agent_settings as store
 from swarm.core import session_policy as policy
 
 
-@pytest.fixture
-def api_client():
-    return APIClient()
-
-
 @pytest.fixture(autouse=True)
 def _isolate_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("SWARM_AGENT_SETTINGS_PATH", str(tmp_path / "agent_settings.json"))
@@ -56,6 +51,97 @@ def test_patch_toggle_on(api_client):
     assert response.json()["new_chat_per_task"] is True
     again = api_client.get("/v1/agents/worker/settings/")
     assert again.json()["new_chat_per_task"] is True
+
+
+def test_command_allowlist_default_and_roundtrip(api_client):
+    default = api_client.get("/v1/agents/worker/settings/")
+    assert default.status_code == 200
+    assert default.json()["command_allowlist"] == {"allow": [], "deny": [], "ask": []}
+
+    policy = {"allow": ["git status", "pytest"], "deny": ["rm", "curl"], "ask": ["git push"]}
+    saved = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"command_allowlist": policy},
+        format="json",
+    )
+    assert saved.status_code == 200
+    assert saved.json()["command_allowlist"] == policy
+
+    again = api_client.get("/v1/agents/worker/settings/")
+    assert again.json()["command_allowlist"] == policy
+    # Per-bot: another agent is unaffected.
+    other = api_client.get("/v1/agents/other/settings/")
+    assert other.json()["command_allowlist"] == {"allow": [], "deny": [], "ask": []}
+
+
+def test_mcp_tool_grants_default_and_roundtrip(api_client):
+    default = api_client.get("/v1/agents/worker/settings/")
+    assert default.status_code == 200
+    assert default.json()["mcp_tool_grants"] == []
+    assert default.json()["mcp_tool_grants_set"] is False
+
+    saved = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"mcp_tool_grants": ["web_search", "web_fetch", "web_search"]},
+        format="json",
+    )
+    assert saved.status_code == 200
+    assert saved.json()["mcp_tool_grants"] == ["web_search", "web_fetch"]
+    assert saved.json()["mcp_tool_grants_set"] is True
+
+    again = api_client.get("/v1/agents/worker/settings/")
+    assert again.json()["mcp_tool_grants"] == ["web_search", "web_fetch"]
+    other = api_client.get("/v1/agents/other/settings/")
+    assert other.json()["mcp_tool_grants"] == []
+    assert other.json()["mcp_tool_grants_set"] is False
+
+    cleared = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"mcp_tool_grants": []},
+        format="json",
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["mcp_tool_grants"] == []
+    assert cleared.json()["mcp_tool_grants_set"] is True
+
+    undone = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"mcp_tool_grants_set": False},
+        format="json",
+    )
+    assert undone.status_code == 200
+    assert undone.json()["mcp_tool_grants"] == []
+    assert undone.json()["mcp_tool_grants_set"] is True
+
+    forced = api_client.patch(
+        "/v1/agents/fresh/settings/",
+        {"mcp_tool_grants_set": True, "use_suggestions": True},
+        format="json",
+    )
+    assert forced.status_code == 200
+    assert forced.json()["mcp_tool_grants"] == []
+    assert forced.json()["mcp_tool_grants_set"] is False
+    assert forced.json()["use_suggestions"] is True
+
+
+def test_mcp_tool_grants_rejects_malformed(api_client):
+    response = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"mcp_tool_grants": {"web_search": True}},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "mcp_tool_grants" in response.json()["error"]
+
+
+def test_command_allowlist_rejects_malformed(api_client):
+    response = api_client.patch(
+        "/v1/agents/worker/settings/",
+        {"command_allowlist": {"block": ["rm"]}},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "command_allowlist" in response.json()["error"]
 
 
 @pytest.mark.django_db

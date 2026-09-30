@@ -6,12 +6,15 @@ import {
   type AgentSession,
 } from '../lib/scaleOutSessions'
 import type { MemberSession } from '../lib/sessionPicker'
+import { filterSessionsByProvider } from '../lib/sessionPicker'
 import { sessionRelativeLabel } from '../lib/agentSessions'
 import { OverlayFocusTrap } from './OverlayFocusTrap'
 
 export type SessionPickerSession = (AgentSession | MemberSession) & {
   agentId?: string
   href?: string
+  /** #1353 — provider scope key (`cli:<name>`, `remote:<id>`, `api`, …). */
+  provider?: string
 }
 
 export interface SessionPickerProps {
@@ -19,15 +22,18 @@ export interface SessionPickerProps {
   title?: string
   agentName?: string
   sessions: readonly (AgentSession | MemberSession)[]
+  /**
+   * #1353 — scope the list to the selected agent's provider. Omitted/empty
+   * keeps every row; when set, only sessions declaring that provider are
+   * listed (the default inference profile never leaks in).
+   */
+  provider?: string
   onClose: () => void
   onSelect: (session: any) => void
   /** REQ-105: empty list still offers New session. #468 can reuse this chrome. */
   onNewSession?: () => void
 }
 
-function shortcutLabel(index: number): string {
-  return `⌃${index + 1}`
-}
 
 function sessionCompare(a: any, b: any): number {
   if (typeof compareSessions === 'function' && 'startedAt' in a && 'startedAt' in b) {
@@ -69,6 +75,7 @@ export default function SessionPicker({
   title,
   agentName,
   sessions,
+  provider,
   onClose,
   onSelect,
   onNewSession,
@@ -78,9 +85,15 @@ export default function SessionPicker({
   const [activeIdx, setActiveIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
+  // #1353: scope to the selected agent's provider before the text filter.
+  const scoped = useMemo(
+    () => filterSessionsByProvider([...sessions] as MemberSession[], provider),
+    [sessions, provider],
+  )
+
   const visible = useMemo(
-    () => sessionFilter([...sessions].sort(sessionCompare), query),
-    [query, sessions],
+    () => sessionFilter([...scoped].sort(sessionCompare), query),
+    [query, scoped],
   )
 
   const teamSession = useMemo(
@@ -222,7 +235,7 @@ export default function SessionPicker({
                     {row.snippet ? ` · ${row.snippet}` : ''}
                   </span>
                 </span>
-                {idx < 9 && <kbd className="os-search-shortcut">{shortcutLabel(idx)}</kbd>}
+                
               </li>
             ))
           )}

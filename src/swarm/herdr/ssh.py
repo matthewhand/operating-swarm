@@ -2,7 +2,7 @@
 
 Hop model
 ---------
-Open Swarm SSHs to the **Herdr host**, then talks to Herdr there (official
+Operating Swarm SSHs to the **Herdr host**, then talks to Herdr there (official
 ``herdr`` CLI). Herdr wraps the CLIs it already manages on that host
 (agy / pi / grok / …). One hop. This is **not** an HTTP remote like
 OpenMousBot / Hermes / Rakazo, and we do not SSH past Herdr as a second

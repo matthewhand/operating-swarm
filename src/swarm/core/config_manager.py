@@ -4,8 +4,10 @@ import json
 import logging
 import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
+from swarm.core.config_loader import read_config_json, write_config_json
 from swarm.settings import DEBUG
 from swarm.utils.redact import redact_sensitive_data
 
@@ -75,9 +77,8 @@ def load_config(config_path: str) -> dict[str, Any]:
         ValueError: If the file contains invalid JSON or unresolved placeholders.
     """
     try:
-        with open(config_path) as file:
-            config = json.load(file)
-            logger.debug("Raw configuration loaded: %s", redact_sensitive_data(config))
+        config = read_config_json(Path(config_path))
+        logger.debug("Raw configuration loaded: %s", redact_sensitive_data(config))
     except FileNotFoundError:
         logger.error(f"Configuration file not found at {config_path}")
         print(f"Configuration file not found at {config_path}")
@@ -86,8 +87,11 @@ def load_config(config_path: str) -> dict[str, Any]:
         logger.error(f"Invalid JSON in configuration file {config_path}: {e}")
         print(f"Invalid JSON in configuration file {config_path}: {e}")
         sys.exit(1)
+    except ValueError as e:
+        logger.error(f"Invalid JSON in configuration file {config_path}: {e}")
+        print(f"Invalid JSON in configuration file {config_path}: {e}")
+        sys.exit(1)
 
-    # Resolve placeholders recursively
     try:
         resolved_config = resolve_placeholders(config)
         logger.debug(
@@ -113,8 +117,8 @@ def save_config(config_path: str, config: dict[str, Any]) -> None:
         SystemExit: If saving the configuration fails.
     """
     try:
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=4)
+        # mkdir=False keeps the CLI helper contract: missing parent → exit 1.
+        write_config_json(config, Path(config_path), mkdir=False)
         logger.info(f"Configuration saved to '{config_path}'")
         print(f"Configuration saved to '{config_path}'")
     except Exception as e:

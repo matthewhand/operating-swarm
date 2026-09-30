@@ -43,13 +43,14 @@ def _seed_old_transcript(user, agent="codey", content="old-turn"):
         ],
         conversation_id=cid,
     )
-    chat = ChatConversation.objects.create(
+    # #1440: save write-throughs Django. Reuse that row; do not INSERT again.
+    chat, _created = ChatConversation.objects.get_or_create(
         conversation_id=cid,
-        student=user,
-        agent_id=agent,
+        defaults={"student": user, "agent_id": agent},
     )
-    ChatMessage.objects.create(conversation=chat, sender="user", content=content)
-    ChatMessage.objects.create(conversation=chat, sender="assistant", content="old-reply")
+    if not chat.chat_messages.exists():
+        ChatMessage.objects.create(conversation=chat, sender="user", content=content)
+        ChatMessage.objects.create(conversation=chat, sender="assistant", content="old-reply")
     return cid, chat
 
 

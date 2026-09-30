@@ -60,7 +60,7 @@ class CliPipelineBlueprint(CliKindBase):
             "cli_fusion's parallel panel."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "sequential", "pipeline", "multi-agent", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],

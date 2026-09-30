@@ -223,16 +223,29 @@ def requested_skill_names(params: dict[str, Any] | None) -> list[str]:
 def resolve_skills(
     params: dict[str, Any] | None,
     root: str | Path | None = None,
+    agent_id: str | None = None,
 ) -> tuple[list[Skill], list[str]]:
-    """Resolve requested skill names to loaded skills plus missing names."""
+    """Resolve requested skill names to loaded skills plus missing names.
+
+    When ``agent_id`` is set, per-agent prose skills (#1392) overlay the
+    discovered ``SKILL.md`` catalog (agent wins on name collision).
+    """
     names = requested_skill_names(params)
     if not names:
         return [], []
     catalog = discover_skills(root)
+    if agent_id:
+        from swarm.core.agent_skills import agent_skill_catalog
+
+        catalog = {**catalog, **agent_skill_catalog(agent_id)}
     found: list[Skill] = []
     missing: list[str] = []
     for name in names:
         skill = catalog.get(name)
+        if skill is None:
+            folded = str(name).strip().lower()
+            if folded != name:
+                skill = catalog.get(folded)
         if skill is None:
             missing.append(name)
         else:

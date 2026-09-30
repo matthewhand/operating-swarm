@@ -47,6 +47,21 @@ describe('messagesFromThreadPayload', () => {
     expect(split.turns.map((row) => row.role)).toEqual(['user', 'assistant'])
     expect(split.events[0]?.content).toBe('CLI: antigravity → grok')
   })
+
+  it('keeps #1411 reactions on reconstructed turns', () => {
+    const display = messagesFromThreadPayload({
+      messages: [
+        {
+          role: 'user',
+          content: 'hi',
+          reactions: [{ emoji: '👍', count: 1, userReacted: true }],
+        },
+      ],
+    })
+    expect(display[0]?.reactions).toEqual([
+      { emoji: '👍', count: 1, userReacted: true, agentReacted: false, viewerReacted: false },
+    ])
+  })
 })
 
 describe('turnIndexFromDisplay', () => {
@@ -64,5 +79,42 @@ describe('turnIndexFromDisplay', () => {
 describe('formatChromeTime', () => {
   it('returns an ISO string for a valid timestamp', () => {
     expect(formatChromeTime('2026-09-05T12:00:00Z')).toBe('2026-09-05T12:00:00.000Z')
+  })
+})
+
+describe('reaction-only reconstruct (#1411)', () => {
+it('keeps a reaction-only turn with empty content (#1411)', () => {
+    const display = reconstructTranscript(
+      [
+        {
+          role: 'assistant',
+          content: '',
+          reaction_only: true,
+          reactions: [{ emoji: '👍', count: 1, agentReacted: true }],
+          seq: 1,
+        },
+      ],
+      [],
+    )
+    expect(display[0]?.content).toBe('')
+    expect(display[0]?.reactionOnly).toBe(true)
+    expect(display[0]?.reactions?.[0]?.emoji).toBe('👍')
+  })
+
+  it('drops the reaction-only flag when no palette emoji survived', () => {
+    const display = reconstructTranscript(
+      [
+        {
+          role: 'assistant',
+          content: '',
+          reaction_only: true,
+          reactions: [{ emoji: '🔥', count: 1, agentReacted: true }],
+          seq: 1,
+        },
+      ],
+      [],
+    )
+    expect(display[0]?.reactionOnly).toBeUndefined()
+    expect(display[0]?.reactions).toBeUndefined()
   })
 })

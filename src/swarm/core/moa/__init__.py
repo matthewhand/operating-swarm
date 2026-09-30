@@ -1,6 +1,6 @@
 """Mixture of Agents (MoA) — workflow model A: orchestrated consensus.
 
-Open Swarm has two primary multi-agent styles (see ``docs/SWARM_WORKFLOWS.md``):
+Operating Swarm has two primary multi-agent styles (see ``docs/SWARM_WORKFLOWS.md``):
 
 * **A. MoA (this package)** — consensus of subagents + orchestration agent.
   Subagents are encouraged to be **read-only**; the orchestrator alone determines

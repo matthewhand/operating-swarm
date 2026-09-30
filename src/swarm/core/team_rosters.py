@@ -34,6 +34,7 @@ from swarm.core.team_cos import apply_cos_fields, find_member
 logger = logging.getLogger(__name__)
 
 MEMBER_KINDS = ("api", "cli", "remote", "blueprint", "team", "herdr")
+MEMBER_NAME_MAX = 80
 DEFAULT_WIRES = {"handoff": True, "as_tool": True}
 TOOL_TYPES = ("handoff", "as_tool", "mcp")
 SECRET_MCP_TOOL_KEYS = (
@@ -105,11 +106,16 @@ def normalize_member(raw: Any) -> dict[str, str]:
 
     source = str(raw.get("source") or "").strip() or _default_source(member_id, kind, team_id or None)
     name = str(raw.get("name") or "").strip() or member_id
-    if len(name) > 80:
-        raise ValueError("Member name too long (max 80).")
+    if len(name) > MEMBER_NAME_MAX:
+        raise ValueError(f"Member name too long (max {MEMBER_NAME_MAX}).")
     member = {"id": member_id, "name": name, "kind": kind, "role": role, "source": source}
     if team_id:
         member["team_id"] = team_id
+    description = str(raw.get("description") or raw.get("specialty") or "").strip()
+    if description:
+        if len(description) > 280:
+            raise ValueError("Member description too long (max 280).")
+        member["description"] = description
     return member
 
 
@@ -319,6 +325,76 @@ def upsert_roster(roster: dict[str, Any]) -> dict[str, Any]:
         return reg[normalized["id"]]
 
 
+def add_member_if_absent(roster_id: str, member: dict[str, Any]) -> dict[str, Any]:
+    """Atomically append *member* when that id is not already on the roster.
+
+    Holds the roster lock for the full read-modify-write so concurrent
+    callers cannot drop each other's members.
+    """
+    incoming = normalize_member(member)
+    with _roster_lock:
+        reg = load_team_rosters()
+        roster = reg.get(roster_id)
+        if roster is None:
+            raise KeyError(roster_id)
+        members = list(roster.get("members") or [])
+        if any(str(row.get("id") or "") == incoming["id"] for row in members if isinstance(row, dict)):
+            return roster
+        updated = dict(roster)
+        updated["members"] = [*members, incoming]
+        normalized = normalize_roster(updated, roster_id=roster_id)
+        stored = {
+            "id": normalized["id"],
+            "name": normalized["name"],
+            "members": normalized["members"],
+            "wires": normalized["wires"],
+            "chief_of_staff_id": normalized.get("chief_of_staff_id"),
+            "chief_of_staff_instructions": normalized.get("chief_of_staff_instructions") or "",
+        }
+        if "tools" in normalized:
+            stored["tools"] = normalized["tools"]
+        if normalized.get("blueprint_id"):
+            stored["blueprint_id"] = normalized["blueprint_id"]
+        reg[roster_id] = stored
+        save_team_rosters()
+        return stored
+
+
+def remove_members_with_source(source: str) -> int:
+    """Drop members whose ``source`` equals *source* from every roster.
+
+    Exact source match keeps a hand-added member that happens to reuse a
+    library bot id. Returns how many members were removed.
+    """
+    token = str(source or "").strip()
+    if not token:
+        return 0
+    removed = 0
+    with _roster_lock:
+        reg = load_team_rosters()
+        changed = False
+        for roster in reg.values():
+            if not isinstance(roster, dict):
+                continue
+            members = roster.get("members") or []
+            if not isinstance(members, list):
+                continue
+            kept: list[Any] = []
+            roster_removed = 0
+            for row in members:
+                if isinstance(row, dict) and str(row.get("source") or "") == token:
+                    roster_removed += 1
+                    continue
+                kept.append(row)
+            if roster_removed:
+                roster["members"] = kept
+                removed += roster_removed
+                changed = True
+        if changed:
+            save_team_rosters()
+    return removed
+
+
 def delete_roster(roster_id: str) -> bool:
     """Remove a roster. Returns True if it existed."""
     with _roster_lock:
@@ -517,3 +593,158 @@ def iter_normalized_rosters(
         except ValueError:
             logger.warning("Skipping invalid roster %s", rid)
     return out
+
+
+def publish_roster(
+    roster_id: str,
+    *,
+    principal: str | None,
+    scope: str = "org",
+    team_id: str | None = None,
+    skill_ids: list[str] | None = None,
+    mcp_server_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Publish this roster as an org or team pack another principal can import."""
+    from swarm.core.workspace_library import share_team
+
+    return share_team(
+        roster_id=roster_id,
+        principal=principal,
+        scope=scope,
+        team_id=team_id,
+        skill_ids=skill_ids,
+        mcp_server_ids=mcp_server_ids,
+    )
+
+
+def import_roster(pack: dict[str, Any], *, principal: str | None = None) -> dict[str, Any]:
+    """Materialize a roster pack. Members come from the pack; missing deps are annotated.
+
+    ``principal`` records who imported the pack. The roster file itself stays
+    install-local, matching the rest of the team roster store.
+    """
+    del principal
+    if not isinstance(pack, dict):
+        raise ValueError("Team pack must be an object.")
+    rid = str(pack.get("id") or "").strip()
+    if not rid:
+        raise ValueError("Team pack id is required.")
+    payload: dict[str, Any] = {
+        "id": rid,
+        "name": pack.get("name") or rid,
+        "members": pack.get("members") or [],
+        "wires": pack.get("wires"),
+    }
+    blueprint_ids = pack.get("blueprint_ids") or []
+    if blueprint_ids:
+        payload["blueprint_id"] = blueprint_ids[0]
+    if "tools" in pack:
+        payload["tools"] = pack.get("tools") or []
+    stored = upsert_roster(payload)
+    preview = _annotate_imported_roster(stored, pack)
+    preview["imported"] = True
+    return preview
+
+
+def _installed_names(loader) -> set[str] | None:
+    """Return installed ids, or None when the lookup itself failed."""
+    try:
+        found = loader()
+    except Exception:
+        logger.exception("roster pack dependency lookup failed")
+        return None
+    if isinstance(found, dict):
+        return {str(key) for key in found}
+    if isinstance(found, (set, list, tuple)):
+        return {str(key) for key in found}
+    return set()
+
+
+_CHECK_FAILED = "Dependency check failed — needs configuration."
+
+
+def _gap_rows(
+    names: list[str],
+    installed: set[str] | None,
+    *,
+    check_id: str,
+    missing_reason: str,
+) -> list[dict[str, str]]:
+    """Missing ids, or one failed-check row when the lookup itself died."""
+    if not names:
+        return []
+    if installed is None:
+        return [{"id": check_id, "reason": _CHECK_FAILED}]
+    return [
+        {"id": name, "reason": missing_reason}
+        for name in names
+        if name not in installed
+    ]
+
+
+def _pack_dependency_gaps(pack: dict[str, Any]) -> list[dict[str, str]]:
+    """Missing MCP servers and skills named on the pack, not only members."""
+    servers = [str(item).strip() for item in (pack.get("mcp_server_ids") or []) if str(item).strip()]
+    skills = [str(item).strip() for item in (pack.get("skill_ids") or []) if str(item).strip()]
+
+    def _mcp_ids() -> set[str]:
+        from swarm.core.mcp_plugins import enabled_mcp_servers, swarm_config
+
+        return set(enabled_mcp_servers(swarm_config()))
+
+    def _skill_ids() -> set[str]:
+        from swarm.core.skills import discover_skills
+
+        return set(discover_skills())
+
+    return [
+        *_gap_rows(
+            servers,
+            _installed_names(_mcp_ids),
+            check_id="mcp",
+            missing_reason="MCP server not configured — needs configuration.",
+        ),
+        *_gap_rows(
+            skills,
+            _installed_names(_skill_ids),
+            check_id="skills",
+            missing_reason="Skill not installed — needs configuration.",
+        ),
+    ]
+
+
+def _merge_needs(*groups: list[dict[str, str]]) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for group in groups:
+        for row in group:
+            if not isinstance(row, dict):
+                continue
+            key = (str(row.get("id") or ""), str(row.get("reason") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({"id": key[0], "reason": key[1]})
+    return merged
+
+
+def _annotate_imported_roster(stored: dict[str, Any], pack: dict[str, Any]) -> dict[str, Any]:
+    """Annotate member gaps and pack MCP/skill ids. A failed check stays visible."""
+    rid = str(stored.get("id") or pack.get("id") or "")
+    failed = {"id": rid, "reason": _CHECK_FAILED}
+    try:
+        from swarm.core.marketplace_catalog import annotate_team_preview
+
+        preview = annotate_team_preview(stored)
+        member_needs = list(preview.get("needs_configuration") or [])
+    except Exception:
+        logger.exception("team pack import could not annotate missing dependencies")
+        preview = serialize_roster(stored)
+        member_needs = [failed]
+    try:
+        pack_needs = _pack_dependency_gaps(pack)
+    except Exception:
+        logger.exception("team pack import could not annotate pack dependencies")
+        pack_needs = [failed]
+    preview["needs_configuration"] = _merge_needs(member_needs, pack_needs)
+    return preview

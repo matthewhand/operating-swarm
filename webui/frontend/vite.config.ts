@@ -16,6 +16,69 @@ function readPyprojectVersion(): string {
 
 const spaVersion = readPyprojectVersion()
 
+/**
+ * #1443 vendor split. Returning a name pulls that package out of the entry
+ * chunk. `three` stays on its own async chunk (ADR-008 pose player).
+ */
+function vendorManualChunk(id: string): string | undefined {
+    const marker = 'node_modules/'
+    const at = id.lastIndexOf(marker)
+    if (at < 0) return undefined
+    const rest = id.slice(at + marker.length)
+    if (
+        rest.startsWith('katex/')
+        || rest.startsWith('marked/')
+        || rest.startsWith('marked-katex-extension/')
+    ) {
+        return 'markdown'
+    }
+    if (
+        rest.startsWith('react-dom/')
+        || rest.startsWith('react-router/')
+        || rest.startsWith('react-router-dom/')
+        || rest.startsWith('react/')
+        || rest.startsWith('scheduler/')
+    ) {
+        return 'react'
+    }
+    if (rest.startsWith('@tanstack/')) return 'query'
+    if (rest.startsWith('lucide-react/')) return 'icons'
+    if (rest.startsWith('focus-trap') || rest.startsWith('tabbable/')) return 'focus'
+    if (rest.startsWith('three/') || rest.startsWith('three-stdlib/')) return 'three'
+    return 'vendor'
+}
+
+/**
+ * Playwright serves the production build with `vite preview`. In production the
+ * SPA is same-origin with Django; in preview it is not, so e2e needs the API and
+ * websockets proxied to the running dev stack. Configure the target with
+ * `VITE_PREVIEW_PROXY_TARGET` (e.g. http://127.0.0.1:8002).
+ *
+ * The default stays `{}`: a plain `npm run serve` must not silently inherit a
+ * developer's local Django and make results machine-dependent.
+ */
+const previewProxyTarget = process.env.VITE_PREVIEW_PROXY_TARGET
+
+function previewProxy(): Record<string, unknown> {
+    if (!previewProxyTarget) return {}
+    const httpPaths = [
+        '/v1', '/teams', '/marketplace', '/api', '/health', '/chat', '/accounts',
+        '/sessions', '/blueprint-library', '/settings', '/profiles', '/team-creator',
+        '/static', '/login', '/agent-creator',
+    ]
+    const proxy: Record<string, unknown> = {}
+    for (const path of httpPaths) {
+        proxy[path] = { target: previewProxyTarget, changeOrigin: true }
+    }
+    proxy['/ws'] = {
+        target: previewProxyTarget!.replace(/^http/, 'ws'),
+        ws: true,
+        changeOrigin: true,
+    }
+    return proxy
+}
+
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
     define: {
@@ -145,12 +208,26 @@ export default defineConfig(({ mode }) => ({
     },
     build: {
         outDir: 'dist',
+        // #1443: vendor groups leave the entry chunk. `rollupOptions` is the
+        // Vite 8 alias of `rolldownOptions`; `manualChunks` is what the issue
+        // asks for and rolldown still honors it.
+        rollupOptions: {
+            output: {
+                manualChunks: vendorManualChunk,
+            },
+            onLog(level, log, handler) {
+                if (log.code === 'INEFFECTIVE_DYNAMIC_IMPORT') {
+                    const message = typeof log.message === 'string' ? log.message : 'INEFFECTIVE_DYNAMIC_IMPORT'
+                    throw new Error(message)
+                }
+                handler(level, log)
+            },
+        },
     },
     preview: {
-        // Keep `vite preview` (used by Playwright) hermetic: by default it
-        // inherits server.proxy, so a locally-running Django on :8000 would
-        // intercept proxied paths and make e2e results machine-dependent.
-        proxy: {},
+        // Playwright injects VITE_PREVIEW_PROXY_TARGET so the build talks to the
+        // real dev stack; a bare `vite preview` stays hermetic (empty proxy).
+        proxy: previewProxy(),
     },
     test: {
         environment: 'jsdom',

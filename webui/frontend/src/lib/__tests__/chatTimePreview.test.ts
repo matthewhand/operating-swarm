@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  classifyErrorPreview,
   getRowLastMessage,
   selectLatestMessage,
   truncateSnippet,
@@ -163,6 +164,10 @@ describe('REQ-177: Rail preview snippet and live updates', () => {
 
 // #844 — server-derived activity snippets hydrate rail rows on first paint.
 describe('#844 server snippet hydration', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
   it('prefers the server last_message over the static description', () => {
     const res = getRowLastMessage(
       'remote-trueforge',
@@ -196,5 +201,52 @@ describe('#844 server snippet hydration', () => {
       { description: 'Support', last_message: 'Fresher server-side answer' },
     )
     expect(res.snippet).toBe('Fresher server-side answer')
+    expect(res.previewClass).toBe('reply')
+  })
+
+  it('classifies an API-error snippet as an error preview (#1441)', () => {
+    expect(classifyErrorPreview('[API Error: 429]')).toBe('error')
+    expect(classifyErrorPreview('No CLI backend is configured')).toBe('error')
+    expect(classifyErrorPreview('shipped it')).toBe('reply')
+    const res = getRowLastMessage(
+      'remote-trueforge',
+      [],
+      {
+        last_message: 'gateway reset',
+        last_message_class: 'error',
+      },
+    )
+    expect(res.snippet).toBe('gateway reset')
+    expect(res.previewClass).toBe('error')
+  })
+
+  it('does not paint a user prompt or a quiet description as an error', () => {
+    putAgentChatSession('remote-trueforge', {
+      conversationId: 'conv-user-only',
+      messages: [
+        { key: 'msg-user-1725500000000', role: 'user', text: 'No CLI agents are configured.' },
+      ],
+    })
+    const userOnly = getRowLastMessage('remote-trueforge', [])
+    expect(userOnly.snippet).toBe('No CLI agents are configured.')
+    expect(userOnly.previewClass).toBe('reply')
+
+    const description = getRowLastMessage('quiet', [], {
+      description: 'endpoint not configured',
+    })
+    expect(description.snippet).toBe('endpoint not configured')
+    expect(description.previewClass).toBe('reply')
+  })
+
+  it('classifies a local assistant error from the full text, not the truncation', () => {
+    const full = `${'ok '.repeat(40)}endpoint not configured`
+    putAgentChatSession('remote-long', {
+      conversationId: 'conv-long-error',
+      messages: [{ key: 'msg-asst-1725500005000', role: 'assistant', text: full }],
+    })
+    const res = getRowLastMessage('remote-long', [])
+    expect(res.snippet?.endsWith('…')).toBe(true)
+    expect(res.snippet).not.toContain('endpoint not configured')
+    expect(res.previewClass).toBe('error')
   })
 })

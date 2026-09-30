@@ -1,6 +1,6 @@
 # Blueprint Library
 
-A menu of the multi-agent workflows ("blueprints") Open Swarm ships, each chosen
+A menu of the multi-agent workflows ("blueprints") Operating Swarm ships, each chosen
 to demonstrate a specific framework feature. Blueprints are **CLI/API only**:
 pick one by its `model` name over the OpenAI API, run it with
 `swarm-cli launch <name>`, or use it as a starting point for your own. They do

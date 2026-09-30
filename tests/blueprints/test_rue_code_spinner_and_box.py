@@ -8,6 +8,7 @@ Ported from archive/local-main-2025-04 and adapted to current main:
 import pytest
 
 from swarm.blueprints.common.operation_box_utils import display_operation_box
+from swarm.blueprints.common.unavailable_seat import NO_MODEL_TURN_LEAD
 from swarm.blueprints.rue_code.blueprint_rue_code import RueCodeBlueprint, RueSpinner
 
 TEST_CONFIG = {
@@ -47,30 +48,33 @@ def test_rue_operation_box_output(capsys):
 
 
 @pytest.mark.asyncio
-async def test_rue_run_box(monkeypatch, capsys):
-    class DummyLLM:
-        def chat_completion_stream(self, messages, **_):
-            class DummyStream:
-                def __aiter__(self): return self
-                async def __anext__(self):
-                    raise StopAsyncIteration
-            return DummyStream()
+async def test_rue_run_refuses_instead_of_fabricating_results(monkeypatch, capsys):
+    """The turn must not invent "Code Results" for a repo it never read.
+
+    These fileops / shell tools are real ``function_tool``s but nothing ever
+    hands them to a model, so the old response — a table built from the literals
+    ``def foo(): ...`` and ``def bar(): ...`` — was fiction presented as an
+    analysis of the user's codebase. The #1357 sweep scored it as a 1.9s reply.
+    """
     blueprint = RueCodeBlueprint(blueprint_id="test_rue", config=TEST_CONFIG)
-    blueprint.llm = DummyLLM()
-    monkeypatch.setattr(blueprint, "render_prompt", lambda *a, **k: "prompt")
+    monkeypatch.setattr(blueprint, "render_prompt", lambda *_a, **_k: "prompt")
     out = []
     async for msg in blueprint.run([{"role": "user", "content": "test"}]):
         out.append(msg)
-    captured = capsys.readouterr()
-    assert "RueCode Code Results" in captured.out
-    assert "RueCode Semantic Results" in captured.out
-    assert "RueCode Summary" in captured.out
-    assert out
+    content = ""
+    for chunk in out:
+        if isinstance(chunk, dict) and chunk.get("messages"):
+            content = str(chunk["messages"][-1].get("content") or "")
+    assert content.startswith(NO_MODEL_TURN_LEAD)
+    for fabricated in ("def foo()", "def bar()", "Code Results", "Semantic Results"):
+        assert fabricated not in content
+    # The operation box is still there for the empty-turn error path below.
+    capsys.readouterr()
 
 
 # Edge case: empty user message
 @pytest.mark.asyncio
-async def test_rue_run_empty(monkeypatch, capsys):
+async def test_rue_run_empty(capsys):
     blueprint = RueCodeBlueprint(blueprint_id="test_rue", config=TEST_CONFIG)
     out = []
     async for msg in blueprint.run([{"role": "assistant", "content": "no user"}]):

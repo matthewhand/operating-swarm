@@ -51,6 +51,28 @@ class RemoteAdapter:
     def routines(self, timeout: float) -> OperateResult:
         raise NotImplementedError(f"{type(self).__name__}.routines")
 
+    def pending_question(self, result: OperateResult) -> dict[str, Any] | None:
+        """Normalized operator question on a paused send result, or None.
+
+        The default reads the shared ``awaiting_input`` convention emitted by
+        :func:`swarm.core.remote_harness.pending_question_from_result`. A
+        harness with a different pause shape overrides this — one adapter
+        method, never an ``if kind ==`` branch in the blueprint.
+        """
+        from swarm.core.remote_harness import pending_question_from_result
+
+        return pending_question_from_result(result)
+
+    def resume_with_answer(
+        self,
+        session_id: str,
+        pending_action: dict[str, Any],
+        answer: str,
+        timeout: float,
+    ) -> OperateResult:
+        """Resume a paused send with the operator's answer. Per-harness."""
+        raise NotImplementedError(f"{type(self).__name__}.resume_with_answer")
+
     def interrogate(
         self,
         target: str,
@@ -112,7 +134,7 @@ class RemoteAdapter:
     # Health surface (#812 slice 4) — check_health dispatches through the
     # registry. The base forwards to the shared generic prober (HTTP kinds
     # unchanged); adapters with non-HTTP transports (Herdr) or alternate
-    # probe paths (Letta) override the hooks instead of the prober growing
+    # probe paths override the hooks instead of the prober growing
     # kind branches.
     # ------------------------------------------------------------------
     def health(self, timeout: float, config: dict[str, Any] | None = None):
@@ -123,5 +145,5 @@ class RemoteAdapter:
         )
 
     def extra_health_paths(self) -> list[str]:
-        """Alternate health paths probed after the spec's own (Letta #489)."""
+        """Alternate health paths probed after the spec's own."""
         return []

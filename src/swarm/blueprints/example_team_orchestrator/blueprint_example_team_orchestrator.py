@@ -70,7 +70,7 @@ class ExampleTeamOrchestratorBlueprint(TeamKindBase):
             "Read its source before copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "team", "roles", "orchestrator"],
         "required_mcp_servers": [],
         "env_vars": [],

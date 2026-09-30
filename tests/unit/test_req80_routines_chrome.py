@@ -11,6 +11,7 @@ from helpers.source_surface import chat_surface
 REPO = Path(__file__).resolve().parents[2]
 STUB = REPO / "webui" / "frontend" / "src" / "components" / "ComputerControlStub.tsx"
 PANE = REPO / "webui" / "frontend" / "src" / "components" / "ComputerRoutinesPane.tsx"
+CHROME = REPO / "webui" / "frontend" / "src" / "components" / "RoutineBuilderChrome.tsx"
 ROUTINES = REPO / "src" / "swarm" / "core" / "routines.py"
 API = REPO / "src" / "swarm" / "views" / "routines_api.py"
 URLS = REPO / "src" / "swarm" / "urls.py"
@@ -44,25 +45,32 @@ def test_pane_thumbnail_sits_above_routines_plus():
 
 def test_editor_has_active_delete_test_run_and_pr_merge():
     pane = PANE.read_text(encoding="utf-8")
+    chrome = CHROME.read_text(encoding="utf-8")
+    surface = pane + chrome
     for needle in (
         "Active",
+        "Inactive",
         "Delete",
-        "Test run",
+        "Test",
+        "Save",
         "Run now",
         "Name",
-        "Instruction",
+        "Agent Instructions",
         "When to run",
         "When a PR merges",
         "Mailbox message",
         "Interval",
         "Cron",
+        "routine-model-picker",
+        "routine-armed-toggle",
     ):
-        assert needle in pane
+        assert needle in surface
     core = ROUTINES.read_text(encoding="utf-8")
     assert "github_pr_merged" in core
     assert "mailbox_message" in core
     assert "test_run" in core
     assert "run_now" in core
+    assert "dry_run_preview" in core
     assert ":8001" not in core
     assert "ghp_" in core  # rejected as a secret-looking actor
     assert "WAVE" not in core

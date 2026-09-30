@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from swarm.blueprints.harness_fleet.blueprint_harness_fleet import HarnessFleetBlueprint
+from functools import partial
 
 
 async def _collect(gen):
@@ -50,10 +51,11 @@ class _Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def http_server():
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     t.start()
     yield "127.0.0.1", server.server_address[1]
     server.shutdown()
+    server.server_close()
 
 
 @pytest.mark.asyncio
@@ -127,7 +129,7 @@ async def test_auth_expected_401_counts_as_up(bp, http_server):
     host, port = http_server
 
     server = HTTPServer(("127.0.0.1", 0), AuthHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True).start()
     try:
         bp._config["harness_fleet"] = {
             "builtins": False,
@@ -145,6 +147,7 @@ async def test_auth_expected_401_counts_as_up(bp, http_server):
         assert "auth required, expected" in out
     finally:
         server.shutdown()
+        server.server_close()
 
 
 @pytest.mark.asyncio

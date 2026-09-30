@@ -782,9 +782,6 @@ def select_cli_session(
             base_dir=base_dir,
         )
 
-    if user is not None:
-        _bind_django_conversation(user, new_cid, turns)
-
     return {
         "object": "cli_session_select",
         "agent_id": agent,
@@ -800,39 +797,3 @@ def select_cli_session(
         "same_session": False,
         "from_conversation_id": prior_cid,
     }
-
-
-def _bind_django_conversation(user, conversation_id: str, messages: list[dict[str, Any]]) -> None:
-    """Create the new Django conversation. Never deletes the prior thread.
-
-    ``messages`` is the model-turn list only. Status/info chrome stays in
-    the file-store ``ui_events`` side channel.
-    """
-    try:
-        from swarm.models import ChatConversation, ChatMessage
-    except Exception:
-        return
-    if not getattr(user, "is_authenticated", False):
-        student = user if getattr(user, "pk", None) is not None else None
-    else:
-        student = user
-    try:
-        chat, _created = ChatConversation.objects.get_or_create(
-            conversation_id=conversation_id,
-            defaults={"student": student},
-        )
-        if chat.student_id is None and student is not None:
-            chat.student = student
-            chat.save(update_fields=["student"])
-        ChatMessage.objects.bulk_create(
-            [
-                ChatMessage(
-                    conversation=chat,
-                    sender=str(item.get("role") or "user"),
-                    content=str(item.get("content") or ""),
-                )
-                for item in messages
-            ]
-        )
-    except Exception:
-        logger.exception("Could not bind Django conversation %s", conversation_id)

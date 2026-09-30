@@ -75,7 +75,7 @@ class HybridTeamBlueprint(TeamKindBase):
             "single request."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "fusion", "rest", "consensus", "hybrid", "openai-compatible"],
         # Blueprint-level default for any step that does NOT request a specific
         # role (see ROLE_PROFILES). hybrid_team mixes a smart coordinator with

@@ -9,7 +9,8 @@ import { useActionRowLabels } from '../lib/actionRowLabelsContext'
  * footer combines into the horizontal reactions line (#70). Toggle off with:
  *   localStorage.setItem('swarm_experimental_chat_message_actions', 'off')
  *
- * React / reply / more are not mounted here — hide-until-ready, not stubs.
+ * Reply lives in MessageRowActions. React (#1411) is the emoji picker
+ * there too — this footer stays Retry-only.
  */
 
 export function ChatMessageActions({

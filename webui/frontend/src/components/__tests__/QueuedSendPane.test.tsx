@@ -81,6 +81,55 @@ describe('QueuedSendPane (REQ-90)', () => {
 })
 
 // #198 — 80-char hover-reveal previews + enter-to-interrupt hint
+describe('QueuedSendPane (#1232 send-immediately)', () => {
+  it('renders a per-row send-immediately button that fires with the row id', () => {
+    const onSendImmediately = vi.fn()
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'first'), row('q2', 'second')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onSendImmediately={onSendImmediately}
+      />,
+    )
+    const buttons = screen.getAllByTestId('queued-row-send')
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveAttribute('aria-label', 'Send queued message immediately')
+    expect(buttons[0]).toHaveAttribute('title', 'Send immediately')
+    fireEvent.click(buttons[1])
+    expect(onSendImmediately).toHaveBeenCalledWith('q2')
+  })
+
+  it('send button is optional (legacy mounts without the prop still render)', () => {
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'first')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('queued-row-send')).not.toBeInTheDocument()
+  })
+
+  it('send button does not open the row editor', () => {
+    const onSendImmediately = vi.fn()
+    render(
+      <QueuedSendPane
+        rows={[row('q1', 'first')]}
+        onChangeText={vi.fn()}
+        onDelete={vi.fn()}
+        onHoldIdsChange={vi.fn()}
+        onSendImmediately={onSendImmediately}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('queued-row-send'))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(onSendImmediately).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('QueuedSendPane (#198 preview + interrupt hint)', () => {
   it('truncates previews to 80 chars with fade class and full text on hover', () => {
     render(

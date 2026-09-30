@@ -29,7 +29,12 @@ export interface SandboxProbeResult {
   ok: boolean
   provider: string
   detail: string
+  /** Server returns `latency_ms`; `duration_ms` kept for older payloads. */
+  latency_ms?: number
   duration_ms?: number
+  /** #1201: failure class + copyable server-side operator path. */
+  classification?: string
+  operator_hint?: string
 }
 
 const PROVIDER_HELP: Record<string, string> = {
@@ -381,10 +386,28 @@ export default function SandboxesSettingsPane() {
         >
           <span className="font-semibold">{probe.data.ok ? 'OK' : 'Failed'}</span> —{' '}
           {probe.data.detail}
-          {typeof probe.data.duration_ms === 'number' ? (
+          {typeof (probe.data.latency_ms ?? probe.data.duration_ms) === 'number' ? (
             <span className="ml-1 text-xs text-base-content/50">
-              ({Math.round(probe.data.duration_ms)} ms)
+              ({Math.round(probe.data.latency_ms ?? probe.data.duration_ms ?? 0)} ms)
             </span>
+          ) : null}
+          {/* #1201: a failed Daytona probe names its failure class and the
+              exact operator path (env name + copyable server-side snippet). */}
+          {!probe.data.ok && probe.data.classification ? (
+            <span
+              className="ml-1 font-mono text-xs"
+              data-testid="sandbox-probe-classification"
+            >
+              [{probe.data.classification}]
+            </span>
+          ) : null}
+          {!probe.data.ok && probe.data.operator_hint ? (
+            <p
+              className="mt-2 rounded-lg bg-base-200 p-2 font-mono text-xs break-words"
+              data-testid="sandbox-probe-hint"
+            >
+              {probe.data.operator_hint}
+            </p>
           ) : null}
         </div>
       ) : null}

@@ -127,15 +127,15 @@ A stateful `/v1/responses` record (and related conversation/delegation data) own
 **Scale-out chat sessions (REQ-66)** are per-agent websocket conversations (`?session=` on SPA Chat). They are not Session Explorer rows. An agent with more than one of these stays one rail row with stacked avatars.
 ## CLI session
 
-An id **owned by an agentic CLI** (`--resume` / `--session` / `exec resume` / id file). Open Swarm stores it next to the chat thread (`cli_sessions`) and passes it back so the CLI restores its own context (REQ-52). Select session lists those ids from the CLI’s own list API or session store when supported (#795) — Django recents are not the source of truth for CLI resume. **Quota hop (#531 / REQ-138)** is the opposite move: a CLI/API dropdown switch starts a **new** native session and seeds it from the swarm thread (summary/full, secrets and tool noise omitted). Switching back is also a new session — do not resume the earlier id. Not a Django `conversation_id`, not a `/v1/responses` Session, and not OS `start_new_session` (process-group kill). Remotes keep the remote’s session.
+An id **owned by an agentic CLI** (`--resume` / `--session` / `exec resume` / id file). Operating Swarm stores it next to the chat thread (`cli_sessions`) and passes it back so the CLI restores its own context (REQ-52). Select session lists those ids from the CLI’s own list API or session store when supported (#795) — Django recents are not the source of truth for CLI resume. **Quota hop (#531 / REQ-138)** is the opposite move: a CLI/API dropdown switch starts a **new** native session and seeds it from the swarm thread (summary/full, secrets and tool noise omitted). Switching back is also a new session — do not resume the earlier id. Not a Django `conversation_id`, not a `/v1/responses` Session, and not OS `start_new_session` (process-group kill). Remotes keep the remote’s session.
 
 ## Herdr member (`kind=herdr`)
 
-A persisted connection to a [Herdr](https://herdr.dev/) pane/agent that Open Swarm drives via the official `herdr` CLI (not a socket protocol). Empty `remote` means localhost (unix sockets, typically `~/.config/herdr/`). **Remote implementation** (REQ-203 / ADR-011): `herdr` is the impl id under user-facing kind **Remote**, not a fifth harness. Add `herdr` in Settings. **Local Herdr** talks to Herdr on this host (no SSH). **Remote Herdr is SSH-shaped** — SSH to the Herdr host, then Herdr’s CLIs there — **not** an HTTP remote like OpenMousBot / Hermes / Rakazo. Missing SSH config is an error, not a silent other-host. Classifiers map `herdr` / `herdr:…` → `remote`. Docs: [HERDR.md](./HERDR.md).
+A persisted connection to a [Herdr](https://herdr.dev/) pane/agent that Operating Swarm drives via the official `herdr` CLI (not a socket protocol). Empty `remote` means localhost (unix sockets, typically `~/.config/herdr/`). **Remote implementation** (REQ-203 / ADR-011): `herdr` is the impl id under user-facing kind **Remote**, not a fifth harness. Add `herdr` in Settings. **Local Herdr** talks to Herdr on this host (no SSH). **Remote Herdr is SSH-shaped** — SSH to the Herdr host, then Herdr’s CLIs there — **not** an HTTP remote like OpenMousBot / Hermes / Rakazo. Missing SSH config is an error, not a silent other-host. Classifiers map `herdr` / `herdr:…` → `remote`. Docs: [HERDR.md](./HERDR.md).
 
 ## swarm-cli TUI (REQ-111)
 
-Open Swarm’s own terminal client of the **same HTTP API** as the WebUI: left
+Operating Swarm’s own terminal client of the **same HTTP API** as the WebUI: left
 agent rail + chat pane ([ADR-012](./adr/012-swarm-cli-tui.md) /
 [#481](https://github.com/matthewhand/open-swarm/issues/481)). Interactive in
 a TTY (rail sections, hydrate via `GET /chat/thread/`, REST SSE send + stream,

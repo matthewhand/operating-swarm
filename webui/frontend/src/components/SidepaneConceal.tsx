@@ -1,15 +1,24 @@
 import { ChevronsRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
-/** DaisyUI `btn-sm` meets the ≥32px touch target; square keeps the mark centered. */
+/** #1655: 2.25rem square — the rail's shared icon-control rhythm (the search
+ * pill and the Add agent button are both 2.25rem) — so the conceal/expand
+ * control sits on the same hit-box axis as its row siblings instead of a
+ * smaller 32px box on the same centerline. DaisyUI `btn-sm` sizes type;
+ * the h-9/min-h-9 overrides set the footprint. */
 const CONCEAL_BTN =
-  'btn btn-ghost btn-sm btn-square min-h-8 min-w-8 h-8 w-8 text-base-content'
+  'btn btn-ghost btn-sm btn-square min-h-9 min-w-9 h-9 w-9 text-base-content'
 
 /** Left rail: standard pane icon collapses the expanded sidebar (#767). */
 export function SidebarConcealButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      className={CONCEAL_BTN}
+      /* #1711: `os-rail-conceal` is the styling hook for the 1-col search row,
+         which reorders this control ahead of `+` so the trio wraps as one group
+         with Search instead of orphaning collapse on a row of its own. Named
+         for the rail it lives in (this variant is rail-only) so the right-dock
+         sidepane and the collapsed/avatar-only expanders stay unstyled by it. */
+      className={`${CONCEAL_BTN} os-rail-conceal`}
       aria-label="Collapse sidebar"
       title="Collapse sidebar"
       data-testid="sidebar-conceal"

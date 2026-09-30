@@ -33,12 +33,30 @@ export interface RemoteEntry {
   kind: string
   title: string
   configured: boolean
+  /**
+   * Server's combined answer: added *and* holding a probeable address. Optional
+   * because the local `/remotes_catalog.json` fixture predates the field, and
+   * because `false` for a server that does not send it must not be invented —
+   * read it as "unknown" rather than "not configured".
+   */
+  usable?: boolean
   agents: RemoteAgent[]
+  /**
+   * Only the keys the SPA acts on are carried through: `sessions` gates the
+   * session picker, `list` / `send` state the live verbs. Everything else the
+   * server sends is dropped, including a stale `operate` from a backend older
+   * than #1672 — the SPA has no computer-control control to gate it on, so
+   * reading it would only be a lie waiting to be believed.
+   */
   capabilities?: { sessions?: boolean; list?: boolean; send?: boolean }
   /** #601: server-stamped activity instant (epoch ms), absent when unknown. */
   lastMessageAt?: number
   /** #844: server-derived recent-activity snippet, absent when unknown. */
   lastMessage?: string
+  /** #1441: ``error`` when lastMessage is a failure preview. */
+  lastMessageClass?: 'error'
+  /** Operator description. Rail subtitle uses it when there is no snippet. */
+  description?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -113,6 +131,7 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
   const source = typeof rec.source === 'string' ? rec.source : ''
   const configured =
     rec.configured === true || (source !== '' && source !== 'default')
+  const usable = rec.usable === true
   const kind =
     typeof rec.kind === 'string' && rec.kind.trim()
       ? rec.kind.trim()
@@ -134,16 +153,26 @@ export function parseRemote(raw: unknown): RemoteEntry | null {
         send: capsRec.send === true,
       }
     : undefined
+  const description = typeof rec.description === 'string' ? rec.description.trim() : ''
   return {
     id,
     kind,
     title,
     configured,
+    usable,
     agents,
     capabilities,
     ...parseLastMessageAt(rec),
     ...parseLastMessageText(rec),
+    ...parseLastMessageClass(rec),
+    ...(description ? { description } : {}),
   }
+}
+
+function parseLastMessageClass(rec: Record<string, unknown>): { lastMessageClass: 'error' } | Record<string, never> {
+  const raw = rec.last_message_class ?? rec.lastMessageClass ?? rec.preview_class
+  if (raw === 'error') return { lastMessageClass: 'error' }
+  return {}
 }
 
 /** #601: server stamps ISO-8601 or epoch-ms; normalise to epoch ms or absent. */
@@ -165,12 +194,15 @@ function parseLastMessageText(rec: Record<string, unknown>): { lastMessage: stri
 }
 
 /**
- * Historic pin set (Hermes + OpenMousBot). Kept for callers that still
- * special-case those kinds. It does **not** force unconfigured catalog
- * rows onto the rail — that produced a chat seat whose only reply was
- * "not added as a remote — catalog placeholder" (issue #430).
+ * #1725: the historic `PINNED_RAIL_REMOTE_IDS` set (Hermes + OpenMousBot) was
+ * **deleted**, not wired up. It had no reader, and the admission rule it was
+ * groping towards is now a real capability check owned by the server
+ * (`swarm.core.vanilla_seats`): a Remote-kind recipe is withheld from the seat
+ * list until a remote is actually configured, and returns the moment one is
+ * added. A hardcoded id list is exactly the "advertises a mechanism that does
+ * not exist" shape #1725 is about — and it would need extending for every
+ * remote kind `remotes.REMOTE_KIND_IDS` ever gains.
  */
-export const PINNED_RAIL_REMOTE_IDS = new Set(['hermes', 'omb', 'openmousbot', 'openmausbot'])
 
 /** Operator-added remotes, or rows that already report agents. */
 export function isRailRemote(remote: RemoteEntry): boolean {

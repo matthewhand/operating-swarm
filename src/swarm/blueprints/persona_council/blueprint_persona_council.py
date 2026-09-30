@@ -115,7 +115,7 @@ class PersonaCouncilBlueprint(BlueprintBase):
             "from perspective diversity, not redundancy."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["cli", "consensus", "personas", "council", "openai-compatible"],
         "required_mcp_servers": [],
         "env_vars": [],

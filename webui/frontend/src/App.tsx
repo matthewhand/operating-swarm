@@ -1,24 +1,40 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import { loadRailSide, RAIL_SIDE_EVENT, type RailSide } from './lib/railSide'
 import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import ChatPage from './pages/ChatPage'
-import AgentRouterPage from './pages/AgentRouterPage'
+import {
+  ENGINE_SWITCH_PROOF_PATH,
+  IA_1447_PROOF_PATH,
+  LIBRARY_SCOPE_PROOF_1311_PATH,
+  REACTIONS_1411_PROOF_PATH,
+  ROUTINES_1395_PROOF_PATH,
+  ROUTINE_TOOLS_PROOF_PATH,
+  ROUTINE_TOOLS_PROOF_1406_PATH,
+  ROUTINE_TOOLS_PROOF_1410_PATH,
+  AGENT_PILL_PROOF_1676_PATH,
+  FOLDER_PILL_PROOF_1704_PATH,
+  BADGE_PILL_PROOF_1715_PATH,
+  ADD_BOT_MENU_PROOF_1674_PATH,
+  AGENT_SELECTOR_PROOF_1697_PATH,
+  HOST_CLI_TIP_PROOF_1703_PATH,
+  isIa1447ProofEnabled,
+} from './pages/proofPaths'
 import AgentSidebar from './components/AgentSidebar'
-import SearchPalette, { type SearchPaletteOptions } from './components/SearchPalette'
-import AgentEditor, { OPEN_AGENT_EDITOR_EVENT, type OpenAgentEditorDetail } from './components/AgentEditor'
-import TeamEditor, { OPEN_TEAM_EDITOR_EVENT, type OpenTeamEditorDetail } from './components/TeamEditor'
-import TeamComposer, { OPEN_TEAM_COMPOSER_EVENT } from './components/TeamComposer'
-import TeamsSheet from './components/overlays/TeamsSheet'
-import SettingsSheet, {
-  OPEN_SETTINGS_EVENT,
-  type OpenSettingsDetail,
-} from './components/SettingsSheet'
-import { OPEN_LLM_PROFILES_EVENT, OPEN_HIDDEN_EVENT, OPEN_TEAMS_EVENT } from './lib/chromeOverlay' 
+import type { SearchPaletteOptions } from './components/searchPaletteKernel'
+import { OPEN_AGENT_EDITOR_EVENT, type OpenAgentEditorDetail } from './lib/agentSettings'
+import { OPEN_TEAM_EDITOR_EVENT, type OpenTeamEditorDetail } from './components/teamEditorKernel'
+import { OPEN_TEAM_COMPOSER_EVENT } from './components/teamComposerKernel'
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from './components/settings/kernel'
+import {
+  OPEN_HIDDEN_EVENT,
+  OPEN_LLM_PROFILES_EVENT,
+  OPEN_TEAMS_EVENT,
+  OPEN_TEMPLATES_EVENT,
+} from './lib/chromeOverlay'
 import { RailChromeProvider, SwipeHint } from './components/RailChrome'
 import { ToastProvider } from './components/DaisyUI'
-import CommandPalette from './experimental/CommandPalette'
 import { isExperimentalEnabled } from './experimental/flags'
 import { useLeftEdgeSwipe } from './lib/leftEdgeSwipe'
+import { useHerdrStatusFeed } from './lib/useHerdrStatusFeed'
 import { isNarrowViewport, subscribeNarrowViewport } from './lib/narrowViewport'
 import { useViewportTier } from './lib/responsivePrefs'
 import {
@@ -39,6 +55,41 @@ import {
   type Theme,
   type ResolvedTheme,
 } from './lib/theme'
+import { applyFontFamily, loadFontFamily } from './lib/fontFamily'
+import { ChatHeaderSurfaceProvider, setChatHeaderSuppressed } from './lib/chatHeaderSurface'
+
+const ChatPage = lazy(() => import('./pages/ChatPage'))
+const AgentRouterPage = lazy(() => import('./pages/AgentRouterPage'))
+const EngineSwitchProof1324 = lazy(() => import('./pages/EngineSwitchProof1324'))
+const Ia1447Proof = lazy(() => import('./pages/Ia1447Proof'))
+const ReactionProof1411 = lazy(() => import('./pages/ReactionProof1411'))
+const Routines1395Proof = lazy(() => import('./pages/Routines1395Proof'))
+const RoutineToolsProof1403 = lazy(() => import('./pages/RoutineToolsProof1403'))
+const RoutineToolsProof1406 = lazy(() => import('./pages/RoutineToolsProof1406'))
+const RoutineToolsProof1410 = lazy(() => import('./pages/RoutineToolsProof1410'))
+const LibraryScopeProof1311 = lazy(() => import('./pages/LibraryScopeProof1311'))
+const AgentPillProof1676 = lazy(() => import('./pages/AgentPillProof1676'))
+const FolderPillProof1704 = lazy(() => import('./pages/FolderPillProof1704'))
+const BadgePillProof1715 = lazy(() => import('./pages/BadgePillProof1715'))
+const AddBotMenuProof1674 = lazy(() => import('./pages/AddBotMenuProof1674'))
+const AgentSelectorProof1697 = lazy(() => import('./pages/AgentSelectorProof1697'))
+const HostCliTipProof1703 = lazy(() => import('./pages/HostCliTipProof1703'))
+const SearchPalette = lazy(() => import('./components/SearchPalette'))
+const AgentEditor = lazy(() => import('./components/AgentEditor'))
+const TeamEditor = lazy(() => import('./components/TeamEditor'))
+const TeamComposer = lazy(() => import('./components/TeamComposer'))
+const TeamsSheet = lazy(() => import('./components/overlays/TeamsSheet'))
+const SettingsSheet = lazy(() => import('./components/SettingsSheet'))
+const TemplatesGallery = lazy(() => import('./components/TemplatesGallery'))
+const CommandPalette = lazy(() => import('./experimental/CommandPalette'))
+
+// #1629: ChatPage is the single heaviest first-party surface and the only
+// major screen still statically imported into the shell; it dragged the whole
+// chat feature tree (~300 KB minified) into index-*.js and blew the 600 KB
+// bundle budget. Same pattern as AgentRouterPage/SettingsSheet above:
+// route-level lazy with a null fallback (no spinner flash). The chat chunk is
+// not modulepreloaded, so the main pane stays empty until that request — and
+// the markdown chunk behind it — finishes.
 
 /** EXPERIMENTAL: ⌘K command palette (see experimental/README.md). */
 const SHOW_COMMAND_PALETTE = isExperimentalEnabled('command_palette')
@@ -55,6 +106,9 @@ function applyDocumentTheme(theme: ResolvedTheme) {
 }
 
 applyDocumentTheme(resolveTheme(initialTheme()))
+
+// #1227: apply the cached font family before first paint (flicker-free boot).
+applyFontFamily(loadFontFamily())
 
 /** Keep query string when aliasing a legacy chat path onto `/chat`. */
 export function chatPathWithSearch(search: string): string {
@@ -119,6 +173,7 @@ function App() {
   const [editingTeamName, setEditingTeamName] = useState<string | null>(null)
   const [teamComposerOpen, setTeamComposerOpen] = useState(false)
   const [teamsSheetOpen, setTeamsSheetOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
 
   // #1073: tablet tier can pin the rail in-flow (no backdrop, no
   // auto-dismiss on pick), mirroring desktop behaviour. Mobile never docks
@@ -170,6 +225,15 @@ function App() {
 
   useLeftEdgeSwipe(narrow && !railOpen && !searchOpen && !settingsOpen, openRail)
 
+  // #1445: Settings is not a chat route. Keep ChatPage mounted, but clear the
+  // chat navbar so a stale AnythingLLM/team identity cannot leak into it.
+  // Layout (not a passive effect) so the module-level flag lands before paint.
+  // ChatHeaderSurfaceProvider also hides in the same render as the sheet.
+  useLayoutEffect(() => {
+    setChatHeaderSuppressed(settingsOpen)
+  }, [settingsOpen])
+  useEffect(() => () => setChatHeaderSuppressed(false), [])
+
   useLayoutEffect(() => {
     applyDocumentTheme(resolvedTheme)
   }, [resolvedTheme])
@@ -181,6 +245,19 @@ function App() {
       return subscribeSystemTheme((resolved) => setResolvedTheme(resolved))
     }
   }, [themePreference])
+
+  // #1729: the Herdr status feed is armed here, above the rail, so every
+  // seat's status arrives whether or not its chat is mounted. Mounting it in
+  // the sidebar instead would make the notification depend on the rail being
+  // open — the exact silence this issue exists to remove.
+  useHerdrStatusFeed()
+
+  // #1227: mirror a font-family change made in another tab.
+  useEffect(() => {
+    const syncFont = () => applyFontFamily(loadFontFamily())
+    window.addEventListener('storage', syncFont)
+    return () => window.removeEventListener('storage', syncFont)
+  }, [])
 
   useEffect(() => {
     const onToggle = () => setThemePreference((prev) => nextTheme(prev))
@@ -221,6 +298,7 @@ function App() {
     }
     const onOpenTeamComposer = () => setTeamComposerOpen(true)
     const onOpenTeams = () => setTeamsSheetOpen(true)
+    const onOpenTemplates = () => setTemplatesOpen(true)
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -238,6 +316,7 @@ function App() {
     window.addEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
     window.addEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
     window.addEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+    window.addEventListener(OPEN_TEMPLATES_EVENT, onOpenTemplates)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener(THEME_TOGGLE_EVENT, onToggle)
@@ -250,53 +329,92 @@ function App() {
       window.removeEventListener(OPEN_TEAM_EDITOR_EVENT, onOpenTeamEditor)
       window.removeEventListener(OPEN_TEAM_COMPOSER_EVENT, onOpenTeamComposer)
       window.removeEventListener(OPEN_TEAMS_EVENT, onOpenTeams)
+      window.removeEventListener(OPEN_TEMPLATES_EVENT, onOpenTemplates)
     }
   }, [])
 
   return (
     <Router>
+      <ProofOrShell>
       <ToastProvider>
-        {SHOW_COMMAND_PALETTE && <CommandPalette />}
-        <SearchPalette
-          open={searchOpen}
-          options={searchOptions}
-          onClose={() => {
-            setSearchOpen(false)
-            setSearchOptions(undefined)
-          }}
-        />
-        <SettingsSheet
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          blueprintId={settingsDetail?.blueprintId}
-          teamId={settingsDetail?.teamId}
-          initialSection={settingsDetail?.section}
-          definitionKind={settingsDetail?.definitionKind}
-          definitionId={settingsDetail?.definitionId}
-          initialAddRemote={settingsDetail?.addRemote}
-          initialProviderId={settingsDetail?.providerId}
-          initialRemoteId={settingsDetail?.remoteId}
-          focusRateLimits={settingsDetail?.focusRateLimits}
-        />
-        <AgentEditor
-          isOpen={agentEditorOpen}
-          onClose={() => setAgentEditorOpen(false)}
-          agentId={editingAgentId}
-        />
-        <TeamEditor
-          isOpen={teamEditorOpen}
-          onClose={() => setTeamEditorOpen(false)}
-          teamId={editingTeamId}
-          teamName={editingTeamName}
-        />
-        <TeamComposer
-          isOpen={teamComposerOpen}
-          onClose={() => setTeamComposerOpen(false)}
-        />
-        <TeamsSheet
-          isOpen={teamsSheetOpen}
-          onClose={() => setTeamsSheetOpen(false)}
-        />
+        {SHOW_COMMAND_PALETTE ? (
+          <Suspense fallback={null}>
+            <CommandPalette />
+          </Suspense>
+        ) : null}
+        {searchOpen ? (
+          <Suspense fallback={null}>
+            <SearchPalette
+              open={searchOpen}
+              options={searchOptions}
+              onClose={() => {
+                setSearchOpen(false)
+                setSearchOptions(undefined)
+              }}
+            />
+          </Suspense>
+        ) : null}
+        {settingsOpen ? (
+          <Suspense fallback={null}>
+            <SettingsSheet
+              isOpen={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              blueprintId={settingsDetail?.blueprintId}
+              teamId={settingsDetail?.teamId}
+              initialSection={settingsDetail?.section}
+              definitionKind={settingsDetail?.definitionKind}
+              definitionId={settingsDetail?.definitionId}
+              initialAddRemote={settingsDetail?.addRemote}
+              initialProviderId={settingsDetail?.providerId}
+              initialRemoteId={settingsDetail?.remoteId}
+              focusRateLimits={settingsDetail?.focusRateLimits}
+              initialAddCliName={settingsDetail?.addCliName}
+            />
+          </Suspense>
+        ) : null}
+        {agentEditorOpen ? (
+          <Suspense fallback={null}>
+            <AgentEditor
+              isOpen={agentEditorOpen}
+              onClose={() => setAgentEditorOpen(false)}
+              agentId={editingAgentId}
+            />
+          </Suspense>
+        ) : null}
+        {teamEditorOpen ? (
+          <Suspense fallback={null}>
+            <TeamEditor
+              isOpen={teamEditorOpen}
+              onClose={() => setTeamEditorOpen(false)}
+              teamId={editingTeamId}
+              teamName={editingTeamName}
+            />
+          </Suspense>
+        ) : null}
+        {teamComposerOpen ? (
+          <Suspense fallback={null}>
+            <TeamComposer
+              isOpen={teamComposerOpen}
+              onClose={() => setTeamComposerOpen(false)}
+            />
+          </Suspense>
+        ) : null}
+        {teamsSheetOpen ? (
+          <Suspense fallback={null}>
+            <TeamsSheet
+              isOpen={teamsSheetOpen}
+              onClose={() => setTeamsSheetOpen(false)}
+            />
+          </Suspense>
+        ) : null}
+        {templatesOpen ? (
+          <Suspense fallback={null}>
+            <TemplatesGallery
+              open={templatesOpen}
+              onClose={() => setTemplatesOpen(false)}
+            />
+          </Suspense>
+        ) : null}
         <RailChromeProvider value={{ narrow, railOpen, openRail, closeRail }}>
           <div
             className="flex h-screen min-h-0 flex-col bg-base-100 text-base-content"
@@ -323,16 +441,25 @@ function App() {
               />
               <div className="flex min-w-0 flex-1 flex-col">
                 <main id="os-main" className="min-h-0 min-w-0 flex-1 overflow-hidden" tabIndex={-1}>
+                  {/* #1445: Settings is an overlay, not a route. Hide the chat
+                      navbar in this render so a stale AnythingLLM/team identity
+                      cannot paint beside the sheet. */}
+                  <ChatHeaderSurfaceProvider suppressed={settingsOpen}>
                   <Routes>
-                    <Route path="/" element={<ChatPage />} />
-                    <Route path="/chat" element={<ChatPage />} />
-                    <Route path="/chat/*" element={<ChatPage />} />
+                    <Route path="/" element={<Suspense fallback={null}><ChatPage /></Suspense>} />
+                    <Route path="/chat" element={<Suspense fallback={null}><ChatPage /></Suspense>} />
+                    <Route path="/chat/*" element={<Suspense fallback={null}><ChatPage /></Suspense>} />
                     <Route path="/teams" element={<TeamPathRedirect />} />
                     <Route path="/teams/*" element={<TeamPathRedirect />} />
-                    <Route path="/agents" element={<AgentRouterPage />} />
-                    <Route path="/agents/*" element={<AgentRouterPage />} />
+                    <Route path="/agents" element={<Suspense fallback={null}><AgentRouterPage /></Suspense>} />
+                    <Route path="/agents/*" element={<Suspense fallback={null}><AgentRouterPage /></Suspense>} />
+                    <Route
+                      path={ENGINE_SWITCH_PROOF_PATH}
+                      element={<Suspense fallback={null}><EngineSwitchProof1324 /></Suspense>}
+                    />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
+                  </ChatHeaderSurfaceProvider>
                 </main>
               </div>
             </div>
@@ -340,8 +467,61 @@ function App() {
           </div>
         </RailChromeProvider>
       </ToastProvider>
+      </ProofOrShell>
     </Router>
   )
+}
+
+function ProofOrShell({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  // Off in production builds. `vite` dev keeps it; the capture preview sets
+  // VITE_IA_1447_PROOF=1. A normal `/chat` load never mounts the harness.
+  const proof = (() => {
+    if (isIa1447ProofEnabled() && location.pathname === IA_1447_PROOF_PATH) {
+      return <Ia1447Proof />
+    }
+    if (location.pathname === ROUTINES_1395_PROOF_PATH) {
+      return <Routines1395Proof />
+    }
+    if (location.pathname === ROUTINE_TOOLS_PROOF_PATH) {
+      return <RoutineToolsProof1403 />
+    }
+    if (location.pathname === ROUTINE_TOOLS_PROOF_1406_PATH) {
+      return <RoutineToolsProof1406 />
+    }
+    if (location.pathname === ROUTINE_TOOLS_PROOF_1410_PATH) {
+      return <RoutineToolsProof1410 />
+    }
+    if (location.pathname === REACTIONS_1411_PROOF_PATH) {
+      return <ReactionProof1411 />
+    }
+    if (location.pathname === LIBRARY_SCOPE_PROOF_1311_PATH) {
+      return <LibraryScopeProof1311 />
+    }
+    if (location.pathname === AGENT_PILL_PROOF_1676_PATH) {
+      return <AgentPillProof1676 />
+    }
+    if (location.pathname === FOLDER_PILL_PROOF_1704_PATH) {
+      return <FolderPillProof1704 />
+    }
+    if (location.pathname === BADGE_PILL_PROOF_1715_PATH) {
+      return <BadgePillProof1715 />
+    }
+    if (location.pathname === ADD_BOT_MENU_PROOF_1674_PATH) {
+      return <AddBotMenuProof1674 />
+    }
+    if (location.pathname === AGENT_SELECTOR_PROOF_1697_PATH) {
+      return <AgentSelectorProof1697 />
+    }
+    if (location.pathname === HOST_CLI_TIP_PROOF_1703_PATH) {
+      return <HostCliTipProof1703 />
+    }
+    return null
+  })()
+  if (proof) {
+    return <Suspense fallback={null}>{proof}</Suspense>
+  }
+  return <>{children}</>
 }
 
 export default App

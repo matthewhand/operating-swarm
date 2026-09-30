@@ -1,11 +1,14 @@
 """
-Settings Manager for Open Swarm
+Settings Manager for Operating Swarm
 Handles collection and management of all configuration settings
 """
 from typing import Any
 
 from django.conf import settings
 
+# Package reader. Tests patch this symbol. No-arg discovery, validate, env
+# substitution — the same function the provider rate limiter calls.
+from swarm.core.config_loader import load_config
 from swarm.utils.env_utils import (
     get_anthropic_api_key,
     get_django_csrf_trusted_origins,
@@ -21,40 +24,9 @@ from swarm.utils.env_utils import (
     is_enable_webui,
 )
 
-try:
-    # Use the core config loader which provides discovery utilities
-    from swarm.core.config_loader import (
-        find_config_file as _find_config_file,
-    )
-    from swarm.core.config_loader import (
-        load_config as _load_config,
-    )
-except Exception:
-    _find_config_file = None
-    _load_config = None
-
-
-def load_config():
-    """Load the primary swarm configuration as a dictionary.
-
-    This wrapper locates the config file using the core discovery
-    logic and loads it. Tests patch this symbol directly, so we keep it
-    as a simple no-arg function.
-    """
-    try:
-        if _find_config_file is None or _load_config is None:
-            return {}
-        config_path = _find_config_file()
-        if not config_path:
-            return {}
-        return _load_config(config_path)
-    except Exception:
-        # Fail gracefully; callers handle empty config or report errors
-        return {}
-
 
 class SettingsManager:
-    """Comprehensive settings management for Open Swarm"""
+    """Comprehensive settings management for Operating Swarm"""
 
     def __init__(self):
         self.settings_groups = {
@@ -66,7 +38,7 @@ class SettingsManager:
             },
             'swarm_core': {
                 'title': 'Swarm Core',
-                'description': 'Core Open Swarm functionality settings',
+                'description': 'Core Operating Swarm functionality settings',
                 'icon': '🚀',
                 'settings': {}
             },
@@ -714,7 +686,7 @@ class SettingsManager:
         self.settings_groups['ui_features']['settings'] = ui_settings
 
     def _collect_chat_persistence_settings(self):
-        """Collect per-agent chat JSON store + retention settings."""
+        """Collect chat retention settings. History is the Django database."""
         from swarm.core import chat_store
 
         chat_settings = {
@@ -723,9 +695,10 @@ class SettingsManager:
                 'env_var': chat_store.ENV_CHAT_DIR,
                 'type': 'path',
                 'description': (
-                    'Directory for per-agent chat JSON files '
+                    'Directory for the derived per-agent JSON cache '
                     '(active/<user>/<agent>.json and trash/). '
-                    'Unset uses $SWARM_USER_DATA_DIR/chats or the platformdirs data dir.'
+                    'Canonical chat history is the Django database. '
+                    'Unset uses $SWARM_USER_DATA_DIR/chats or the user data directory.'
                 ),
                 'category': 'storage',
                 'sensitive': False,
@@ -737,7 +710,7 @@ class SettingsManager:
                 'description': (
                     'Auto-move inactive agent chats to trash after this many days '
                     f'(default {chat_store.DEFAULT_MAX_AGE_DAYS}). Set 0 to disable. '
-                    'Never hard-deletes; Empty trash on this page is manual.'
+                    'Trash is the database. Never hard-deletes; Empty trash on this page is manual.'
                 ),
                 'category': 'retention',
                 'sensitive': False,

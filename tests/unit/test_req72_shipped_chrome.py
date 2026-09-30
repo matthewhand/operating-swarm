@@ -22,15 +22,35 @@ DJANGO_SIDEBAR = REPO / "src" / "swarm" / "static" / "js" / "agent_sidebar.js"
 
 
 def test_spa_mounts_overlays_as_siblings_of_chat_routes():
-    """#364 / #322 / #320: Settings + Search overlay chat; ChatPage stays routed."""
+    """#364 / #322 / #320: Settings + Search overlay chat; ChatPage stays routed.
+
+    #1670: this asserted the literal ``element={<ChatPage />}``. #1629 wrapped
+    the lazy ChatPage in a Suspense boundary, so the exact JSX changed shape and
+    the contract went red while the product stayed correct. Match the invariant
+    — chat is still a *route* and the overlays are still mounted *outside* the
+    route table — rather than one spelling of the element.
+    """
     app = SPA_APP.read_text(encoding="utf-8")
     assert "<SearchPalette" in app
     assert "<SettingsSheet" in app
     assert 'path="/chat"' in app
-    assert "element={<ChatPage />}" in app
+
+    # Chat is routed, and every /chat route renders ChatPage. Matched per line
+    # rather than with a regex over the whole tag: the element contains nested
+    # ">" (Suspense's fallback={null}>), so a [^>]* pattern cannot close it.
+    chat_routes = [ln for ln in app.splitlines() if 'path="/chat"' in ln]
+    assert chat_routes, "chat must stay a route, not an overlay"
+    for route in chat_routes:
+        assert "<ChatPage />" in route, f"/chat must render ChatPage: {route}"
+
     # Overlays are not route replacements — chat is not unmounted for settings.
     assert 'path="/settings"' not in app
     assert "Navigate to=\"/settings\"" not in app
+
+    # ...and the overlays are siblings of the route table, not children of it.
+    routes_at = app.index("<Routes>")
+    assert app.index("<SearchPalette") < routes_at, "SearchPalette must mount beside <Routes>"
+    assert app.index("<SettingsSheet") < routes_at, "SettingsSheet must mount beside <Routes>"
 
 
 def test_settings_remotes_are_opt_in_not_live_lan():

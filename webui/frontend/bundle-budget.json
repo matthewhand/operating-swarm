@@ -1,0 +1,8 @@
+{
+  "issue": 1443,
+  "initialJsGzipBytes": 560000,
+  "initialCssGzipBytes": 70000,
+  "anyJsGzipBytes": 560000,
+  "mainChunkMinifiedBytes": 600000,
+  "forbidInInitialJs": ["WebGLRenderer"]
+}

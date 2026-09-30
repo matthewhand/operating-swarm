@@ -22,7 +22,7 @@ Success response ≠ completion: the run finishes at `agent_settled`.
 Framing is strict LF; a `readline`-style splitter is a documented hazard
 (`readline` also splits on U+2028/U+2029) — split on bytes.
 
-## What Open Swarm would gain
+## What Operating Swarm would gain
 
 The issue's motivation holds up on inspection. `ApiKindBase` carries
 bespoke provider plumbing (streaming chunking, tool stdout/stderr
@@ -35,7 +35,7 @@ seat shape:
   events, matching Swarm's queued-send and compact features
 - Process isolation per seat (one `pi --mode rpc` child per conversation)
 
-## What Open Swarm would keep
+## What Operating Swarm would keep
 
 Orchestration, the rail, roles (incl. Belay), multi-seat coordination,
 DB thread mirroring, and the WS surface stay ours. Pi replaces only the

@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.utils import timezone
 
 
 class ChatConversation(models.Model):
@@ -21,6 +22,18 @@ class ChatConversation(models.Model):
     labels = models.JSONField(blank=True, default=list)
     cli_session_id = models.CharField(max_length=128, blank=True, default="")
     context_meta = models.JSONField(blank=True, default=dict)
+    # #1440: side-channel chrome. Attachment bytes stay on disk.
+    ui_events = models.JSONField(blank=True, default=list)
+    # #1440: Settings trash. Null means the thread is active.
+    trashed_at = models.DateTimeField(blank=True, null=True)
+    # #1721: hard-delete tombstone. ``empty_trash`` retires the id instead of
+    # dropping the row, because "the row is gone" is indistinguishable from
+    # "this thread never existed" — and the one-way ``chat_store`` JSON import
+    # treats an empty DB thread as never-existed, so a deleted conversation
+    # came back and was re-written into the database. The row carries no
+    # content (see ``chat_repository.empty_trash``); it exists only to refuse
+    # the id forever. Null means never purged.
+    purged_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         app_label = "swarm"
@@ -42,11 +55,15 @@ class ChatMessage(models.Model):
     conversation = models.ForeignKey(ChatConversation, related_name="chat_messages", on_delete=models.CASCADE)
     sender = models.CharField(max_length=50)
     content = models.TextField()
-    timestamp = models.DateTimeField(auto_now_add=True)
+    # Default only — callers may pass a historical ``ts``. auto_now_add would
+    # overwrite that on insert and scramble restore order (#1440).
+    timestamp = models.DateTimeField(default=timezone.now)
     tool_call_id = models.CharField(max_length=255, blank=True, null=True)
+    # #1440: restore metadata (ts, edited, seq, kind, …). Django is SoT.
+    extra = models.JSONField(blank=True, default=dict)
 
     class Meta:
-        ordering = ["timestamp"]
+        ordering = ["timestamp", "id"]
         verbose_name = "Chat Message"
         verbose_name_plural = "Chat Messages"
 
@@ -131,8 +148,11 @@ from swarm.models.core_models import (  # noqa: E402
     MarketplaceIndex,
     MCPConfig,
 )
+from swarm.models.activity import ActivityEventRow  # noqa: E402
+from swarm.models.company import Company  # noqa: E402
 from swarm.models.herdr import HerdrAgent  # noqa: E402
 from swarm.models.preferences import UserPreference  # noqa: E402
+from swarm.models.shared_library import SharedLibraryItem  # noqa: E402
 
 __all__ = [
     "ChatConversation",
@@ -144,5 +164,8 @@ __all__ = [
     "MarketplaceIndex",
     "HerdrAgent",
     "UserPreference",
+    "Company",
+    "ActivityEventRow",
+    "SharedLibraryItem",
 ]
 

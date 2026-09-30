@@ -81,9 +81,15 @@ Called from `src/swarm/settings.py`, `src/manage.py`, `src/swarm/wsgi.py`,
 [CONFIGURATION.md § Environment Variables](../../CONFIGURATION.md#environment-variables).
 
 **Substitution (read into JSON):** `${VAR}` in `swarm_config.json` is expanded
-by `src/swarm/core/config_loader.py` (`_substitute_env_vars` / `os.path.expandvars`)
-and again by `src/swarm/core/config_manager.py` (`resolve_placeholders`) and
-`src/swarm/core/blueprint_base.py` (`_load_configuration`).
+by the package reader `config_loader.load_config` (`_substitute_env_vars` /
+`os.path.expandvars`). JSON I/O is shared (`read_config_json` /
+`write_config_json`). Inside `config_loader.py`, `load_config` /
+`save_config` / `validate_config` are defined once; a second copy in that
+file used to shadow the first. Django settings and the provider rate limiter
+call that reader (#1435). `config_manager.resolve_placeholders` remains for
+the CLI helper, and `blueprint_base.py` (`_load_configuration`) still
+substitutes when it builds a blueprint profile. `ruff check --select F811
+src/` is the CI gate against a later copy shadowing this reader.
 
 **WebUI:** Django `/settings/` and `GET` settings API
 (`src/swarm/views/settings_views.py`) collect env-backed flags via
@@ -151,16 +157,27 @@ volume `${HOME}/.local/share/swarm` is writable (SQLite + `/v1/responses`).
 WebUI persist to XDG **fails with `OSError` / HTTP 500** on an unmodified
 compose stack even though the code path is the same as `swarm-cli` on the host.
 
-**Path split (follow-up, not a third SoT):**
+**Config root (unified, #1434):** `swarm.core.paths.config_root()` is the
+only resolver. `SWARM_CONFIG_DIR` overrides it. Windows uses
+`%APPDATA%/OpenSwarm/swarm`; other platforms use `$XDG_CONFIG_HOME/swarm`
+or `~/.config/swarm`. `_xdg_config_path()`, `get_swarm_config_file()`, and
+`get_user_config_dir_for_swarm()` all delegate to that root. Startup
+copies a legacy author/platform tree onto the canonical root and logs a
+warning, or refuses when the same relative file differs. The copy runs
+before dotenv load so the first process reads a migrated `.env`, and it
+does not run under pytest. Per-file env
+vars (`SWARM_CONFIG_PATH`, `SWARM_ROUTER_DESIGNS`,
+`SWARM_AGENT_SETTINGS_PATH`, plus data-dir overlays) are file overlays,
+not a second root. Compose mounts that folder; CLI create-if-missing
+writes there. No ongoing syncer. Data/cache roots stay on platformdirs
+(`#1435`). Settings and `/health` report the resolved root.
 
-- `_xdg_config_path()` → `~/.config/swarm/swarm_config.json`
-- `src/swarm/core/paths.py` `get_user_config_dir_for_swarm()` → platformdirs
-  `user_config_dir(appname="swarm", appauthor="OpenSwarm")`, documented as
-  `~/.config/OpenSwarm/swarm/`
-
-Compose mounts `~/.config/swarm`. CLI *create-if-missing* uses platformdirs.
-If both folders exist, discovery and “write new file” can disagree. Unify in
-an implement Issue; do not add a syncer.
+**Config loaders:** `config_loader.py` defines `load_config` /
+`save_config` / `validate_config` once. A later duplicate block used to
+shadow the first copy (same class of bug as REQ-893). `config_manager`
+CLI helpers read and write through the shared JSON helpers.
+`settings_manager.load_config` and `provider_rate_limit.load_config`
+call that package reader.
 
 **Sibling XDG JSON (not `swarm_config.json`, same config dir family):**
 
@@ -459,9 +476,12 @@ Do not implement in this PR. Suggested filings (titles only):
 2. **Compose: RW XDG config volume** — drop `:ro` (or document a RW
    override). Tests: persist remote inside the container; file visible on
    the host.
-3. **Unify XDG helpers** — `_xdg_config_path()` vs
-   `get_user_config_dir_for_swarm()` must resolve one directory. Compose
-   mount and CLI init must match.
+3. **Unify XDG helpers** — one `config_root()` plus `SWARM_CONFIG_DIR`,
+   Windows vs XDG resolution, and migrate-or-refuse for a legacy tree.
+   **Done in #1434** (config root only; data/cache remain #1435). The
+   shadowed second copy of `load_config` / `save_config` /
+   `validate_config` in `config_loader.py` is removed, and JSON I/O is
+   shared with `config_manager`.
 4. **[#540](https://github.com/matthewhand/open-swarm/issues/540) Django prefs** —
    favourites / hidden (and later theme, rail order). Seed-once from
    `localStorage` if server empty; then server wins. No XDG copy.
@@ -523,5 +543,5 @@ at repo root. Sibling [#775](https://github.com/matthewhand/open-swarm/issues/77
 may move it; keep the `*.example` name and do not commit live
 `swarm_config.json` secrets.
 
-**Not in this addendum:** compose `:ro` → RW (ADR follow-up 2); XDG helper
-unify (follow-up 3); Django prefs beyond #540.
+**Not in this addendum:** compose `:ro` → RW (ADR follow-up 2); Django
+prefs beyond #540. XDG config-root unify is #1434.

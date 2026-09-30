@@ -8,8 +8,14 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  applySeatParamPatch,
+  activeHeaderSeatKey,
+  headerSeatKey,
+  isValidHeaderSeatKey,
+  canonicalSeatTargetId,
   hydrateSeatFromSearchParams,
   seatParamsForPick,
+  seatPickKindForTarget,
   seatToSearchParams,
 } from '../seatRouting'
 
@@ -116,5 +122,70 @@ describe('#815 canonical seat identity', () => {
     })
     expect(seen.set).toEqual({ blueprint: 'api_agent', model: 'claude-work' })
     expect(seen.delete).toContain('session')
+  })
+})
+
+describe('applySeatParamPatch / headerSeatKey (#1445)', () => {
+  it('drops leftover team when a remote seat is applied', () => {
+    const prev = new URLSearchParams('team=demo-team&session=codey&remote=stale')
+    const next = applySeatParamPatch(prev, seatParamsForPick('remote', 'anythingllm'))
+    expect(next.get('remote')).toBe('anythingllm')
+    expect(next.get('team')).toBeNull()
+    expect(next.get('session')).toBeNull()
+    expect(next.get('blueprint')).toBeNull()
+  })
+
+  it('drops leftover AnythingLLM when a team seat is applied', () => {
+    const prev = new URLSearchParams('remote=anythingllm&session=ws-docs:t1&team=old')
+    const next = applySeatParamPatch(prev, seatParamsForPick('team', 'demo-team'))
+    expect(next.get('team')).toBe('demo-team')
+    expect(next.get('remote')).toBeNull()
+    expect(next.get('session')).toBeNull()
+  })
+
+  it('names the header seat from the URL, team over remote over blueprint', () => {
+    expect(headerSeatKey({ teamId: 'demo-team', remoteId: 'anythingllm', blueprintId: 'codey' })).toBe(
+      'team:demo-team',
+    )
+    expect(headerSeatKey({ remoteId: 'anythingllm', blueprintId: 'codey' })).toBe(
+      'remote:anythingllm',
+    )
+    expect(headerSeatKey({ blueprintId: 'codey' })).toBe('api:codey')
+    expect(headerSeatKey({})).toBe('api:')
+  })
+
+  it('treats only a kind:id seat as valid for the header gate', () => {
+    expect(activeHeaderSeatKey({})).toBe('')
+    expect(isValidHeaderSeatKey(activeHeaderSeatKey({}))).toBe(false)
+    expect(isValidHeaderSeatKey(headerSeatKey({}))).toBe(false)
+    expect(activeHeaderSeatKey({ remoteId: 'anythingllm', blueprintId: 'codey' })).toBe(
+      'remote:anythingllm',
+    )
+    expect(activeHeaderSeatKey({ cliId: 'grok', blueprintId: 'support' })).toBe('cli:grok')
+    expect(activeHeaderSeatKey({ blueprintId: 'support' })).toBe('api:support')
+    expect(isValidHeaderSeatKey('team:demo-team')).toBe(true)
+    expect(isValidHeaderSeatKey('nope:x')).toBe(false)
+  })
+})
+
+describe('seat pick kind (#1436)', () => {
+  it('resolves a blueprint-tagged remote id as a remote seat', () => {
+    expect(seatPickKindForTarget('api', 'blueprint:omb')).toBe('remote')
+    expect(seatPickKindForTarget('blueprint', 'blueprint:remote:herdr')).toBe('remote')
+    expect(canonicalSeatTargetId('remote', 'blueprint:remote:herdr')).toBe('herdr')
+    expect(canonicalSeatTargetId('remote', 'blueprint:omb')).toBe('omb')
+  })
+
+  it('keeps a real blueprint pick on the api seat', () => {
+    expect(seatPickKindForTarget('blueprint', 'blueprint:planner')).toBe('api')
+    expect(canonicalSeatTargetId('api', 'blueprint:planner')).toBe('planner')
+  })
+
+  it('resolves blueprint-tagged cli and team ids as those seats', () => {
+    expect(seatPickKindForTarget('api', 'blueprint:cli:grok')).toBe('cli')
+    expect(canonicalSeatTargetId('cli', 'blueprint:cli:grok')).toBe('grok')
+    expect(seatPickKindForTarget('api', 'blueprint:team:office')).toBe('team')
+    expect(canonicalSeatTargetId('team', 'blueprint:team:office')).toBe('office')
+    expect(seatParamsForPick('cli', 'grok').set).toEqual({ cli: 'grok' })
   })
 })

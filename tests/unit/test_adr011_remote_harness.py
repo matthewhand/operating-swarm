@@ -1,6 +1,7 @@
 """Lock ADR-011 Remote harness spec (REQ-203 / #680)."""
 
 from pathlib import Path
+from helpers.private_net import assert_no_private_ip
 
 REPO = Path(__file__).resolve().parents[2]
 ADR = REPO / "docs" / "adr" / "011-remote-harness.md"
@@ -20,7 +21,7 @@ def test_adr011_exists_and_names_the_contract():
     assert "CLI | API | Blueprint | Remote" in text or "CLI | API | Blueprint | Remote" in text.replace("**", "")
     assert "operate" in text.lower()
     assert "SSH" in text
-    assert "10.0.0." not in text
+    assert_no_private_ip(text)
     lowered = text.lower()
     for needle in ("sk-", "github_pat_", "ghp_"):
         assert needle not in lowered

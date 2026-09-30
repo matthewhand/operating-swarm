@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeCliRailAgentId,
   activeRailId,
   activeRailIdFromParams,
   isHerdrRowActive,
@@ -87,6 +88,34 @@ describe('railActive (#542)', () => {
       // OMB sessions are bots on the far side — the seat row is the remote,
       // so ?remote=omb&session=x must keep highlighting `remote:omb`.
       expect(activeRailIdFromParams(params('?remote=omb&session=x'))).toBe('remote:omb')
+    })
+  })
+
+  // A derived CLI row id is `<cli>_agent`, but its chat URL is
+  // `?blueprint=cli_agent&cli=<cli>` — the `<cli>_agent` id alone classifies as
+  // an API seat client-side. This resolver is what lights the derived row.
+  describe('activeCliRailAgentId — the derived CLI row a ?cli= URL names', () => {
+    it('maps blueprint=cli_agent&cli=<name> to <name>_agent', () => {
+      expect(activeCliRailAgentId(params('?blueprint=cli_agent&cli=agy'))).toBe('agy_agent')
+      expect(activeCliRailAgentId(params('?blueprint=cli_agent&cli=opencode'))).toBe(
+        'opencode_agent',
+      )
+    })
+
+    it('accepts a legacy <name>_agent blueprint id too', () => {
+      expect(activeCliRailAgentId(params('?blueprint=agy_agent&cli=agy'))).toBe('agy_agent')
+    })
+
+    it('returns "" without a cli param', () => {
+      expect(activeCliRailAgentId(params('?blueprint=cli_agent'))).toBe('')
+      expect(activeCliRailAgentId(params('?blueprint=cli_agent&cli='))).toBe('')
+      expect(activeCliRailAgentId(params('?blueprint=cli_agent&cli=%20'))).toBe('')
+    })
+
+    it('returns "" when the blueprint scope is not a CLI', () => {
+      expect(activeCliRailAgentId(params('?blueprint=codey&cli=agy'))).toBe('')
+      expect(activeCliRailAgentId(params('?team=t1&cli=agy'))).toBe('')
+      expect(activeCliRailAgentId(undefined)).toBe('')
     })
   })
 })

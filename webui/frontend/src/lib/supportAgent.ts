@@ -1,7 +1,25 @@
 import type { Blueprint } from './api'
 import { editedAgentLabel } from './agentEdits'
 import { isCliBlueprintId } from './cliAgentContext'
+import { seatDisplayName, type SeatKind } from './seatHealth'
 import { buildSkillRequest } from './skills'
+
+/**
+ * The health key for an agent row.
+ *
+ * An agent id is a remote instance id for a remote seat and a CLI name for a
+ * CLI seat, so the kind has to be resolved before a verdict can be looked up.
+ * Returns null when the row is neither (a plain API blueprint id is resolved by
+ * the caller, which knows the seat's provider).
+ */
+export function seatRefForAgent(
+  agent: { id: string; name?: string | null },
+): { kind: SeatKind; seatId: string } | null {
+  const id = (agent?.id || '').trim()
+  if (!id) return null
+  if (isCliBlueprintId(id)) return { kind: 'cli', seatId: id }
+  return { kind: 'api', seatId: id }
+}
 
 /** Default Support seat — first in the conversation rail (badge-only role colour). */
 export const SUPPORT_AGENT_ID = 'support'
@@ -129,8 +147,16 @@ export function catalogLabel(agent: { id: string; name?: string | null }): strin
   return agent.name || agent.id
 }
 
+/**
+ * The single funnel every agent display name flows through — rail rows, the
+ * navbar identity, agent pickers, the composer, the search palette, the editor.
+ *
+ * #1658 follow-up: a seat with a `broken` health verdict is labelled as such
+ * everywhere, so a dead agent can never look like a working one. Healthy and
+ * not-yet-probed seats are untouched, so this can never rename a working agent.
+ */
 export function agentLabel(agent: { id: string; name?: string | null }): string {
-  return editedAgentLabel(agent)
+  return seatDisplayName(editedAgentLabel(agent), seatRefForAgent(agent))
 }
 
 /** Bundled skill attached on every Support turn (`cli_agent` `skill=`). */

@@ -4,7 +4,7 @@
 
 ## Intent
 
-CLI tools own their sessions. Open Swarm tracks each CLI **session id** so when
+CLI tools own their sessions. Operating Swarm tracks each CLI **session id** so when
 the user comes back to that CLI agent, we pass the id back and the CLI restores
 context. (API threads we own and persist ourselves; remotes are the remote’s
 session.)

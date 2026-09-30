@@ -27,6 +27,14 @@ type Kind =
   | 'fence'
   | 'link'
   | 'linkdest'
+  | 'math'
+
+/**
+ * REQ-1321: unclosed math is only held when it plausibly *is* math — a `$$`
+ * fence, or a `$…` segment containing a TeX char. Without this, prose like
+ * "it costs $5" would hold the rest of the streaming reply.
+ */
+const MATH_SIGNAL_RE = /[\\^_{}=<>]/
 
 interface Frame {
   kind: Kind
@@ -135,6 +143,24 @@ function firstHeldIndex(src: string): number {
       continue
     }
 
+    if (t?.kind === 'math') {
+      if (ch === '\\' && i + 1 < n) {
+        i += 2
+        continue
+      }
+      if (ch === '$') {
+        const run = countRun(src, i, '$')
+        const need = t.ticks ?? 1
+        if (run >= need) {
+          stack.pop()
+          i += need
+          continue
+        }
+      }
+      i++
+      continue
+    }
+
     if (ch === '\\' && i + 1 < n) {
       i += 2
       continue
@@ -162,6 +188,20 @@ function firstHeldIndex(src: string): number {
           break
         }
       }
+    }
+
+    if (ch === '$') {
+      const run = countRun(src, i, '$')
+      const prev = i > 0 ? src[i - 1] : ''
+      const atBoundary = i === 0 || prev === ' ' || prev === '\t' || prev === '\n'
+      const mathLike = run >= 2 || MATH_SIGNAL_RE.test(src.slice(i + run))
+      if (atBoundary && mathLike) {
+        stack.push({ kind: 'math', start: i, ticks: run >= 2 ? 2 : 1 })
+        i += run >= 2 ? 2 : 1
+        continue
+      }
+      i += run
+      continue
     }
 
     if (ch === '`') {

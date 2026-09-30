@@ -16,14 +16,24 @@ import time
 import urllib.error  # noqa: F401
 import urllib.request  # noqa: F401
 from pathlib import Path  # noqa: F401
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlparse, urlunparse  # noqa: F401
 
 import httpx
 
+if TYPE_CHECKING:  # annotations only, never evaluated at runtime
+    # These names are used in ANNOTATIONS ONLY -- 'from __future__ import
+    # annotations' keeps them strings, never evaluated at runtime -- and a
+    # runtime import of swarm.core.remotes here would close the import cycle
+    # these modules exist to avoid: their bodies reach remotes through the
+    # lazily-imported module object 'R' instead. Without this declaration
+    # ruff F821 reports every one of those annotations as an undefined name
+    # and a type checker resolves them to nothing.
+    from swarm.core.remotes import OperateResult, RemoteSpec
+
 R: Any = importlib.import_module("swarm.core.remotes")
 
-__all__ = ['_hermes_find_job', '_hermes_job_status', '_hermes_job_text', '_hermes_jobs_from', '_hermes_list', '_hermes_poll_run', '_hermes_run_id', '_hermes_send']
+__all__ = ['_hermes_find_job', '_hermes_job_status', '_hermes_job_text', '_hermes_jobs_from', '_hermes_list', '_hermes_poll_run', '_hermes_run_id', '_hermes_send', '_hermes_session_messages', '_hermes_messages_to_transcript', 'read_hermes_recent_turns']
 
 
 def _hermes_list(spec: RemoteSpec, timeout: float) -> OperateResult:
@@ -174,7 +184,7 @@ def _hermes_poll_run(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "", "Hermes run timed out", job
-        time.sleep(min(max(R._HERMES_POLL_INTERVAL_S, 0.0), remaining))
+        R.interruptible_sleep(min(max(R._HERMES_POLL_INTERVAL_S, 0.0), remaining))
 
 
 def _hermes_send(
@@ -263,5 +273,96 @@ def _hermes_send(
         data={"run_id": run_id, "job": job},
         gap="hermes_reply_timeout" if "timed out" in (err or "") else "hermes_reply_failed",
     )
+
+
+def _hermes_session_messages(
+    spec: R.RemoteSpec, session_id: str, timeout: float
+) -> list[dict[str, Any]]:
+    """GET /api/sessions/{sid}/messages → raw message rows (chat hydration).
+
+    Never raises: an unreachable or erroring harness returns ``[]`` and the
+    caller renders an honest empty thread instead of fabricating one.
+    """
+    base_url = (spec.base_url or "").rstrip("/")
+    sid = (session_id or "").strip()
+    if not base_url or not sid:
+        return []
+    result = R.http_json(
+        "GET",
+        f"{base_url}/api/sessions/{quote(sid)}/messages",
+        headers=R._auth_headers(spec),
+        timeout=min(float(timeout or R._OPERATE_TIMEOUT_S), 12.0),
+    )
+    if result.status not in R._UP:
+        return []
+    body = result.body
+    rows: Any = []
+    if isinstance(body, dict):
+        rows = body.get("data") or body.get("messages") or body.get("turns") or []
+    elif isinstance(body, list):
+        rows = body
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _hermes_messages_to_transcript(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Map Hermes messages → ``{role, content}`` transcript rows.
+
+    Only user/assistant prose is rendered; tool call plumbing is not chat.
+    Content may be a plain string or a list of ``{text}`` blocks.
+    """
+    out: list[dict[str, str]] = []
+    for row in rows:
+        role = str(row.get("role") or "").strip().lower()
+        if role not in ("user", "assistant"):
+            continue
+        content = row.get("content")
+        text = ""
+        if isinstance(content, str):
+            text = content.strip()
+        elif isinstance(content, list):
+            text = "".join(
+                str(part.get("text") or "")
+                for part in content
+                if isinstance(part, dict) and part.get("text")
+            ).strip()
+        if text:
+            out.append({"role": role, "content": text})
+    return out
+
+
+def read_hermes_recent_turns(
+    remote_id: str,
+    session_id: str,
+    config: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> list[dict[str, str]]:
+    """Public hydration hook for chat_thread (Hermes session history).
+
+    Resolves the remote spec (works with the bare kind id the SPA sends),
+    fetches the session's messages, and maps them to transcript rows. Never
+    raises — any failure is an empty list and the thread stays empty.
+    """
+    try:
+        spec = R.load_remote(remote_id, config)
+    except Exception:
+        R.logger.debug(
+            "hermes hydrate: cannot resolve remote %s", remote_id, exc_info=True
+        )
+        return []
+    try:
+        rows = _hermes_session_messages(
+            spec, session_id, timeout or R._OPERATE_TIMEOUT_S
+        )
+    except Exception:
+        R.logger.debug(
+            "hermes hydrate: message fetch failed for %s/%s",
+            remote_id,
+            session_id,
+            exc_info=True,
+        )
+        return []
+    return _hermes_messages_to_transcript(rows)
 
 

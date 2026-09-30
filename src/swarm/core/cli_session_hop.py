@@ -223,6 +223,43 @@ def hop_notice_text(
     return line
 
 
+def carried_summary_record(
+    payload: dict[str, Any] | None,
+    *,
+    from_cli: str,
+    to_cli: str,
+) -> dict[str, Any] | None:
+    """The inspectable body of a hop, or ``None`` when nothing was carried.
+
+    #1694. This is the half of the boundary marker that used to be missing: the
+    notice says *that* context was carried, this says *what*. It is recorded on
+    the ``context_carried`` ui event rather than on a model turn, because it is
+    a boundary marker — it must never be re-sent to the model, and
+    ``messages_for_model`` drops the whole ``status``/``info`` side channel.
+
+    ``None`` for an empty payload is load-bearing, not a convenience: the
+    transcript must not show a summary the new session was not actually
+    seeded with. The provenance fields are what let a reader tell a carried
+    summary from a compaction (``ConversationSummary``) — different tables,
+    different lifetimes, and only one of them is this.
+    """
+    if not isinstance(payload, dict) or payload.get("empty"):
+        return None
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    tokens = payload.get("tokens")
+    return {
+        "text": text,
+        "from_cli": str(from_cli or "").strip(),
+        "to_cli": str(to_cli or "").strip(),
+        "mode": str(payload.get("mode") or DEFAULT_HOP_MODE),
+        "tokens": max(0, int(tokens)) if isinstance(tokens, int) and not isinstance(tokens, bool) else 0,
+        "turn_count": max(0, int(payload.get("turn_count") or 0)),
+        "omitted": [str(item) for item in (payload.get("omitted") or _OMITTED)],
+    }
+
+
 def is_context_carried_notice(text: str | None) -> bool:
     blob = (text or "").strip()
     if " → " not in blob or "Carried " not in blob:
@@ -269,6 +306,12 @@ def normalize_cli_hop(raw: Any) -> dict[str, Any] | None:
         tokens = int(raw.get("tokens") or 0)
     except (TypeError, ValueError):
         tokens = estimate_tokens(text)
+    raw_warning = raw.get("capability_warning")
+    warning = (
+        redact_injection_text(raw_warning).strip()
+        if isinstance(raw_warning, str)
+        else ""
+    )
     return {
         "from_cli": from_cli,
         "to_cli": to_cli,
@@ -279,6 +322,7 @@ def normalize_cli_hop(raw: Any) -> dict[str, Any] | None:
         "announced": bool(raw.get("announced")),
         "kind": str(raw.get("kind") or "cli"),
         "omitted": list(raw.get("omitted") or _OMITTED),
+        "capability_warning": warning or None,
     }
 
 
@@ -454,8 +498,12 @@ def hop_backend(
     agent = chat_store.normalize_agent_id(agent_id)
     source = chat_store.normalize_agent_id(from_cli)
     target = chat_store.normalize_agent_id(to_cli)
+    from swarm.core.seat_kind import resolve_hop_kind
+
     kind_raw = str(to_kind if to_kind is not None else kind or "").strip().lower()
-    hop_kind = kind_raw if kind_raw in ("cli", "api", "remote") else "cli"
+    # #1436: a hardcoded ``api`` (or a ``blueprint`` tag) follows the
+    # destination seat. Remote and CLI targets stay remote and CLI.
+    hop_kind = resolve_hop_kind(kind_raw, target)
     if not source or not target:
         raise ValueError("from_cli and to_cli are required")
     if source == target and not import_session_id and not imported_messages:
@@ -521,6 +569,26 @@ def hop_backend(
         empty=bool(payload["empty"]),
         export_warning=export_warning,
     )
+    # #1324: warn when the destination engine drops declared capabilities.
+    # Never blocks the hop. CLI hop-row compare is CLI→CLI only.
+    from swarm.core.engine_switch_capabilities import engine_switch_capability_warning
+
+    source_kind = str(kind or "cli").strip().lower()
+    if source_kind not in ("cli", "api", "remote"):
+        source_kind = "cli"
+    source_cap = hop_capability_row(source, config)
+    target_cap = hop_capability_row(target, config)
+    capability_warning = engine_switch_capability_warning(
+        from_kind=source_kind,
+        to_kind=hop_kind,
+        from_row=source_cap,
+        to_row=target_cap,
+        from_label=(from_label or "").strip() or source,
+        to_label=(to_label or "").strip() or target,
+    )
+    if capability_warning:
+        capability_warning = redact_injection_text(capability_warning)
+        notice = f"{notice} {capability_warning}"
 
     sessions = chat_store.normalize_cli_sessions(record.get("cli_sessions"))
     sessions.pop(target, None)
@@ -534,13 +602,41 @@ def hop_backend(
         "announced": bool(announced),
         "kind": hop_kind,
         "omitted": payload["omitted"],
+        # Kept so an unannounced hop can rebuild the live notice with the
+        # same loss sentence. normalize_cli_hop redacts it on save.
+        "capability_warning": capability_warning,
     }
 
     from swarm.core.transcript_roles import append_event
 
     turns = list(record.get("messages") or [])
     events = list(record.get("ui_events") or [])
-    append_event(turns, events, "status", notice, kind=CONTEXT_KIND)
+    # #1694: the notice alone says *that* context was carried, never *what*.
+    # Until now the body lived only in the pending ``cli_hop`` record, which
+    # ``consume_pending_hop`` clears on the very next turn — so the moment the
+    # user sent their next message, the record of what that message was built
+    # on was gone, and a reload could not recover it either. Recording it on
+    # the boundary marker itself puts it in the chat's own history (the
+    # ``context_carried`` ui event, stored in ``ChatConversation.ui_events``),
+    # where it reads back on the next turn, after a handoff, and on reload.
+    #
+    # Only the REDACTED text is recorded: ``build_injection_payload`` already
+    # ran it through ``redact_injection_text``, and this is a second durable
+    # copy, so storing the unredacted source would make the redaction
+    # guarantee a lie at rest. An empty hop records nothing — the transcript
+    # must not advertise context that does not exist.
+    append_event(
+        turns,
+        events,
+        "status",
+        notice,
+        kind=CONTEXT_KIND,
+        carried_summary=carried_summary_record(
+            payload,
+            from_cli=(from_label or "").strip() or source,
+            to_cli=(to_label or "").strip() or target,
+        ),
+    )
 
     chat_store.save(
         user_key,
@@ -554,13 +650,6 @@ def hop_backend(
         active_cli=target,
         base_dir=base_dir,
     )
-    if user is not None:
-        try:
-            from swarm.core.agent_sessions import mirror_thread_to_db
-
-            mirror_thread_to_db(user, cid, turns, agent_id=agent)
-        except Exception:
-            logger.debug("hop DB mirror failed for %s", cid, exc_info=True)
     clear_cli_session(
         user_key,
         agent,
@@ -593,8 +682,9 @@ def hop_backend(
         "status": notice,
         "export_warning": export_warning,
         "import": import_source if imported else "swarm",
-        "capability": hop_capability_row(source, config),
-        "target_capability": hop_capability_row(target, config),
+        "capability": source_cap,
+        "target_capability": target_cap,
+        "capability_warning": capability_warning,
         "injection": {
             "text": payload["text"],
             "mode": payload["mode"],
@@ -676,7 +766,14 @@ def maybe_implicit_hop(
     record = _load_thread(
         user_key, agent_id, conversation_id=conversation_id, base_dir=base_dir
     )
-    previous = chat_store.normalize_agent_id(str(record.get("active_cli") or ""))
+    # An unstamped thread has never run a CLI, so there is nothing to hop from.
+    # ``chat_store.normalize_agent_id("")`` is ``_default``: normalising before
+    # the empty check would read the record as a switch *away from* ``_default``
+    # and fire a phantom hop, which forces ``resume_id=None`` (a fresh host
+    # session on every turn) and replaces the user's prompt with a summary
+    # injection (#1690).
+    raw_previous = str(record.get("active_cli") or "").strip()
+    previous = chat_store.normalize_agent_id(raw_previous) if raw_previous else ""
     target = chat_store.normalize_agent_id(cli_name)
     if not previous or not target or previous == target:
         return None
@@ -752,6 +849,9 @@ def prepare_cli_turn(
             tokens=int(hop.get("tokens") or 0),
             empty=not bool(seed),
         )
+        warning = str(hop.get("capability_warning") or "").strip()
+        if warning and warning not in notice:
+            notice = f"{notice} {warning}"
     return {
         "resume_id": None,
         "prompt": prompt,

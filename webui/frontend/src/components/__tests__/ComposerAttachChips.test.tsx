@@ -91,6 +91,26 @@ describe('ComposerAttachChips (#835)', () => {
     expect(cards[2]).toHaveTextContent('1.0 MB')
   })
 
+  it('#1322 renders an audio category chip for a voice note', () => {
+    const onRemove = vi.fn()
+    const attachments: PendingAttachment[] = [
+      {
+        localId: 'att-voice',
+        file: new File(['RIFF'], 'voice-note.webm', { type: 'audio/webm' }),
+        name: 'voice-note.webm',
+        size: 4096,
+        type: 'audio/webm',
+        previewUrl: null,
+        uploadId: 'upload-voice',
+        status: 'ready',
+      },
+    ]
+    render(<ComposerAttachChips attachments={attachments} onRemove={onRemove} />)
+    const card = screen.getByTestId('attachment-card')
+    expect(card).toHaveAttribute('data-category', 'audio')
+    expect(card).toHaveTextContent('voice-note.webm')
+  })
+
   it('displays loading spinner overlay during upload', () => {
     const onRemove = vi.fn()
     const attachments: PendingAttachment[] = [

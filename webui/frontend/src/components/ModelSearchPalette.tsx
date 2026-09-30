@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Search, Settings2 } from 'lucide-react'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 import {
   filterModelOptions,
   groupModelOptions,
@@ -31,9 +32,6 @@ export interface ModelSearchPaletteProps {
   warning?: { text: string; actionLabel?: string; onAction?: () => void }
 }
 
-function shortcutLabel(index: number): string {
-  return `⌃${index + 1}`
-}
 
 export default function ModelSearchPalette({
   open,
@@ -253,9 +251,9 @@ export default function ModelSearchPalette({
   const emptySearch = effectiveModels.length > 0 && visible.length === 0
   let optionIndex = -1
 
-  return (
+  const dialog = (
     <div
-      className="os-search-overlay os-search-overlay--centered"
+      className="os-search-overlay os-search-overlay--centered os-search-overlay--workspace"
       data-testid="os-model-search-overlay"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -266,7 +264,7 @@ export default function ModelSearchPalette({
         aria-modal="true"
         aria-label="Models"
         data-testid="os-model-search-palette"
-        className="os-search-palette os-search-palette--centered"
+        className="os-search-palette os-search-palette--centered os-search-palette--workspace"
       >
         <div className="os-search-palette__field">
           <Search className="h-4 w-4 shrink-0 text-base-content/45" aria-hidden="true" />
@@ -430,9 +428,8 @@ export default function ModelSearchPalette({
                     {isDefault ? (
                       <span className="os-search-row__badge">Default</span>
                     ) : null}
-                    {idx < 9 ? (
-                      <kbd className="os-search-shortcut">{shortcutLabel(idx)}</kbd>
-                    ) : null}
+                    {/* #1218: the ⌃N slot chips are gone — slots broke on every
+                        reorder; ↑↓/↵/Esc in the footer are the affordances. */}
                   </li>
                 )
               })
@@ -464,4 +461,16 @@ export default function ModelSearchPalette({
       </div>
     </div>
   )
+
+  // #1697: portalled to <body>. The palette is mounted inside the composer
+  // (`.os-routing-picker` → `.os-chat-bottom-dock sticky bottom-0 z-20`), and
+  // a positioned element with a z-index opens a stacking context — so the
+  // `position: fixed` overlay's own `z-index: 100` only ranked *inside* that
+  // dock, and the left sidepane (`lg:z-30`) painted over the dialog's leading
+  // edge. The DOM subtree carried the trap, not the geometry: the fixed box
+  // already resolved against the viewport; only the paint order was wrong.
+  // Portalling lifts the overlay to the body stacking context, above the rail;
+  // `.os-search-overlay--workspace` then centres it in the workspace itself so
+  // the popup lands beside the sidepane rather than on top of it.
+  return createPortal(dialog, document.body)
 }

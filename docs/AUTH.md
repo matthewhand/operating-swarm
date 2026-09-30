@@ -1,6 +1,6 @@
 # Auth & trust model
 
-One-page map of how Open Swarm authenticates callers, stamps ownership, and
+One-page map of how Operating Swarm authenticates callers, stamps ownership, and
 bounds execution. Operators can reason about **who** can hit which surface and
 **what** that principal may see or run.
 
@@ -182,6 +182,88 @@ Django operator page logic lives under `static/js/` (`{% static %}` + `data-acti
 
 ---
 
+## 8. OAuth sign-in (GitHub / Google)
+
+Optional, and layered on top of §2 — it does **not** replace `custom_login` or `API_AUTH_TOKEN`. It needs the `oauth` extra (`pip install '.[oauth]'`, or `.[deploy]`, which also brings `wsgi`; the container image installs `.[deploy]`). Without the extra `social_django` is absent from `INSTALLED_APPS`, `/oauth/` is not routed, and `/login/` falls back to password-only without complaining.
+
+Both providers are wired — `social_core.backends.github.GithubOAuth2` and `social_core.backends.google.GoogleOAuth2`, registered in the `if SOCIAL_AUTH_AVAILABLE:` block of [`src/swarm/settings.py`](../src/swarm/settings.py). **GitHub is the simpler path**: one OAuth App, no console project, and no `email_verified` check on top of the allowlist.
+
+### 8.1 GitHub setup
+
+GitHub → Settings → Developer settings → OAuth Apps → **New OAuth App**:
+
+| Field | Value |
+|---|---|
+| Application name | anything (shown on the consent screen) |
+| Homepage URL | `https://<your-host>` |
+| Authorization callback URL | `https://<your-host>/oauth/complete/github/` |
+
+The `<backend>` path segment is the social-core backend name, and it is **not** the setting name uppercased. GitHub is `github`; Google is `google-oauth2` (its setting prefix `SOCIAL_AUTH_GOOGLE_OAUTH2` is spelled differently from the slug on purpose — a slug-derived lookup yields `SOCIAL_AUTH_GOOGLE-OAUTH2_KEY`, which does not exist, so the Google button could never render). `social_django.urls` is mounted at `/oauth/` in [`src/swarm/urls.py`](../src/swarm/urls.py); its views are `login/<backend>/` (begin) and `complete/<backend>/` (callback). The trailing slash is part of the registered URL.
+
+### 8.2 Google setup
+
+Google Cloud Console → the project → **APIs & Services** → **Credentials** → **Create credentials** → **OAuth client ID** → *Web application*:
+
+| Field | Value |
+|---|---|
+| Authorized redirect URIs | `https://<your-host>/oauth/complete/google-oauth2/` |
+| Authorized JavaScript origins | `https://<your-host>` (only if the SPA ever talks to Google directly) |
+
+Add the test users / Workspace restrictions here too — Google refuses an unlisted account *before* the request reaches our pipeline, so it looks like an allowlist rejection but is not one.
+
+### 8.3 The environment variables
+
+Read from the process environment only, never committed (`_social_auth_credentials_from_env`, [`src/swarm/settings.py`](../src/swarm/settings.py)); the gate is [`src/swarm/oauth_pipeline.py`](../src/swarm/oauth_pipeline.py). For the four credentials both the `SWARM_OAUTH_*` name and the bare `SOCIAL_AUTH_*` name are accepted — the `SWARM_OAUTH_*` prefix is the documented one. The three allowlist knobs are **`SWARM_OAUTH_*` only**; see §8.6.
+
+| Variable | Purpose |
+|---|---|
+| `SWARM_OAUTH_GITHUB_KEY` | GitHub OAuth App **Client ID** → `SOCIAL_AUTH_GITHUB_KEY`. |
+| `SWARM_OAUTH_GITHUB_SECRET` | GitHub OAuth App **Client secret** → `SOCIAL_AUTH_GITHUB_SECRET`. |
+| `SWARM_OAUTH_GOOGLE_KEY` | Google OAuth **Client ID** → `SOCIAL_AUTH_GOOGLE_OAUTH2_KEY`. |
+| `SWARM_OAUTH_GOOGLE_SECRET` | Google OAuth **Client secret** → `SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET`. |
+| `SWARM_OAUTH_ALLOWED_EMAILS` | Exact addresses permitted to sign in, comma-separated (`allowed_emails()`). |
+| `SWARM_OAUTH_ALLOWED_DOMAINS` | Email **domains** permitted to sign in, comma-separated — `example.com`, not `@example.com` (`allowed_domains()`). |
+| `SWARM_OAUTH_ALLOW_ANY` | Truthy value disables the allowlist check entirely. **Dev only.** |
+
+> **Fail closed.** With none of `SWARM_OAUTH_ALLOWED_EMAILS` / `SWARM_OAUTH_ALLOWED_DOMAINS` / `SWARM_OAUTH_ALLOW_ANY` set, **every** social sign-in is refused — and the login page renders no provider button at all, because `web_views._oauth_providers()` returns `[]`. Unconfigured therefore looks identical to not-installed until you check the variables.
+
+Each allowlist knob accepts either a Django setting or the env var, and a blank value never masks a populated env var (declaring `SWARM_OAUTH_ALLOWED_DOMAINS=""` in a settings module would otherwise silently discard the operator's value). `SWARM_OAUTH_ALLOW_ANY` uses the codebase-wide `TRUTHY` set — `1` / `true` / `t` / `yes` / `y` / `on`, case-insensitively — and every negative or unrecognised spelling (`false`, `off`, `no`, `0`, empty, unset) leaves the check **on**. Writing `SWARM_OAUTH_ALLOW_ANY=false` does not opt out.
+
+On top of the allowlist, a Google sign-in is refused unless the provider reports `email_verified` (`require_verified_email`): a Workspace tenant admits super-admin-provisioned, alias, and external-collaborator accounts, so a domain allowlist is materially weaker on Google. GitHub needs no such check — the `user:email` scope makes `GithubOAuth2.user_data` replace the address with GitHub's confirmed primary.
+
+### 8.4 Verifying it worked
+
+| Check | Where | Means |
+|---|---|---|
+| `GET /v1/system/build/` | `BuildInfoView` → `swarm.core.build_info` | `extras` contains `oauth`. Subject to the same gate as the rest of `/v1` (`Authorization: Bearer $API_AUTH_TOKEN`, or a session cookie) when `ENABLE_API_AUTH` is on. |
+| Boot log `Install profile: os-core <version> +oauth+wsgi` | `AppConfig.ready()` → `summary_line()` | The `deploy` profile is live on **the machine you are looking at**, extras sorted. `os-core <version> (core only)` means the extra never got installed. |
+| A provider button on `/login/` | `web_views._oauth_providers()` | All three conditions held: extra installed **and** `/oauth/` URLs mounted, key **and** secret present, and an allowlist configured. |
+
+**Button missing?** The install-profile line is the first thing to check, because it splits the two causes: no `oauth` in the profile means the extra is absent and you need `pip install '.[oauth]'` plus a rebuild; `oauth` present with no button means a missing variable. A mounted-and-fully-configured install that still fails at the provider is the TLS-proxy case — `SECURE_PROXY_SSL_HEADER` in `settings.py` is what keeps `redirect_uri` on `https://` behind Fly/nginx, and both providers reject a `redirect_uri` whose scheme or host disagrees with the registered callback.
+
+### 8.5 Rotating a secret
+
+The variables are read from the process environment at settings-import time, so a rotation is a secret write plus a restart — no image push, no rebuild.
+
+```bash
+flyctl secrets set SWARM_OAUTH_GITHUB_SECRET='<new-client-secret>'
+flyctl machine restart
+```
+
+`flyctl secrets set` already bounces the app's machines; the explicit restart covers a secret written against an already-running machine on an older CLI. Mirror the change wherever the secret is stored (a `.env` for `docker compose up -d`, a systemd `EnvironmentFile`, your platform's secret manager). Rotating a *client* secret does not require re-registering the callback URL, so the URLs in §8.1 / §8.2 stay put.
+
+### 8.6 The allowlist is mandatory on a public host
+
+This host fronts the project's LLM keys. On a public domain an open OAuth login is not a convenience feature — it is an open signup for those keys, to anyone who can reach GitHub or Google. So `swarm.oauth_pipeline` owns the allowlist check itself rather than delegating to social-core's `SOCIAL_AUTH_ALLOWED_DOMAINS`, whose exact semantics are version-specific and whose *absence* means allow rather than deny. Owning it also makes "unconfigured means deny" directly testable (`tests/core/test_oauth.py`).
+
+Three consequences that matter when you debug a refusal:
+
+- Setting `SOCIAL_AUTH_ALLOWED_DOMAINS` here is a **silent no-op that refuses every login** — the check never reads it. Use `SWARM_OAUTH_ALLOWED_DOMAINS`.
+- The pipeline steps run **before** `social_user` / `create_user`, and a refusal *raises* rather than returning `None`, so a rejected sign-in leaves no user row behind and lands on `/accounts/login/` with an explanation instead of a 500.
+- An already-authenticated user is **re-checked on every callback**, not waved through on the assumption they were checked at account creation. Deleting an address from the allowlist therefore takes effect on the next sign-in attempt rather than leaving a live session's owner permanently approved.
+
+---
+
 ## Quick operator checklist
 
 1. Production: set `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, and `API_AUTH_TOKEN` (or multi-key vars).
@@ -189,3 +271,4 @@ Django operator page logic lives under `static/js/` (`{% static %}` + `data-acti
 3. Sign in at `/login/` for WebUI, Session Explorer, and websocket chat (session ≠ API token). Browser POSTs to `/v1/chat/completions` also need the CSRF token cycle.
 4. Keep `ALLOW_UNRESTRICTED_WORKDIR` and `SWARM_ALLOW_USER_BLUEPRINT_DISCOVERY` off unless you intentionally widen trust.
 5. Expect prod CSP (`script-src 'self'`; `style-src 'self'`); rely on CSRF + frame/nosniff + auth gates above. Use `SWARM_CSP=false` only to disable the header.
+6. Turning on OAuth sign-in? Install the `oauth`/`deploy` extra, register the `https://<your-host>/oauth/complete/<backend>/` callback, and set an allowlist — with no allowlist every social sign-in is refused. See §8.

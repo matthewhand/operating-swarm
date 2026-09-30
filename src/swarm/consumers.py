@@ -4,9 +4,10 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
@@ -450,6 +451,7 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             await self._cancel_current_turn(
                 agent_id=str(text_data_json.get("agent") or ""),
                 turn_id=str(text_data_json.get("turn_id") or ""),
+                leg_id=str(text_data_json.get("leg_id") or ""),
             )
             return
 
@@ -480,6 +482,10 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
 
         if "edit" in text_data_json:
             await self.apply_message_edit(text_data_json.get("edit"))
+            return
+
+        if "reaction" in text_data_json:
+            await self.apply_message_reaction(text_data_json.get("reaction"))
             return
 
         try:
@@ -597,11 +603,62 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             locks[key] = lock
         return lock
 
+    def _transcript_lock_ids(self) -> tuple[str, ...]:
+        """Lock keys a reaction must hold so it cannot race an in-flight turn.
+
+        Mux chat turns run as tasks. A reaction frame is dispatched on the
+        same consumer while a turn may be saving the transcript, so the
+        toggle waits for every turn that is about to take, or already holds,
+        a turn lock.
+        """
+        ids: set[str] = set()
+        turns = getattr(self, "_active_turns", None)
+        if isinstance(turns, dict):
+            for turn in turns.values():
+                ids.add(str(getattr(turn, "agent_id", "") or ""))
+        pending = getattr(self, "_pending_turn_lock_keys", None)
+        if isinstance(pending, (set, frozenset)):
+            ids.update(str(key) for key in pending)
+        ids.add(
+            str(
+                getattr(self, "active_agent", None)
+                or getattr(self, "default_blueprint", None)
+                or ""
+            )
+        )
+        return tuple(sorted(ids))
+
+    @asynccontextmanager
+    async def _hold_turn_lock(self, lock_key: str):
+        """Publish ``lock_key`` before acquiring it so reactions can wait."""
+        pending = getattr(self, "_pending_turn_lock_keys", None)
+        if not isinstance(pending, set):
+            pending = set()
+            self._pending_turn_lock_keys = pending
+        pending.add(lock_key)
+        try:
+            async with self._agent_lock(lock_key):
+                yield
+        finally:
+            pending.discard(lock_key)
+
     def _current_turn(self) -> Optional[TurnState]:
         turn = _TURN_STATE_CTX.get()
         if turn is not None and turn.turn_id in self.active_turns:
             return turn
         return None
+
+    def _fan_out_handles(self) -> dict:
+        """turn_id -> live :class:`FanOutCancel` for roster sends on this socket.
+
+        A single attribute was overwritten when two team turns overlapped,
+        and the ``finally`` of the later turn cleared the earlier handle.
+        """
+        handles = getattr(self, "_fan_out_by_turn", None)
+        if handles is None:
+            handles = {}
+            self._fan_out_by_turn = handles
+        return handles
 
     def _ensure_chat_turn_lock(self) -> asyncio.Lock:
         """Legacy whole-socket lock (REQ-171A-3 / #603).
@@ -626,14 +683,30 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             self._auxiliary_tasks = reg
         return reg
 
-    async def _cancel_current_turn(self, agent_id: str = "", turn_id: str = ""):
+    async def _cancel_current_turn(
+        self, agent_id: str = "", turn_id: str = "", leg_id: str = ""
+    ):
         """Cooperative cancel — #198 legacy, ADR-017 PR-1 scoping.
 
         With ``agent_id``/``turn_id`` (the #1096 per-agent Stop), only that
         turn's event is set. Bare (no identity) keeps the #198 behaviour:
         every running turn on the socket is cancelled, and the legacy
         per-socket event is set so unscoped work stops too.
+
+        #1374: ``leg_id`` cancels one roster fan-out leg and returns. It
+        never falls through to the whole-turn cancel. A turn-scoped or
+        bare cancel also ``cancel_all`` on that turn's fan-out, so composer
+        Stop does not leave the other legs running.
         """
+        leg = str(leg_id or "").strip()
+        if leg:
+            # One socket may have two team turns in flight (ADR-017). The
+            # leg id is only unique inside a roster, so stop the first live
+            # match and leave every other handle alone.
+            for handle in list(self._fan_out_handles().values()):
+                if handle.cancel(leg):
+                    return
+            return
         targets = []
         if turn_id:
             turn = self.active_turns.get(str(turn_id))
@@ -651,6 +724,9 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             self._cancel_event().set()
         for turn in targets:
             turn.cancel_event.set()
+            handle = self._fan_out_handles().get(turn.turn_id)
+            if handle is not None:
+                handle.cancel_all()
         pending_questions = getattr(self, "_pending_question_answers", {}) or {}
         for future in list(pending_questions.values()):
             if future is not None and not future.done():
@@ -659,6 +735,38 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             await self.send(text_data=json.dumps({"type": TURN_CANCELLED_TYPE}))
         except Exception:
             logger.debug("turn_cancelled ack send failed", exc_info=True)
+
+    async def _apply_company_route(self, blueprint_id, params):
+        """Default this turn to the Company model (#1317).
+
+        Routing params only. ``blueprint_id`` is returned unchanged. An
+        explicit model pick, or a CLI/remote/team seat, is left alone.
+        """
+        kept = blueprint_id
+        try:
+            user = getattr(self, "user", None)
+            principal = None
+            if user is not None and getattr(user, "is_authenticated", False):
+                principal = f"user:{user.get_username()}"
+
+            def _apply():
+                from swarm.core.agent_lifecycle import default_session_company_route
+                from swarm.core.org_policy import current_available_models
+
+                _blueprint, merged = default_session_company_route(
+                    principal,
+                    str(kept or ""),
+                    current_available_models(),
+                    params if isinstance(params, dict) else None,
+                )
+                return merged
+
+            merged = await database_sync_to_async(_apply)()
+            if isinstance(merged, dict):
+                params = merged
+        except Exception:
+            logger.debug("company route apply skipped", exc_info=True)
+        return kept, params
 
     async def _run_serialised_chat_turn(self, text_data_json, message_text):
         """One ``respond_with_*`` at a time per agent (REQ-171A-3 / #603).
@@ -681,30 +789,23 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             blueprint_id = "remote_harness"
             params.setdefault("name", str(params["remote"]))
             params.setdefault("op", "send")
-        elif blueprint_id and (
-            str(blueprint_id).startswith("remote:")
-            or str(blueprint_id).lower() in (
-                "hermes",
-                "anythingllm",
-                "letta",
-                "openwebui",
-                "flowise",
-                "n8n",
-                "omb",
-                "rakazo",
-                "herdr",
-                "swarm",
-                "trueforge",
-            )
-        ):
-            remote_name = str(blueprint_id).replace("remote:", "")
-            blueprint_id = "remote_harness"
-            if params is None:
-                params = {}
-            params.setdefault("name", remote_name)
-            params.setdefault("remote", remote_name)
-            params.setdefault("op", "send")
+        elif blueprint_id:
+            # #1439: kind dispatch follows the catalog (aliases + named
+            # instances), not a second copy of the impl list. Root cause of
+            # the duplicated vocabulary is tracked in #1436. Octop (#1365)
+            # is registered in that catalog, so it is not listed here.
+            from swarm.core.remote_harness import remote_chat_dispatch_name
 
+            remote_name = remote_chat_dispatch_name(blueprint_id)
+            if remote_name:
+                blueprint_id = "remote_harness"
+                if params is None:
+                    params = {}
+                params.setdefault("name", remote_name)
+                params.setdefault("remote", remote_name)
+                params.setdefault("op", "send")
+
+        blueprint_id, params = await self._apply_company_route(blueprint_id, params)
         self.active_agent = blueprint_id or getattr(self, "active_agent", None)
         agent_id = str(blueprint_id or getattr(self, "active_agent", "") or "")
 
@@ -718,7 +819,7 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             if target and target != "all":
                 member_key = f"{agent_id}#{target}"
 
-        async with self._agent_lock(member_key or agent_id):
+        async with self._hold_turn_lock(member_key or agent_id):
             # #198: a fresh turn always starts un-cancelled. Before the turn
             # binds the task local context, this still resolves to the legacy
             # per-socket event — a bare cancel between turns must not leak in.
@@ -726,11 +827,35 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             # PR-5: bookends/cancels attribute to the member key so the SPA's
             # per-row stop targets exactly this member's turn.
             turn = await self._begin_turn(agent_id=member_key or agent_id)
+            # #1329: bind the persistent per-bot VM identity for this turn so
+            # local sandboxes get a stable work dir and sandbox_attach_file can
+            # register files with the chat. Reset in the finally (no leak).
+            sandbox_token = None
+            try:
+                from swarm.core import chat_store as _chat_store
+                from swarm.core.sandbox.vm_registry import bind_bot_context
+
+                owner_key = ""
+                if getattr(self.user, "is_authenticated", False):
+                    owner_key = _chat_store.user_key_for(self.user)
+                sandbox_token = bind_bot_context(
+                    owner_key=owner_key,
+                    bot_id=member_key or agent_id or "default",
+                    conversation_id=str(getattr(self, "conversation_id", "") or ""),
+                    user=getattr(self, "user", None),
+                )
+            except Exception:
+                logger.debug("sandbox bot-context bind skipped", exc_info=True)
+                sandbox_token = None
             try:
                 await self._run_chat_turn_body(
                     text_data_json, message_text, blueprint_id, params
                 )
             finally:
+                if sandbox_token is not None:
+                    from swarm.core.sandbox.vm_registry import reset_bot_context
+
+                    reset_bot_context(sandbox_token)
                 await self._end_turn(turn)
     async def _run_chat_turn_body(
         self, text_data_json, message_text, blueprint_id, params
@@ -751,6 +876,11 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
                 )
             except Exception:
                 logger.debug("herdr swarm-send attribution failed", exc_info=True)
+
+        # Remote seats whose impl can pause on an operator question: expose the
+        # chat ask-user bridge to this turn's blueprint. Cleared on every other
+        # turn so a stale bridge never leaks between turns.
+        self._ask_user_bridge = self._remote_ask_user_bridge(params)
 
         if params and params.get("new_session"):
             # REQ-65: CoS/user task asked for an empty session on this socket.
@@ -778,6 +908,7 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             ts=_message_ts(),
             attachments=attachment_ids or None,
         )
+        await self._persist_composer_send()
 
         user_message_html = render_to_string(
             "websocket_partials/user_message.html",
@@ -812,19 +943,75 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
                     contents_div_id, message_text, params=params
                 )
             elif params and params.get("team"):
+                from swarm.core import team_roster_executor as _roster_exec
                 from swarm.core.team_rosters import blueprint_id_for_team_target
 
-                team_blueprint = blueprint_id_for_team_target(
+                # #1374: target=all on a multi-member roster still names the
+                # chief of staff. That must not collapse the send onto one
+                # blueprint. The roster stays awaited inside this turn, so
+                # turn_finished and composer Stop wait for the legs. The SPA
+                # mux reads a later cancel_turn while this receive is in flight.
+                if _roster_exec.team_send_fans_out(
                     params.get("team"), params.get("target")
-                )
+                ):
+                    team_blueprint = None
+                else:
+                    team_blueprint = blueprint_id_for_team_target(
+                        params.get("team"), params.get("target")
+                    )
                 if team_blueprint:
                     await self.respond_with_blueprint(
                         team_blueprint, contents_div_id, params=params
                     )
                 else:
-                    await self.respond_with_team_stub(
-                        params, message_text, contents_div_id
-                    )
+                    # #1291 / #1374: one CLI or remote member, an empty roster,
+                    # or every runnable member of a multi-member send.
+                    fanout = _roster_exec.FanOutCancel()
+                    batch_id = uuid.uuid4().hex
+                    team_id = str(params.get("team") or "")
+                    turn = self._current_turn()
+                    turn_key = turn.turn_id if turn is not None else batch_id
+                    handles = self._fan_out_handles()
+                    handles[turn_key] = fanout
+
+                    async def _on_leg(event, _batch=batch_id, _team=team_id):
+                        await self._emit_fan_out_leg(
+                            event, batch_id=_batch, team_id=_team
+                        )
+
+                    try:
+                        # Stop that landed before any leg was tracked.
+                        if self._cancel_event().is_set():
+                            roster_run = _roster_exec.RosterRun(
+                                roster_id=team_id,
+                                target=str(params.get("target") or "all"),
+                            )
+                        else:
+                            roster_run = await _roster_exec.execute_roster(
+                                team_id,
+                                str(params.get("target") or "all"),
+                                message_text,
+                                on_status=_on_leg,
+                                cancel=fanout,
+                            )
+                    finally:
+                        if handles.get(turn_key) is fanout:
+                            handles.pop(turn_key, None)
+                    # #198: composer Stop cancels the turn. Do not persist a
+                    # partial roster reply, and do not fall through to the
+                    # stub echo when every leg was stopped.
+                    if self._cancel_event().is_set():
+                        await self.send_error_message(contents_div_id, "Interrupted.")
+                    elif str(getattr(roster_run, "combined", "") or "").strip():
+                        await self.respond_with_roster_run(
+                            params, message_text, contents_div_id, roster_run
+                        )
+                    elif getattr(roster_run, "results", None):
+                        await self.send_error_message(contents_div_id, "Interrupted.")
+                    else:
+                        await self.respond_with_team_stub(
+                            params, message_text, contents_div_id
+                        )
             elif blueprint_id and _is_bootstrap_turn(blueprint_id, params):
                 await self.respond_with_bootstrap(
                     blueprint_id, contents_div_id, message_text, params=params
@@ -859,6 +1046,36 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
                     exc_info=True,
                 )
 
+
+    async def _emit_fan_out_leg(self, event, *, batch_id: str = "", team_id: str = "") -> None:
+        """#1374: stream one roster leg's status to the SPA card stack."""
+        payload = {
+            "type": "fan_out_leg",
+            "leg_id": getattr(event, "leg_id", "") or "",
+            "label": getattr(event, "label", "") or "",
+            "status": getattr(event, "status", "") or "",
+            "kind": getattr(event, "kind", "") or "",
+            "open_id": getattr(event, "open_id", "") or "",
+            "batch_id": batch_id or "",
+        }
+        if payload["kind"] == "remote" and payload["leg_id"]:
+            try:
+                from swarm.core.teammate_task import build_teammate_task
+
+                card = build_teammate_task(
+                    team_id=str(team_id or ""),
+                    worker_id=str(payload["leg_id"]),
+                    title=str(payload["label"] or ""),
+                    status=str(payload["status"] or ""),
+                )
+                if isinstance(card, dict) and card.get("href"):
+                    payload["href"] = card["href"]
+            except Exception:
+                logger.debug("fan-out remote href skipped", exc_info=True)
+        try:
+            await self.send(text_data=json.dumps(payload))
+        except Exception:
+            logger.debug("fan-out leg send failed", exc_info=True)
 
     async def _emit_teammate_task_cards(self, params, message_text):
         """REQ-84: Open-in-{remote} chrome when a team tasks a remote member."""
@@ -909,10 +1126,44 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
         except Exception:
             logger.debug("CLI PR-opened parse skipped", exc_info=True)
 
-    async def _persist_completed_turn(self):
-        """REQ-171A-2: write JSON + Django rows after a finished assistant turn.
+    async def _persist_composer_send(self):
+        """Insert the user message just recorded. One new ChatMessage row (#1440)."""
+        if not getattr(self.user, "is_authenticated", False):
+            return
+        conversation_id = getattr(self, "conversation_id", None)
+        if not conversation_id:
+            return
+        try:
+            await self.save_conversation(conversation_id, self.messages)
+        except Exception:
+            logger.exception("Failed to persist composer send %s", conversation_id)
 
-        Disconnect still saves (idempotent replace). Status and edit keep
+    async def _discard_uncontinued_fatal_init(self):
+        """Drop the user row saved before a first-turn fatal CLI/config failure."""
+        conversation_id = getattr(self, "conversation_id", None)
+        if not conversation_id or not getattr(self.user, "is_authenticated", False):
+            return
+        agent_id = str(
+            getattr(self, "active_agent", None)
+            or getattr(self, "default_blueprint", None)
+            or ""
+        )
+
+        def _clear():
+            from swarm.core.chat_repository import clear_thread
+
+            clear_thread(self.user, conversation_id, agent_id=agent_id)
+
+        try:
+            await database_sync_to_async(_clear)()
+        except Exception:
+            logger.exception("Failed to discard fatal init %s", conversation_id)
+
+    async def _persist_completed_turn(self):
+        """REQ-171A-2: insert the assistant row after a finished turn (#1440).
+
+        The user row was inserted when the send was recorded. Disconnect
+        saves again without duplicating those rows. Status and edit keep
         their own immediate save. Load order is unchanged (H5).
         A first-turn fatal CLI/config failure is not persisted as history
         unless the user continues (#274).
@@ -925,6 +1176,7 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
         from swarm.core.cli_session_error import is_uncontinued_fatal_init
 
         if is_uncontinued_fatal_init(self.messages):
+            await self._discard_uncontinued_fatal_init()
             return
         try:
             await self.save_conversation(conversation_id, self.messages)
@@ -1078,6 +1330,19 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
             return INTERRUPTED_RESULT
         return normalize_answer(answer) or TIMEOUT_RESULT
 
+    def _remote_ask_user_bridge(self, params: dict | None) -> Any:
+        """The chat ask-user callback for a capable remote turn, else None."""
+        if not isinstance(params, dict):
+            return None
+        remote_id = str(params.get("remote") or params.get("name") or "").strip()
+        if not remote_id:
+            return None
+        from swarm.core.remote_harness import remote_ask_user_enabled
+
+        if not remote_ask_user_enabled(remote_id):
+            return None
+        return self.elicit_user_question
+
     async def resolve_question_answer(self, payload: dict) -> None:
         from swarm.core.ask_user import normalize_answer
 
@@ -1154,6 +1419,9 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
                 ),
                 tools=tools,
             )
+            from swarm.core.operator_profile import apply_operator_profile_to_agent
+
+            apply_operator_profile_to_agent(agent, model_messages)
             result = await Runner.run(agent, user_text)
             text = str(getattr(result, "final_output", result) or "")
         except Exception:
@@ -1233,6 +1501,7 @@ class DjangoChatConsumer(AdviceMixin, ConversationsMixin, StubsMixin, AsyncWebso
                     self.messages,
                 )
             model_messages = await _expand_model_messages(self, model_messages)
+            model_messages = await _attach_operator_profile(self, model_messages)
             sandbox_reply = await self._maybe_run_default_sandbox_agent(
                 client, model, model_messages, contents_div_id
             )
@@ -1312,6 +1581,7 @@ _conversation_cache_key = _chat_helpers._conversation_cache_key
 _credential_hint = _chat_helpers._credential_hint
 _display_rows = _chat_helpers._display_rows
 _expand_model_messages = _chat_helpers._expand_model_messages
+_attach_operator_profile = _chat_helpers._attach_operator_profile
 _gate_provider_rate_limit = _chat_helpers._gate_provider_rate_limit
 ProviderGateTimeout = _chat_helpers.ProviderGateTimeout
 _chat_gate_wait_cap_s = _chat_helpers._chat_gate_wait_cap_s

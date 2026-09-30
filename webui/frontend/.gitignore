@@ -5,3 +5,7 @@ test-results/
 playwright-report/
 .playwright/
 e2e-screenshots/
+# Scratch build of `scripts/measure-chat-chrome.mjs` (#1719/#1724). The harness
+# vite-builds a probe page in here so it can hit-test the real compiled
+# stylesheet in Chromium; the output is a build artefact, never source.
+.chat-chrome-probe/

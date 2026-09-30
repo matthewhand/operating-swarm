@@ -10,13 +10,17 @@
 import { useCallback, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { enhancePrompt } from '../../lib/api'
+import { PerAgentComposerInput } from './PerAgentComposerInput'
+// #1347: scoped overflow fix — the dock is opaque and full-bleed to the
+// transcript edges so scrolled rows never bleed past the composer.
+import './chatTranscriptOverflow.css'
 
 export interface ChatBottomDockProps {
   [key: string]: any
 }
 
 export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps) {
-    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, SuggestionChips, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleSelectSlashItem, handleSend, hasSendableDraft, input, isApiAgent, isSlashOpen, messages, onSendNow, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
+    const { ArrowUp, ChatMessageInput, ComposerAttachChips, ComposerPluginsBadge, ComposerPluginsPanel, ComposerSlashPopup, ContextUsageBadge, Layers, Mic, Paperclip, Plug, Plus, QueuedSendPane, Reply, SuggestionChips, activeChatAgentId, addToast, authRejected, awaitingAssistant, bottomDockRef, chipsDisabled, chooseSuggestion, composerDragOver, composerMenu, composerPlaceholder, composerRef, composerWrapRef, contextUsage, conversationId, demoChips, describeSpeechPath, enqueueComposerFiles, fileInputRef, filesFromList, filteredSlashItems, generationIsInFlight, handleCompact, handleComposerDragEnter, handleComposerDragLeave, handleComposerDragOver, handleComposerDrop, handleComposerKeyDown, handleComposerPaste, handleInputChange, handleMic, handleMicPointerDown, handleMicPointerUp, handleMicPointerCancel, voiceNoteRecording, voiceNoteOffer, sendVoiceNote, cancelVoiceNote, chooseVoiceNoteTranscription, handleSelectSlashItem, handleSend, hasSendableDraft, input, isApiAgent, isSlashOpen, messages, onSendNow, onSendQueuedImmediately, pendingAttachments, pluginsPanelOpen, plusOpen, plusRef, queued, queuedPaneMaxHeightPx, recentSlashIds, removeAttachment, renderRoutingPicker, replyTarget, selectedBlueprint, sendNowHint, setInput, setPluginsPanelOpen, setPlusOpen, setQueuedHoldIds, setReplyTarget, setSlashSelectedIndex, setTokenDiagOpen, showContextUsage, showDemoChips, showSuggestionChips, slashQuery, slashSelectedIndex, status, sttListening, sttPathUsed, suggestionChips, transcriptHeightPx } = props as any
     const SparklesIcon = props.Sparkles || Sparkles
     const [enhancingLocal, setEnhancingLocal] = useState(false)
     const enhancing = props.enhancing ?? enhancingLocal
@@ -56,7 +60,7 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
     <>
         <div
           ref={bottomDockRef}
-          className="os-chat-bottom-dock sticky bottom-0 z-20 -mx-2 sm:-mx-3 -mb-3 bg-base-100 border-t border-base-content/5"
+          className="os-chat-bottom-dock os-chat-composer-shroud sticky bottom-0 z-20 -mb-3 bg-base-100 border-t border-base-content/5"
           data-testid="chat-bottom-dock"
         >
 
@@ -133,6 +137,7 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   onChangeText={queued.update}
                   onDelete={queued.remove}
                   onClearAll={queued.clearAll}
+                  onSendImmediately={onSendQueuedImmediately}
                   onHoldIdsChange={setQueuedHoldIds}
                   interruptible={
                     status === 'open' && queued.rows.length > 0 && generationIsInFlight(messages, awaitingAssistant)
@@ -171,6 +176,52 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   attachments={pendingAttachments}
                   onRemove={removeAttachment}
                 />
+                {voiceNoteOffer ? (
+                  <div
+                    className="os-voice-note-offer"
+                    data-testid="voice-note-offer"
+                    role="group"
+                    aria-label="Voice note"
+                  >
+                    {voiceNoteOffer.previewUrl ? (
+                      <audio
+                        className="os-msg-audio"
+                        controls
+                        preload="metadata"
+                        playsInline
+                        src={voiceNoteOffer.previewUrl}
+                        data-testid="voice-note-offer-player"
+                      />
+                    ) : null}
+                    <label className="os-voice-note-offer__toggle">
+                      <input
+                        type="checkbox"
+                        data-testid="voice-note-transcribe"
+                        checked={Boolean(voiceNoteOffer.transcribe)}
+                        onChange={(event) => {
+                          if (event.target.checked) chooseVoiceNoteTranscription?.()
+                        }}
+                      />
+                      Transcribe
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-primary"
+                      data-testid="voice-note-send"
+                      onClick={() => sendVoiceNote?.()}
+                    >
+                      Send voice note
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      data-testid="voice-note-cancel"
+                      onClick={() => cancelVoiceNote?.()}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
                 <div className={`flex items-center gap-1.5 min-h-0 ${replyTarget || pendingAttachments.length > 0 || queued.rows.length > 0 ? 'w-full' : 'flex-1'}`}>
                   <div className="relative" ref={plusRef}>
                     <input
@@ -234,45 +285,27 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                             Add files
                           </button>
                         </li>
-                        <li role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            // #550: Compact summarises server-side history, so a
-                            // CLI/remote seat has nothing for it to act on. Kept
-                            // visible-but-disabled with the reason (the same read
-                            // `Add files` uses one item above, and #511's
-                            // precedent) rather than vanishing silently.
-                            // #636: CLI seats now light up when a default API is
-                            // configured or the provider declares cli_compact; a
-                            // greyed CLI item's hover says the API is missing.
-                            data-testid="composer-compact-button"
-                            aria-disabled={!composerMenu?.compact?.enabled}
-                            className={`os-plus-menu__item ${
-                              !composerMenu?.compact?.enabled ? 'opacity-60 cursor-not-allowed' : ''
-                            }`}
-                            title={
-                              composerMenu?.compact?.enabled
-                                ? 'Summarise this conversation and reclaim context'
-                                : composerMenu?.compact?.reason
-                            }
-                            onClick={() => {
-                              if (!composerMenu?.compact?.enabled) {
-                                addToast({
-                                  type: 'info',
-                                  title: 'Compact',
-                                  message: composerMenu?.compact?.reason || 'Compact is unavailable',
-                                })
-                                setPlusOpen(false)
-                                return
-                              }
-                              void handleCompact()
-                            }}
-                          >
-                            <Layers className="h-4 w-4" aria-hidden="true" />
-                            Compact
-                          </button>
-                        </li>
+                        {(composerMenu?.compact?.enabled ?? false) && (
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              // #1230: Compact is API-only and is ENABLED-OR-ABSENT
+                              // — a CLI/remote/unresolved seat gets no item at all,
+                              // never a disabled "not available" control. Same
+                              // contract the rewrite item below uses.
+                              data-testid="composer-compact-button"
+                              className="os-plus-menu__item"
+                              title="Summarise this conversation and reclaim context"
+                              onClick={() => {
+                                void handleCompact()
+                              }}
+                            >
+                              <Layers className="h-4 w-4" aria-hidden="true" />
+                              Compact
+                            </button>
+                          </li>
+                        )}
                         <li role="none">
                           <button
                             type="button"
@@ -308,38 +341,40 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                             Plugins
                           </button>
                         </li>
-                        <li role="none">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            data-testid="composer-enhance-button"
-                            aria-label="Rewrite prompt with AI"
-                            aria-disabled={enhancing || !input?.trim()}
-                            className={`os-plus-menu__item ${
-                              enhancing || !input?.trim() ? 'opacity-60 cursor-not-allowed' : ''
-                            }`}
-                            title={
-                              !input?.trim()
-                                ? 'Enter a draft prompt to rewrite with AI'
-                                : 'Rewrite this draft with AI (✨)'
-                            }
-                            onClick={() => {
-                              if (!input?.trim()) {
-                                addToast({
-                                  type: 'info',
-                                  title: 'Rewrite prompt',
-                                  message: 'Enter a draft prompt in the composer to rewrite with AI.',
-                                })
-                                setPlusOpen(false)
-                                return
+                        {(composerMenu?.rewrite?.enabled ?? false) && (
+                          <li role="none">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              data-testid="composer-enhance-button"
+                              aria-label="Rewrite prompt with AI"
+                              aria-disabled={enhancing || !input?.trim()}
+                              className={`os-plus-menu__item ${
+                                enhancing || !input?.trim() ? 'opacity-60 cursor-not-allowed' : ''
+                              }`}
+                              title={
+                                !input?.trim()
+                                  ? 'Enter a draft prompt to rewrite with AI'
+                                  : 'Rewrite this draft with AI (✨)'
                               }
-                              void handleEnhance()
-                            }}
-                          >
-                            <SparklesIcon className={`h-4 w-4 ${enhancing ? 'animate-pulse' : ''}`} aria-hidden="true" />
-                            Rewrite prompt with AI
-                          </button>
-                        </li>
+                              onClick={() => {
+                                if (!input?.trim()) {
+                                  addToast({
+                                    type: 'info',
+                                    title: 'Rewrite prompt',
+                                    message: 'Enter a draft prompt in the composer to rewrite with AI.',
+                                  })
+                                  setPlusOpen(false)
+                                  return
+                                }
+                                void handleEnhance()
+                              }}
+                            >
+                              <SparklesIcon className={`h-4 w-4 ${enhancing ? 'animate-pulse' : ''}`} aria-hidden="true" />
+                              Rewrite prompt with AI
+                            </button>
+                          </li>
+                        )}
                       </ul>
                     )}
                     {plusOpen && pluginsPanelOpen && <ComposerPluginsPanel onClose={() => setPlusOpen(false)} />}
@@ -349,43 +384,41 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                       embedded inside the input has been moved to the + menu). Other kinds
                       keep the plain textarea (autocomplete is API-model backed; CLI/remote
                       input would need per-provider wiring). */}
-                  {isApiAgent ? (
-                    <ChatMessageInput
-                      textareaRef={composerRef}
-                      value={input}
-                      onApplyText={setInput}
-                      agentId={selectedBlueprint || undefined}
-                      conversationId={conversationId || undefined}
-                      textareaProps={{
-                        rows: 1,
-                        className: 'os-composer__input',
-                        placeholder: composerPlaceholder,
-                        value: input,
-                        onChange: handleInputChange,
-                        onPaste: handleComposerPaste,
-                        onKeyDown: handleComposerKeyDown,
-                        'aria-label': 'Chat message',
-                        'aria-haspopup': 'listbox',
-                        'aria-expanded': isSlashOpen,
-                        'aria-controls': isSlashOpen ? 'composer-slash-menu' : undefined,
-                      }}
-                    />
-                  ) : (
-                  <textarea
-                    ref={composerRef}
-                    rows={1}
-                    className="os-composer__input"
-                    placeholder={composerPlaceholder}
+                  {/* #1331 + #1400: the input element stays mounted across
+                      agent switches — a switch swaps the controlled `value`
+                      (the active agent's slot in the localStorage-backed
+                      per-agent store, usePerAgentDraft) instead of remounting
+                      the element, so focus/IME state and REQ-54's "keeps chat
+                      mounted" invariant survive a rail pick, and a draft can
+                      never be lost to the async seat hydration that follows
+                      one. Every handler is forwarded. */}
+                  <PerAgentComposerInput
+                    agentId={activeChatAgentId}
                     value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={handleComposerKeyDown}
-                    onPaste={handleComposerPaste}
-                    aria-label="Chat message"
-                    aria-haspopup="listbox"
-                    aria-expanded={isSlashOpen}
-                    aria-controls={isSlashOpen ? 'composer-slash-menu' : undefined}
+                    onValueChange={setInput}
+                    isApiAgent={isApiAgent}
+                    ChatMessageInput={ChatMessageInput}
+                    composerRef={composerRef}
+                    composerPlaceholder={composerPlaceholder}
+                    selectedBlueprint={selectedBlueprint}
+                    conversationId={conversationId}
+                    textareaProps={{
+                      onChange: handleInputChange,
+                      onInput: props.onInput,
+                      onKeyDown: handleComposerKeyDown,
+                      onKeyUp: props.onKeyUp,
+                      onKeyPress: props.onKeyPress,
+                      onFocus: props.onFocus,
+                      onBlur: props.onBlur,
+                      onPaste: handleComposerPaste,
+                      onCompositionStart: props.onCompositionStart,
+                      onCompositionEnd: props.onCompositionEnd,
+                      'aria-label': 'Chat message',
+                      'aria-haspopup': 'listbox',
+                      'aria-expanded': isSlashOpen,
+                      'aria-controls': isSlashOpen ? 'composer-slash-menu' : undefined,
+                    }}
                   />
-                  )}
                   {/* #732/#1093(4): the ↵-hint badge is retired — the queued
                       pill already carries the enter-interrupt hint, so the
                       in-input badge duplicated it and spent composer width.
@@ -404,17 +437,29 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                   {renderRoutingPicker()}
                   <button
                     type="button"
-                    className={`os-composer__icon ${sttListening ? 'os-composer__icon--recording' : ''}`}
-                    aria-label={sttListening ? 'Stop voice input' : 'Voice input'}
-                    aria-pressed={sttListening}
+                    className={`os-composer__icon os-composer__mic ${sttListening || voiceNoteRecording ? 'os-composer__icon--recording' : ''}`}
+                    aria-label={
+                      voiceNoteRecording
+                        ? 'Stop recording'
+                        : sttListening
+                          ? 'Stop voice input'
+                          : 'Voice input'
+                    }
+                    aria-pressed={Boolean(sttListening || voiceNoteRecording)}
                     data-testid="composer-mic"
-                    data-recording={sttListening ? 'true' : 'false'}
+                    data-recording={sttListening || voiceNoteRecording ? 'true' : 'false'}
+                    data-voice-note={voiceNoteRecording ? 'true' : undefined}
                     data-stt-path={sttPathUsed ?? undefined}
+                    title="Hold to record a voice note. Release to choose Send voice note or Transcribe. Click for STT."
                     onClick={handleMic}
+                    onPointerDown={handleMicPointerDown}
+                    onPointerUp={handleMicPointerUp}
+                    onPointerCancel={handleMicPointerCancel}
+                    onContextMenu={(event) => event.preventDefault()}
                   >
                     {/* #1148: while listening the mic IS the stop button —
                         same footprint, square stop glyph, recording styling. */}
-                    {sttListening ? (
+                    {sttListening || voiceNoteRecording ? (
                       <span className="os-composer__stop-glyph" aria-hidden="true" />
                     ) : (
                       <Mic className="h-4 w-4" aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   attachmentCaption,
   attachmentCategory,
@@ -81,5 +81,18 @@ describe('chatAttachments helpers', () => {
     expect(attachmentCategory({ name: 'report.pdf' })).toBe('document')
     expect(attachmentCategory({ name: 'notes.txt' })).toBe('document')
     expect(attachmentCategory({ name: 'archive.tar.gz' })).toBe('other')
+    expect(attachmentCategory({ type: 'audio/webm', name: 'voice-note.webm' })).toBe('audio')
+    expect(attachmentCategory({ name: 'memo.ogg' })).toBe('audio')
+    expect(attachmentCategory({ type: 'video/webm', name: 'clip.webm' })).toBe('other')
+  })
+
+  it('#1322 gives a voice note a blob URL and an abort controller', () => {
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:voice-note')
+    const file = new File(['RIFF'], 'voice-note.webm', { type: 'audio/webm' })
+    const pending = createPendingAttachment(file)
+    expect(pending.previewUrl).toBe('blob:voice-note')
+    expect(pending.abortController).toBeInstanceOf(AbortController)
+    expect(pending.status).toBe('uploading')
+    create.mockRestore()
   })
 })

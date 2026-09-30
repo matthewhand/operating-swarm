@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plug, Search, Settings2, X } from 'lucide-react'
 import { Tabs } from './DaisyUI'
-import { openSettingsSheet } from './SettingsSheet'
+import { openSettingsSheet } from './settings/kernel'
 import InstallCatalog from './InstallCatalog'
 import {
   CHAT_PLUGIN_TOOLS_EVENT,
@@ -17,11 +17,13 @@ import { MCP_SERVERS_EVENT } from '../lib/mcpServers'
 import { useCurrentAgent } from '../lib/currentAgent'
 import { notifyOverlayClosed } from '../lib/chromeOverlay'
 import { OverlayFocusTrap } from './OverlayFocusTrap'
+import AgentPluginPackPane from './AgentPluginPackPane'
 
 const PLUGIN_PANES = [
   { key: 'chat', label: 'This agent' },
   { key: 'tools', label: 'Add tools' },
   { key: 'skills', label: 'Add skills' },
+  { key: 'pack', label: 'Pack' },
 ] as const
 
 type PluginPane = (typeof PLUGIN_PANES)[number]['key']
@@ -185,7 +187,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
         aria-label="Plugins"
         data-testid="os-plugins-popup"
         /* REQ-910 (#509): the frame is pane-independent — the shell's height and
-           width come from CSS, identical for all three panes, so switching tabs
+           width come from CSS, identical for every pane, so switching tabs
            cannot move or resize the dialog. */
         className="os-search-palette os-search-palette--centered"
       >
@@ -212,7 +214,7 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
             </>
           ) : (
             <span className="os-search-palette__input text-sm font-medium">
-              {pane === 'tools' ? 'Add tools' : 'Add skills'}
+              {pane === 'tools' ? 'Add tools' : pane === 'skills' ? 'Add skills' : 'Plugin pack'}
             </span>
           )}
           <button
@@ -320,6 +322,10 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
             })
           )}
         </ul>
+        ) : pane === 'pack' ? (
+          <div className="os-search-palette__list os-plugin-pack-scroll" data-testid="os-plugins-pack">
+            <AgentPluginPackPane agentId={agentId} compact />
+          </div>
         ) : (
           <div className="os-search-palette__list" data-testid="os-plugins-catalog">
             <InstallCatalog
@@ -339,6 +345,8 @@ export default function PluginsPopup({ open, onClose }: PluginsPopupProps) {
                 <kbd className="kbd kbd-xs">↵</kbd> Toggle
               </span>
             </>
+          ) : pane === 'pack' ? (
+            <span className="os-search-tip">Ids only — never tokens</span>
           ) : (
             <span className="os-search-tip">Browse → detail → install</span>
           )}

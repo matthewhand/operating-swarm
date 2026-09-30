@@ -5,7 +5,7 @@ detail drawer, install progress). They do **not** share one install format.
 There is no Wagtail/CMS marketplace.
 
 Preferred product install remains Docker Compose / Hub. This catalog is for
-operators who already have Open Swarm running.
+operators who already have Operating Swarm running.
 
 ## Three sources of truth
 

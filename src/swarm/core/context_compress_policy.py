@@ -251,10 +251,11 @@ def auto_compact_before_send(
     from swarm.core.agent_kind import classify_agent_kind
 
     raw_agent = agent_id or model_id or ""
-    # Issue #72: compression applies to API seats; blueprint seats keep it too
-    # (issue acceptance: "API/blueprint chats unchanged"). CLI/remote manage
-    # their own context.
-    if raw_agent and classify_agent_kind(raw_agent) not in ("api", "blueprint"):
+    # #1230: compression is API-only. CLI/remote keep their transcript in the
+    # provider; blueprint seats are no longer folded in (they were only ever a
+    # legacy acceptance convenience) so the send-path gate matches the UI's
+    # API-only Compact exactly.
+    if raw_agent and classify_agent_kind(raw_agent) != "api":
         return AutoCompactResult(
             acted=False,
             reason="non_api_agent",

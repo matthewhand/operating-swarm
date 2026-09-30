@@ -1,8 +1,20 @@
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from asgiref.sync import sync_to_async
+# MUST run before anything imports swarm.settings. pytest-django imports it
+# during collection, and settings.py:17 calls load_swarm_dotenv() at module
+# scope -- so the developer's real ~/.config/swarm/.env is read and injected into
+# os.environ before the isolate_xdg_config fixture below can redirect HOME.
+# Consequences of not doing this (issue #1335): ~137 tests fail with
+# `assert 403 == 200` because API_AUTH_TOKEN in that file flips
+# ENABLE_API_AUTH on and the suite's bare APIClient() is then
+# unauthenticated; CI has no .env so it passes, and the suite runs against
+# live operator credentials. A test needing a key should monkeypatch it.
+os.environ.setdefault("SWARM_SKIP_DOTENV", "1")
+
+from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
+
+import pytest  # noqa: E402
+from asgiref.sync import sync_to_async  # noqa: E402
 
 # The Django defaults are secure-by-default (DJANGO_DEBUG defaults to False,
 # which makes DJANGO_SECRET_KEY/DJANGO_ALLOWED_HOSTS mandatory). The test

@@ -73,20 +73,23 @@ of `spa-chat.png` shows **Connected**. The checked-in desktop/mobile frames
 
 ### Per-agent persistence (REQ-14)
 
-Each agent thread is a JSON file under `$SWARM_CHAT_DIR` (default
-`$SWARM_USER_DATA_DIR/chats`): `active/<user>/<agent>.json`. The consumer
-mirrors the transcript there when a turn finishes (`assistant_final` /
-blueprint final partial — REQ-171A-2) and again on disconnect (idempotent
-replace). Status and edit frames still save immediately.
+Each agent thread is a Django `ChatConversation`. Writes go through
+`ChatRepository` (one canonical row per message). A composer send inserts
+exactly one `ChatMessage`; the finished assistant turn inserts one more.
+A JSON file under `$SWARM_CHAT_DIR` (default `$SWARM_USER_DATA_DIR/chats`,
+`active/<user>/<agent>.json`) is a cache exported after that commit. The
+consumer saves when the send is recorded, when a turn finishes
+(`assistant_final` / blueprint final partial — REQ-171A-2), and again on
+disconnect (same rows, no duplicates). Status and edit frames still save
+immediately (edits update the row).
 
 Reload (`GET /chat/thread/?agent=`) and websocket reconnect
-(`fetch_conversation`) share one load order — JSON first, then DB backfill
-(Django `ChatMessage` rows) when the file is missing (`swarm.core.thread_load`).
-JSON is the source of truth, so `ts` and `edited` survive both hydrate and
-reconnect. The WS in-memory cache stays keyed by `(user_id, conversation_id)`.
-On-mode mint (REQ-171C-4) still runs before any row load. Retention (counts,
-disk, trash, `SWARM_CHAT_MAX_AGE_DAYS`) is on **Settings only** — not in the
-Chat chrome.
+(`fetch_conversation`) share one load order — Django first, then a one-way
+JSON import when the conversation has no rows (`swarm.core.thread_load`).
+`ts` and `edited` survive both hydrate and reconnect. The WS in-memory cache
+stays keyed by `(user_id, conversation_id)`. On-mode mint (REQ-171C-4) still
+runs before any row load. Retention and trash (`SWARM_CHAT_MAX_AGE_DAYS`)
+operate on the database and are on **Settings only** — not in the Chat chrome.
 
 Dropdown changes (REQ-46) record a status event with a timestamp. The SPA
 POSTs `/chat/thread/` and, when the socket is open, also sends

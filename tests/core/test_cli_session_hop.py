@@ -376,6 +376,48 @@ def test_hop_accepts_cross_kind_destination(tmp_path):
     assert "token bucket" in result["injection"]["text"].lower()
 
 
+def test_hop_hardcoded_api_follows_remote_destination_issue_1436(tmp_path):
+    """#1436 / #1437: to_kind='api' on a remote destination records remote."""
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1436", base_dir=tmp_path)
+    result = hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="omb",
+        to_kind="api",
+        conversation_id="thread-1436",
+        base_dir=tmp_path,
+    )
+    assert result["kind"] == "remote"
+    assert result["to_cli"] == "omb"
+
+
+def test_hop_blueprint_tag_follows_destination_seat_issue_1436(tmp_path):
+    """#1436 / #1439: a blueprint hop tag resolves to the destination seat kind."""
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1436b", base_dir=tmp_path)
+    remote = hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="herdr",
+        to_kind="blueprint",
+        conversation_id="thread-1436b",
+        base_dir=tmp_path,
+    )
+    assert remote["kind"] == "remote"
+    chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1436c", base_dir=tmp_path)
+    api = hop_backend(
+        "u1",
+        "cli_agent",
+        from_cli="grok",
+        to_cli="auxiliary",
+        to_kind="blueprint",
+        conversation_id="thread-1436c",
+        base_dir=tmp_path,
+    )
+    assert api["kind"] == "api"
+
+
 def test_hop_accepts_remote_destination(tmp_path):
     chat_store.save("u1", "cli_agent", FIXTURE, conversation_id="thread-1", base_dir=tmp_path)
     result = hop_backend(

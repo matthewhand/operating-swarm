@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-The fleet of agentic harnesses (hermes, nemohermes, letta, HA-driven agents,
+The fleet of agentic harnesses (hermes, nemohermes, HA-driven agents,
 inference servers…) lives on several LAN boxes. Answering "is everything up?"
 should not require an LLM loop or SSH hopping. This blueprint probes each
 registered endpoint synchronously — TCP connect + optional HTTP health check —
@@ -59,12 +59,6 @@ _BUILTIN_FLEET: dict[str, dict[str, Any]] = {
         "host": "198.51.100.30", "port": 8642, "kind": "hermes gateway",
         "note": "aiohttp confirmed on .30",
     },
-    "letta-30": {
-        "host": "198.51.100.30", "port": 8283, "kind": "letta server",
-        # observed: TCP accepts but HTTP endpoints stall from this LAN —
-        # report DEGRADED honestly unless/until a working path is known.
-        "note": "TCP up; HTTP health path not yet answering on this install",
-    },
     "home-assistant-111": {
         "host": "198.51.100.111", "port": 8123, "kind": "home assistant",
         "health_path": "/",  # frontend answers unauthenticated; /api/ hangs
@@ -108,11 +102,11 @@ class HarnessFleetBlueprint(BlueprintBase):
         "title": "Harness Fleet Manager (instant, no LLM)",
         "description": (
             "Health/status for the agentic harness fleet (hermes, nemohermes, "
-            "letta, home assistant, ollama…). TCP + HTTP probes, deterministic "
+            "home assistant, ollama…). TCP + HTTP probes, deterministic "
             "report. Inventory extendable via harness_fleet.entries in config."
         ),
         "version": "0.1.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["fleet", "health", "ops", "tools"],
         "required_mcp_servers": [],
         "env_vars": [],

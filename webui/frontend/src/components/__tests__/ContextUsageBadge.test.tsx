@@ -36,7 +36,7 @@ describe('ContextUsageBadge (#215, #773 canonical meter)', () => {
       />,
     )
     const badge = screen.getByTestId('context-usage-badge')
-    expect(badge).toHaveTextContent('out 320 · in 16k / 128k tok')
+    expect(badge).toHaveTextContent('in 16k / 128k tok · out 320')
     expect(badge.textContent?.match(/tok/g)?.length).toBe(1)
   })
 

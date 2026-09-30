@@ -25,7 +25,7 @@ def register_blueprints_with_mcp() -> int:
     this was written against — so this bridge is a **no-op** today and needs
     porting to the toolset paradigm (tracked in ROADMAP §3.3). ``ENABLE_MCP_SERVER``
     still mounts ``/mcp/`` via ``mcp_server.urls`` once the package is installed;
-    that mount does **not** expose Open Swarm blueprints as tools until this
+    that mount does **not** expose Operating Swarm blueprints as tools until this
     bridge is ported.
     """
     try:

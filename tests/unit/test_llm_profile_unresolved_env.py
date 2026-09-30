@@ -97,6 +97,52 @@ def test_override_fixture_covers_every_env_var_the_resolver_reads():
     )
 
 
+def test_core_autouse_env_guard_covers_every_env_var_the_resolver_reads():
+    """#1735: the guard that actually governs the remote-adapter family.
+
+    ``tests/core/conftest.py`` has an ``autouse`` fixture that deletes the LLM
+    override env vars for EVERY test in ``tests/core/`` -- which is where the
+    whole remote-adapter family lives. It matters more than the local fixture
+    above: a developer who exports ``OPENAI_BASE_URL`` at a gateway, and runs
+    the suite, must not have that URL redirect a test that believes it is
+    talking to a local ``HTTPServer`` on 127.0.0.1.
+
+    The two lists are coupled only by hand. The lockstep test above enforces
+    that THIS file's ``_OVERRIDE_ENV_VARS`` covers the resolver; it says nothing
+    about the autouse list. So adding an ``os.getenv`` to the resolver and
+    fixing only this file's list would leave ``tests/core/`` de-hermeticised
+    with every test still green -- a gate that reports green while checking
+    nothing, which is the defect class #1730 is about.
+    """
+    import importlib.util
+    import inspect
+    import re
+    from pathlib import Path
+
+    source = inspect.getsource(_apply_litellm_overrides)
+    read_vars = set(re.findall(r'os\.getenv\("([^"]+)"\)', source))
+    assert read_vars, "expected _apply_litellm_overrides to read env vars"
+
+    core_conftest = Path(__file__).resolve().parents[1] / "core" / "conftest.py"
+    assert core_conftest.is_file(), f"{core_conftest} is missing"
+    spec = importlib.util.spec_from_file_location("_core_conftest_env_guard", core_conftest)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    autouse_vars = set(module._LITELLM_VARS)
+    assert autouse_vars, "tests/core/conftest.py declared no vars to clear"
+    missing = read_vars - autouse_vars
+    assert not missing, (
+        f"tests/core/conftest.py's autouse env guard clears {sorted(autouse_vars)} "
+        f"but _apply_litellm_overrides also reads {sorted(missing)}. Every test in "
+        f"tests/core/ -- including the whole remote-adapter family -- would then "
+        f"see the developer's exported value, so a test that believes it is "
+        f"talking to a local fake server can be redirected at a real gateway. "
+        f"Add {sorted(missing)} to _LITELLM_VARS."
+    )
+
+
 def test_unresolved_env_placeholders_walks_strings_lists_and_dicts():
     value = {
         "api_key": "${A_KEY}",

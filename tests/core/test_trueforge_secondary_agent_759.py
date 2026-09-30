@@ -22,6 +22,7 @@ import pytest
 
 from swarm.core import remotes as remotes_core
 from swarm.core.remotes import RemoteSpec, _trueforge_agent_id_shape, _trueforge_create_session
+from functools import partial
 
 ULID = "01m2gs2kw8tqk21a81s1zaema5"
 
@@ -60,6 +61,14 @@ class _TrueForgeRouter(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
 
+# NOTE: `serve_forever`'s default poll_interval is 0.5s. It parks in
+# `selector.select(0.5)`, and `shutdown()` blocks on `__is_shut_down`, which
+# the serve loop can only set on its next wake -- so each fixture teardown
+# below paid a flat 500ms parked in a selector. Measured on this box:
+# 500.6ms at the default, 50.2ms at 0.05, 10.1ms at 0.01. pytest
+# --durations=0 attributes 106s of suite teardown to this pattern across 36
+# files -- 28% of the suite's wall clock. A test-fixture cost, not a
+# behaviour change: the thread still runs the same serve loop.
 
 @pytest.fixture
 def tf_server():
@@ -67,11 +76,12 @@ def tf_server():
     _TrueForgeRouter.route_hits = {}
     _TrueForgeRouter.received_bodies = []
     server = HTTPServer(("127.0.0.1", 0), _TrueForgeRouter)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=partial(server.serve_forever, poll_interval=0.02), daemon=True)
     thread.start()
     host, port = "127.0.0.1", server.server_address[1]
     yield host, port, _TrueForgeRouter
     server.shutdown()
+    server.server_close()
     _TrueForgeRouter.routes = {}
     _TrueForgeRouter.route_hits = {}
     _TrueForgeRouter.received_bodies = []

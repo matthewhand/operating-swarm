@@ -265,7 +265,7 @@ def test_cli_agent_models_single_cli(client, monkeypatch):
     from swarm.core.cli_models import ListModelsResult
 
     monkeypatch.setattr(
-        "swarm.core.cli_models.list_models",
+        "swarm.core.cli_models.list_models_for_picker",
         lambda name, **_k: ListModelsResult(cli=name, models=["grok-4"]),
     )
     resp = client.get("/v1/cli-agents/grok/models")
@@ -278,7 +278,7 @@ def test_cli_agent_models_unknown_cli_empty_warning(client, monkeypatch):
     from swarm.core.cli_models import ListModelsResult
 
     monkeypatch.setattr(
-        "swarm.core.cli_models.list_models",
+        "swarm.core.cli_models.list_models_for_picker",
         lambda name, **_k: ListModelsResult(
             cli=name, models=[], warning="unknown CLI 'nope'"
         ),
@@ -299,14 +299,21 @@ def test_cli_agent_models_all(client, monkeypatch):
         "swarm.core.cli_models.list_models_all",
         lambda **_k: [
             ListModelsResult(cli="claude", models=[], warning="not installed"),
-            ListModelsResult(cli="opencode", models=["opencode/big-pickle"]),
+            ListModelsResult(
+                cli="opencode",
+                models=["opencode/big-pickle", "opencode-go/deepseek-v4.1-flash"],
+            ),
         ],
     )
     resp = client.get("/v1/cli-agents/models")
     assert resp.status_code == 200
     data = resp.json()
     assert data[0]["models"] == []
-    assert data[1] == {"cli": "opencode", "models": ["opencode/big-pickle"]}
+    # App-gated ``opencode/*`` ids are filtered; runnable ids survive.
+    assert data[1] == {
+        "cli": "opencode",
+        "models": ["opencode-go/deepseek-v4.1-flash"],
+    }
 
 
 # --- #537: POST /v1/blueprints/<id>/source/format — a proposal, not a save ---

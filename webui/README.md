@@ -1,6 +1,6 @@
-# Open Swarm Web UI
+# Operating Swarm Web UI
 
-This directory contains the React-based frontend for Open Swarm, built with:
+This directory contains the React-based frontend for Operating Swarm, built with:
 
 - **Vite** - Fast build tool
 - **React** - UI framework

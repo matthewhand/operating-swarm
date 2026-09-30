@@ -379,3 +379,88 @@ def test_persist_remote_accepts_and_clears_title(tmp_path, monkeypatch):
         {"remotes": {"trueforge-2": on_disk["remotes"]["trueforge-2"]}},
     ).public_dict()
     assert d3["label"] == "TrueForge (trueforge-2)"
+
+
+# --- multi-instance of a NON-prefixed id (second Hermes) --------------------
+#
+# The bug: a named instance whose id does not start with its kind —
+# ``nemohermes`` (kind ``hermes``) — only resolves through its explicit
+# ``kind`` in the config entry. ``is_configured`` / ``_not_added_message``
+# validated the id *before* loading the config, so ``kind_of_instance`` ran
+# with ``config=None`` and raised ``Unknown remote 'nemohermes'``. The health
+# and operate code path then 500'd instead of returning an honest result,
+# breaking every second Hermes remote.
+
+
+def _hermes_cfg():
+    return {
+        "remotes": {
+            "hermes": {"base_url": "http://127.0.0.1:18642"},
+            "nemohermes": {"kind": "hermes", "base_url": "http://127.0.0.1:8642"},
+        }
+    }
+
+
+def test_non_prefixed_named_instance_resolves_kind():
+    cfg = _hermes_cfg()
+    assert remotes.kind_of_instance("nemohermes", cfg) == "hermes"
+    spec = remotes.load_remote("nemohermes", cfg)
+    assert (spec.id, spec.kind, spec.base_url) == (
+        "nemohermes",
+        "hermes",
+        "http://127.0.0.1:8642",
+    )
+
+
+def test_is_configured_accepts_non_prefixed_instance():
+    cfg = _hermes_cfg()
+    assert remotes.is_configured("nemohermes", cfg) is True
+    assert remotes.is_configured("hermes", cfg) is True
+    assert "nemohermes" in remotes.configured_remote_ids(cfg)
+
+
+def test_health_of_non_prefixed_instance_does_not_raise(monkeypatch):
+    """The live regression: ``check_health('nemohermes')`` used to raise.
+
+    The instance is configured, so the honesty gate must not blow up on id
+    validation; a stubbed prober keeps the assertion on the dispatch path.
+    """
+    cfg = _hermes_cfg()
+    monkeypatch.setattr(
+        remotes,
+        "_check_health_once",
+        lambda spec, timeout, config=None, **kw: remotes.HealthResult(
+            remote=spec.id, ok=True, state="UP", detail="stub"
+        ),
+    )
+    result = remotes.check_health("nemohermes", config=cfg)
+    assert result.ok is True
+    assert result.remote == "nemohermes"
+
+
+def test_not_added_message_for_unknown_instance_is_actionable():
+    """An unrecognized id degrades to a sentence, never a RemoteError."""
+    cfg = _hermes_cfg()
+    msg = remotes._not_added_message("nemohermes-9", cfg)
+    assert remotes.NOT_ADDED_MARKER in msg
+
+
+def test_require_id_resolves_non_prefixed_instance_from_disk(monkeypatch):
+    """The API health/operate gate must not 404 a configured second Hermes.
+
+    ``RemoteHealthView``/``RemoteOperateView`` call ``_require_id(remote_id)``
+    with no explicit config, so the gate itself must load it from disk to
+    recognize a named instance whose id does not start with its kind. Without
+    this, ``GET /v1/remotes/nemohermes/health/`` returned "Unknown remote".
+    """
+    cfg = _hermes_cfg()
+    monkeypatch.setattr(remotes, "load_raw_config", lambda *a, **k: (cfg, None))
+    assert remotes._require_id("nemohermes") == "hermes"
+
+
+def test_require_id_still_rejects_unknown_instance(monkeypatch):
+    """The disk fallback must not make truly unknown ids resolvable."""
+    cfg = _hermes_cfg()
+    monkeypatch.setattr(remotes, "load_raw_config", lambda *a, **k: (cfg, None))
+    with pytest.raises(RemoteError):
+        remotes._require_id("nemohermes-9")

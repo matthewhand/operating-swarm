@@ -12,17 +12,21 @@ export type SettingsSection =
   | 'remotes'
   | 'retention'
   | 'hostname'
+  | 'about-me'
   | 'llm-profiles'
   | 'mcp'
   | 'cli-agents'
   | 'roles'
   | 'sandboxes'
   | 'backend-audit'
+  | 'seat-doctor'
+  | 'operator-activity'
   | 'rail'
   | 'image-gen'
   | 'speech'
   | 'system'
   | 'plugins'
+  | 'experimental'
 
 export interface OpenSettingsDetail {
   section?: SettingsSection
@@ -37,6 +41,11 @@ export interface OpenSettingsDetail {
   /** REQ-88: jump to that provider's rate-limit fields. */
   providerId?: string
   focusRateLimits?: boolean
+  /**
+   * #1703: open the CLI agents pane on the add form, already filled for this
+   * detected CLI. Set by the host-CLI tip's "Add provider".
+   */
+  addCliName?: string
 }
 
 export function openSettingsSheet(detail?: OpenSettingsDetail): void {
@@ -46,22 +55,27 @@ export function openSettingsSheet(detail?: OpenSettingsDetail): void {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
   'aesthetics',
+  'providers',
   'definition',
   'blueprint',
   'remotes',
   'retention',
   'hostname',
+  'about-me',
   'llm-profiles',
   'mcp',
   'cli-agents',
   'roles',
   'sandboxes',
   'backend-audit',
+  'seat-doctor',
+  'operator-activity',
   'rail',
   'image-gen',
   'speech',
   'system',
   'plugins',
+  'experimental',
 ]
 
 export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
@@ -71,9 +85,12 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
   ],
   aesthetics: [
     'bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance',
-    'Bubble theme', 'Action-row button labels',
+    'Bubble theme', 'Action-row button labels', 'mobile', 'tablet', 'desktop', 'viewport', 'responsive',
   ],
-  providers: ['providers', 'provider', 'overview', 'backend', 'api profiles', 'cli runtimes'],
+  providers: [
+    'providers', 'provider', 'overview', 'backend', 'api profiles', 'cli runtimes',
+    'system1', 'categorizer', 'gate', 'filter-in', 'filter-out',
+  ],
   definition: ['definition', 'explain', 'instructions', 'prompt'],
   blueprint: ['blueprints', 'recipes', 'python', 'custom'],
   remotes: [
@@ -92,10 +109,17 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'network', 'ip', 'domain', 'host', 'override',
     'Location', 'Use system',
   ],
+  'about-me': [
+    'about me', 'about', 'operator', 'profile', 'name', 'timezone', 'notes',
+    'What should agents know about you', 'Display name', 'Timezone',
+  ],
   'llm-profiles': [
     'llm', 'models', 'litellm', 'profiles', 'default', 'task',
     'Override per task', 'Task class map', 'orchestration', 'auxiliary', 'delegation',
     'Add LLM profile', 'Advanced', 'Rate limits', 'What can be overridden per task',
+    // #1745 — System1 is a model type in this pane, not a hidden custom URL.
+    'system1', 'model type', 'categorizer', 'chat llm', 'gate', 'System1 categorizers',
+    'SYSTEM1_BASE_URL', 'SYSTEM1_API_KEY',
   ],
   mcp: [
     'mcp', 'mcpServers', 'tools', 'modelcontextprotocol',
@@ -115,11 +139,26 @@ export const SETTINGS_SEARCH_CONTENT: Record<SettingsSection, string[]> = {
     'audit', 'backend', 'activity', 'log', 'diagnostics',
     'Backend audit', 'Clear log', 'No sends recorded yet',
   ],
+  'seat-doctor': [
+    'doctor', 'seat doctor', 'diagnose', 'diagnosis', 'broken', 'unverified', 'ok',
+    'quota', 'credit', 'auth', 'api key', 'not installed', 'not configured',
+    'remediation', 'fix', 'Run diagnosis', 'deep', 'bucket', 'audit seats',
+  ],
+  'operator-activity': [
+    'activity', 'audit', 'operator', 'visibility', 'log',
+    'Operator activity', 'Operators only', 'Activity log is off',
+  ],
   rail: ['avatar', 'order', 'bump', 'Bump completed agents to top', 'Bump scope'],
   'image-gen': ['image', 'images', 'generation', 'diffusion'],
   speech: ['speech', 'tts', 'stt', 'audio', 'voice', 'read-aloud', 'read aloud'],
-  system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets'],
-  plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors'],
+  system: ['system', 'sqlite', 'database', 'facts', 'config', 'Config coverage', 'env-only', 'secrets', 'About & diagnostics', 'generations', 'diagnostics', 'raw model context', 'tool calls'],
+  plugins: ['plugins', 'openapi', 'marketplace', 'tools', 'connectors', 'pack', 'import', 'plugin ids'],
+  experimental: [
+    'experimental', 'flags', 'toggles', 'mvp', 'bleeding edge',
+    'OpenAI Agents SDK', 'openai-agents', 'OpenMousBot', 'Daytona', 'Daytona sandboxes',
+    '3D robot canvas', 'robot3d', 'Computer control', 'computer_routines',
+    'AI prompt rewrite', 'prompt_rewrite', 'Command palette',
+  ],
 }
 
 export function isSettingsSection(value: string): value is SettingsSection {
@@ -150,4 +189,6 @@ export interface SettingsSheetProps {
   focusRateLimits?: boolean
   /** #494: remote instance to focus when opening on the Remotes section. */
   initialRemoteId?: string | null
+  /** #1703: detected CLI to prefill the CLI-agents add form with. */
+  initialAddCliName?: string | null
 }

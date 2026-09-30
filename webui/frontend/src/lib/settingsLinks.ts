@@ -1,33 +1,20 @@
-import { openSettingsSheet, type SettingsSection } from '../components/SettingsSheet'
-
-/** In-app Settings pane ids that chat markdown may deep-link. */
-const SETTINGS_SECTIONS = new Set<string>([
-  'general',
-  'aesthetics',
-  'providers',
-  'definition',
-  'blueprint',
-  'remotes',
-  'retention',
-  'hostname',
-  'llm-profiles',
-  'mcp',
-  'cli-agents',
-  'roles',
-  'sandboxes',
-  'rail',
-  'image-gen',
-  'speech',
-  'system',
-  'plugins',
-])
+import {
+  isSettingsSection,
+  openSettingsSheet,
+  settingsDetailFromQuery,
+  type SettingsSection,
+} from '../components/settings/kernel'
 
 export const MANAGE_CLI_HREF = '/chat?settings=cli-agents'
+/** Open the sheet (default pane). Used by generic Settings shortcuts. */
+export const SPA_SETTINGS_HREF = '/chat?settings=true'
+/** Set inference — Providers / LLM profiles, not the Django dump. */
+export const SPA_SETTINGS_INFERENCE_HREF = '/chat?settings=llm-profiles'
 
 function asSettingsSection(value: string | null | undefined): SettingsSection | null {
   const section = String(value || '').trim().toLowerCase()
-  if (!section || !SETTINGS_SECTIONS.has(section)) return null
-  return section as SettingsSection
+  if (!section || !isSettingsSection(section)) return null
+  return section
 }
 
 /**
@@ -43,21 +30,25 @@ export function parseSettingsHref(href: string | null | undefined): SettingsSect
   if (proto) return asSettingsSection(proto[1])
 
   try {
-    const base =
-      typeof window !== 'undefined' && window.location?.href
-        ? window.location.href
-        : 'https://swarm.local/chat'
-    const url = new URL(raw, base)
-    const baseUrl = new URL(base)
-    if (url.origin !== baseUrl.origin) return null
-    const section = asSettingsSection(url.searchParams.get('settings'))
-    if (!section) return null
-    const path = url.pathname.replace(/\/+$/, '') || '/'
-    if (path !== '/chat' && path !== '') return null
-    return section
+    const parsed = parseChatSettingsUrl(raw)
+    if (!parsed) return null
+    return asSettingsSection(parsed)
   } catch {
     return null
   }
+}
+
+function parseChatSettingsUrl(raw: string): string | null {
+  const base =
+    typeof window !== 'undefined' && window.location?.href
+      ? window.location.href
+      : 'https://swarm.local/chat'
+  const url = new URL(raw, base)
+  const baseUrl = new URL(base)
+  if (url.origin !== baseUrl.origin) return null
+  const path = url.pathname.replace(/\/+$/, '') || '/'
+  if (path !== '/chat' && path !== '') return null
+  return url.searchParams.get('settings')
 }
 
 /** Intercept in-chat settings links so they open the sheet without a reload. */
@@ -69,10 +60,31 @@ export function handleSettingsLinkClick(event: MouseEvent): boolean {
   if (!(target instanceof Element)) return false
   const anchor = target.closest('a')
   if (!anchor) return false
-  const section = parseSettingsHref(anchor.getAttribute('href'))
-  if (!section) return false
-  event.preventDefault()
-  event.stopPropagation()
-  openSettingsSheet({ section })
-  return true
+  const href = anchor.getAttribute('href')
+  const section = parseSettingsHref(href)
+  if (section) {
+    event.preventDefault()
+    event.stopPropagation()
+    openSettingsSheet({ section })
+    return true
+  }
+  // #1442: /chat?settings=true (and 1) open the sheet without a pane pick.
+  if (href && isBareSettingsOpenHref(href)) {
+    event.preventDefault()
+    event.stopPropagation()
+    openSettingsSheet(settingsDetailFromQuery('true') ?? {})
+    return true
+  }
+  return false
+}
+
+function isBareSettingsOpenHref(href: string): boolean {
+  const proto = /^settings:(true|1)$/i.exec(href.trim())
+  if (proto) return true
+  try {
+    const raw = parseChatSettingsUrl(href.trim())
+    return raw === 'true' || raw === '1'
+  } catch {
+    return false
+  }
 }

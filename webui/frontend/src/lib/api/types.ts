@@ -72,12 +72,60 @@ export interface Blueprint {
   /** Declared openai-agents personas from a static source parse (REQ-81). */
   persona_count?: number
   personas?: Array<{ name: string }>
+  /** #1317: Company attached when this seat was created as a bot. */
+  company_id?: string | null
+  company_slug?: string | null
+  company_name?: string | null
   /** #843: newest persisted-thread instant for this seat (ISO-8601 or epoch ms). Missing = no activity yet. */
   last_message_at?: string | number | null
   /** #844: newest human-visible turn text (server-derived snippet). Missing = snippet only from local sessions. */
   last_message?: string | null
+  /** #1441: ``error`` when that snippet is a failure preview. Absent for ordinary replies. */
+  last_message_class?: 'error' | null
   /** Navbar items contributed by this blueprint (e.g. token counter for API agents). */
   navbar_items?: Array<{ id: string; kind: string; label?: string; [key: string]: any }> | null
+  /**
+   * #1699 / #1700 — the server's admission + readiness verdict for this row.
+   *
+   * Every field is optional: a backend older than the gate sends none, and a
+   * missing field must read as "listed and ready" so an old server never hides
+   * a working seat. Read them through `lib/blueprintSeats.ts`, never ad hoc.
+   */
+  /** Server-resolved seat kind (`api` / `cli` / `remote` / `team` / `blueprint`). */
+  seat_kind?: SeatKindName | null
+  /** `discovery` (shipped recipe) or `user` (created by the operator). */
+  seat_source?: 'discovery' | 'user' | null
+  /** false = must not appear as a seat in the rail or the agent picker (#1699). */
+  seat_listed?: boolean | null
+  /** false = visible but not a silent chat target; read `unavailable_reason` (#1700). */
+  chat_ready?: boolean | null
+  /** Why the seat cannot run a turn, in operator words. Empty when ready. */
+  unavailable_reason?: string | null
+  /** In-product routes that repair it (settings deep links). Empty when ready. */
+  manage_links?: SeatManageLink[] | null
+}
+
+/** #1700: a repair route the UI can act on, not a prose suggestion. */
+export interface SeatManageLink {
+  href: string
+  label: string
+}
+
+/**
+ * The seat kinds `swarm.core.vanilla_seats` resolves. Mirrors
+ * `kind_bases.KIND_*` plus the `blueprint` recipe identity from `agent_kind`.
+ */
+export type SeatKindName = 'api' | 'cli' | 'remote' | 'team' | 'blueprint'
+
+/** #1699 / #1700 — the host facts the gate resolved, published once per listing. */
+export interface BlueprintHostFacts {
+  configured_remotes: string[]
+  on_path_clis: string[]
+  inference_ready: boolean
+  resolved_profiles: string[]
+  /** True when the server could not read the host; every gate then fails open. */
+  unreadable: boolean
+  notes: string[]
 }
 /** GET /v1/support/context/ — live agents + inference for the System → Support pill. */
 export interface SupportChip {
@@ -139,10 +187,105 @@ export interface LibraryEntry {
   name: string
   description: string
 }
+/** #1311 — org-shared bot library recipe (not a live computer). */
+export type OrgLibraryVisibility = 'org' | 'team' | 'private'
+export interface OrgLibraryBot {
+  id: string
+  object: 'org_library.bot'
+  name: string
+  description: string
+  kind: string
+  role: AgentRole | string
+  instructions: string
+  preset: boolean
+  visibility: OrgLibraryVisibility | string
+  team_ids: string[]
+  source: string
+  created_by: string
+  updated_at: string
+}
+export interface OrgLibraryShare {
+  object: 'org_library.share'
+  scope: 'team'
+  team_id: string
+  roster_id: string
+  bot: OrgLibraryBot
+}
+export interface OrgLibraryPublishBody {
+  id?: string
+  name: string
+  description?: string
+  kind?: string
+  role?: string
+  instructions?: string
+  visibility?: OrgLibraryVisibility | string
+  team_id?: string
+}
+
+/** #1311 — Mine / Team / Organisation. Default personal keeps the file library. */
+export type LibraryScope = 'personal' | 'team' | 'org'
+export interface SharedLibraryItem {
+  id: string
+  object: 'shared_library.item'
+  scope: LibraryScope
+  kind: 'blueprint' | 'plugin' | 'team'
+  item_key: string
+  title: string
+  owner_principal: string
+  owner_team: string
+  published: boolean
+  payload: Record<string, unknown>
+}
+export interface RosterPackMember {
+  id: string
+  name?: string
+  kind: string
+  role: string
+  source?: string
+  blueprint_id?: string
+}
+export interface RosterPackRecord {
+  object: 'team_roster_pack' | 'team_roster'
+  id: string
+  name: string
+  members: RosterPackMember[]
+  blueprint_ids?: string[]
+  mcp_server_ids?: string[]
+  skill_ids?: string[]
+  needs_configuration?: Array<{ id: string; reason: string }>
+  imported?: boolean
+}
+export interface SharedLibraryImport {
+  object: 'shared_library.import'
+  imported: boolean
+  item: SharedLibraryItem
+  roster?: RosterPackRecord
+  needs_configuration?: Array<{ id: string; reason: string }>
+}
+export interface PresetRailSeat {
+  id: string
+  name: string
+  kind: string
+  rail: boolean
+  provider?: string | null
+  model?: string | null
+  plugins?: string[]
+  preset_id?: string
+}
+/**
+ * #1745 — a model *type*, alongside the `provider` vendor axis. `chat` emits
+ * tokens; `categorizer` is a System1 gate (filter-in / filter-out seats) and
+ * must never appear on a chat surface.
+ */
+export type LlmModelType = 'chat' | 'categorizer'
 export interface LlmProfile {
   id: string
   object: 'llm_profile'
   source: string
+  /** Model namespace (`api` / `cli` / `remote`). API seats only offer `api`. */
+  namespace?: string
+  /** #1745 `chat` / `categorizer`. Absent on older servers ⇒ `chat`. */
+  model_type?: LlmModelType
   owned_by: string
   name?: string
   model?: string
@@ -161,6 +304,8 @@ export interface LlmTaskRoute {
   warning: string | null
   override_on: boolean
   source: string
+  /** #1745 the resolved profile's model type, so a gate is never read as chat. */
+  model_type?: LlmModelType
 }
 /** GET/POST/PUT/PATCH /v1/llm-profiles/ — named profiles + settings.default_llm_profile SoT. */
 export interface LlmProfilesSettings {
@@ -175,6 +320,8 @@ export interface LlmProfilesSettings {
   warnings: string[]
   routes: Partial<Record<LlmTaskClass, LlmTaskRoute>>
   task_classes: LlmTaskClass[]
+  /** #1745 the model types the backend registry knows (`chat` / `categorizer`). */
+  model_types?: LlmModelType[]
   persisted_to?: string
   /** req44 when #360 helper is present; stub = /v1/models + fixtures. */
   list_models_source?: 'req44' | 'stub'
@@ -196,6 +343,8 @@ export interface UpsertLlmProfileRequest {
   model: string
   base_url?: string
   provider?: string
+  /** #1745 omit ⇒ `chat`; `categorizer` registers a System1 gate. */
+  model_type?: LlmModelType
   api_key?: string
   set_default?: boolean
 }
@@ -324,7 +473,6 @@ export interface TeamAgent {
 export type RemoteKindId =
   | 'hermes'
   | 'anythingllm'
-  | 'letta'
   | 'openwebui'
   | 'flowise'
   | 'n8n'
@@ -354,7 +502,14 @@ export interface RemoteCapabilities {
   list?: boolean
   send?: boolean
   health?: boolean
-  operate?: boolean
+  /**
+   * #1672: there is deliberately no `operate` here. The backend classified
+   * OMB / Rakazo with it but never published anything a client could do with
+   * it — the computer verb answers `computer_operate_unwired` for every
+   * remote (ADR-007 Phase 3 is parked). A key the SPA cannot act on is a
+   * promise it cannot keep, so the server dropped it from the payload and the
+   * client model follows. Do not re-add it without a control that reads it.
+   */
   interrogate?: boolean
   routines?: boolean
   sessions?: boolean
@@ -373,6 +528,12 @@ export interface RemoteConnection {
   api_key_env?: string
   api_key_set?: boolean
   cookie_set?: boolean
+  /** Operator added this remote (persisted entry or env bootstrap). */
+  configured?: boolean
+  /** ``base_url`` is a documentation address / discard port — never an instance. */
+  base_url_placeholder?: boolean
+  /** ``configured`` AND has a probeable address: the one question a seat answers. */
+  usable?: boolean
   health_path?: string
   version_path?: string
   notes?: string
@@ -385,6 +546,11 @@ export interface RemoteConnection {
   ssh_port?: number
   ssh_identity_env?: string
   ssh_agent?: boolean
+  /** #1317: Company attached when this remote was created as a new bot. */
+  company_id?: string
+  company_slug?: string
+  company_name?: string
+  model?: string
   transport?: 'local' | 'ssh' | string
   ssh_shaped?: boolean
   hop_model?: string
@@ -417,6 +583,10 @@ export interface AddRemoteRequest {
   ssh_port?: number | string
   ssh_identity_env?: string
   ssh_agent?: boolean
+  source?: string
+  company_id?: string
+  company?: string
+  model?: string
 }
 export type CreateRemoteRequest = AddRemoteRequest
 export interface RemoteHealthResult {
@@ -428,6 +598,12 @@ export interface RemoteHealthResult {
   version?: unknown
   latency_ms?: number | null
   url?: string
+  /**
+   * Machine-readable "nothing was probed" code from `HealthResult.gap`.
+   * `remote_not_added` / `remote_base_url_placeholder` mean the seat has no
+   * instance to reach, so it must read as *not configured*, never as offline.
+   */
+  gap?: string
 }
 export interface RemoteOperateResult {
   remote: string
@@ -571,6 +747,29 @@ export interface CustomBlueprint {
     password_env?: string
     box?: string
   }
+  /** #1317: Company attached when this row is a new bot. */
+  company_id?: string
+  company_slug?: string
+  company_name?: string
+  model?: string
+}
+
+/** GET /v1/companies/ — Company model policy (#1315) + bot attach (#1317). */
+export interface CompanyModelPolicy {
+  mode: 'allow_all' | 'allowlist' | 'denylist' | string
+  allowed_models: string[]
+  denied_models: string[]
+  default_model: string
+}
+export interface Company {
+  object: 'company'
+  id: string
+  name: string
+  slug: string
+  model_policy: CompanyModelPolicy
+  default_model: string
+  created_at?: string | null
+  updated_at?: string | null
 }
 export interface CreateCustomBlueprintRequest {
   id?: string
@@ -583,6 +782,9 @@ export interface CreateCustomBlueprintRequest {
   command?: string
   rail?: boolean
   source?: string
+  company_id?: string
+  company?: string
+  model?: string
   remote?: {
     host?: string
     port?: number
@@ -737,6 +939,8 @@ export interface CliAgentsInfo {
   discovered?: string[]
   /** Alias of discovered (chat dropdown / older clients). */
   installed?: string[]
+  /** Absolute executable path per discovered CLI (name -> path). */
+  paths?: Record<string, string>
   /** Discovered-minus-configured catalog entries for one-click add. */
   suggestions?: Record<string, Record<string, unknown>>
   default_cli?: string
@@ -759,8 +963,9 @@ export interface CliAgentsInfo {
   slash_commands?: Record<string, CliSlashCommandSpec[]>
   /** #636: per-CLI provider-native compact hooks (argv templates). */
   cli_compact?: Record<string, string>
-  /** #551: per-kind seat capability declarations — the gate channel for
-   * attach/compact/plugins/routines. Absent capability = not offered. */
+  /** #551 / #1374: per-kind seat capability declarations — the gate
+   * channel for attach/compact/plugins/routines/parallel_fan_out.
+   * Absent capability = not offered. */
   seat_capabilities?: Record<string, Record<string, { enabled: boolean; reason: string }>>
   /** Issue #180: per-CLI remote/headless capability (serve / ssh / api / none). */
   remote?: Record<string, {
@@ -871,6 +1076,44 @@ export interface SkillsList {
   object: 'list'
   data: SkillRecord[]
 }
+
+/** Per-agent prose skill (#1392 / #1393). Description is the when-to-use hint. */
+export type AgentSkillSource = 'authored' | 'library' | 'pack'
+
+export interface AgentSkillRecord {
+  name: string
+  description: string
+  instructions: string
+  source?: AgentSkillSource | string
+  first_run?: boolean
+  agent_id?: string
+  object?: 'agent_skill'
+}
+
+export interface AgentGettingStarted {
+  skill: string
+}
+
+export interface AgentSkillsList {
+  object: 'agent_skill_list'
+  agent_id: string
+  skills: AgentSkillRecord[]
+  gettingStarted: AgentGettingStarted | null
+  first_run_pending: boolean
+}
+
+export interface AgentPackSkill {
+  name: string
+  description: string
+  instructions: string
+}
+
+export interface AgentPack {
+  object: 'agent_pack'
+  kind: 'swarm-agent-pack'
+  skills: AgentPackSkill[]
+  gettingStarted: AgentGettingStarted
+}
 export interface ConfigOptions {
   skills: SkillRecord[]
   inference: {
@@ -938,6 +1181,52 @@ export interface McpPluginDiscoverPayload {
   source?: 'generic' | 'openapi'
   tools: McpPluginTool[]
 }
+/** GET /v1/agents/<id>/plugins/pack/ — ids only, no tokens (#1396 / #1397). */
+export interface AgentPluginIdRow {
+  pluginId: string
+  name: string
+  description: string
+}
+export type AgentPluginHostStatus =
+  | 'enabled'
+  | 'missing'
+  | 'missing-auth'
+  | 'missing-plugin'
+export interface AgentPluginStatusRow extends AgentPluginIdRow {
+  status: AgentPluginHostStatus
+  /** Env *names* only. Values never belong here. */
+  required_env?: string[]
+}
+/** Custom MCP that is named in memory, not packed as a plugin id. */
+export interface AgentPluginMemoryNamed {
+  name: string
+  note: string
+}
+export interface AgentPluginPack {
+  object: 'agent_plugin_pack'
+  schema: number
+  kind: string
+  plugins: AgentPluginIdRow[]
+  agent_id?: string
+  memory_named?: AgentPluginMemoryNamed[]
+}
+export interface AgentPluginsStatus {
+  object: 'agent_plugins' | 'agent_plugin_pack_import'
+  agent_id: string
+  plugins: AgentPluginStatusRow[]
+  enabled: string[]
+  missing: string[]
+  missing_auth?: string[]
+  missing_plugins?: string[]
+  memory_named?: AgentPluginMemoryNamed[]
+  pack?: {
+    object: string
+    schema: number
+    kind: string
+    plugins: AgentPluginIdRow[]
+    memory_named?: AgentPluginMemoryNamed[]
+  }
+}
 export type MarketplaceCatalogKind = 'teams' | 'plugins' | 'skills'
 export interface MarketplaceCatalogItem {
   id: string
@@ -967,6 +1256,14 @@ export interface MarketplaceCatalogItem {
   skill?: Record<string, unknown>
   team?: Record<string, unknown>
 }
+export interface MarketplaceSourceStatus {
+  source: string
+  source_label?: string
+  enabled?: boolean
+  stalled_reason?: string | null
+  cached?: boolean
+  item_count?: number
+}
 export interface MarketplaceCatalogResponse {
   object: 'marketplace_catalog'
   kind: MarketplaceCatalogKind
@@ -974,6 +1271,10 @@ export interface MarketplaceCatalogResponse {
   external: boolean
   items: MarketplaceCatalogItem[]
   warnings: string[]
+  // #1327: per-source stall reasons so the UI can show why a source stalled
+  // instead of silently hiding its results.
+  source_status?: MarketplaceSourceStatus[]
+  stalled_reason?: string | null
 }
 export interface MarketplaceInstallResponse {
   object: 'marketplace_install'
@@ -984,8 +1285,59 @@ export interface MarketplaceInstallResponse {
   health?: 'up' | 'down' | 'unknown'
   message?: string
   required_env?: string[]
-  tools?: { name: string; description?: string }[]
+  tools?: { name: string; description: string }[]
   skill?: { name: string; assets?: string[] }
   roster?: Record<string, unknown>
   needs_configuration?: { id: string; reason: string }[]
+}
+
+/**
+ * GET/PATCH `/v1/preferences/` (REQ-144).
+ *
+ * #1202: `hide_unsupported_agent_picker` / `hide_unsupported_session_picker`
+ * let a power user unmount a navbar selector the active seat cannot support
+ * instead of leaving it greyed. Both default `false`. The server may surface
+ * them top-level or inside the `values` bag (older rows) — read both.
+ */
+export interface UserPreferences {
+  object: 'user_preferences'
+  principal: string
+  guest: boolean
+  empty: boolean
+  hide_unsupported_agent_picker?: boolean
+  hide_unsupported_session_picker?: boolean
+  operator_profile?: {
+    name?: string
+    timezone?: string
+    about?: string
+  }
+  /** #1323: global operator note injected as [Operator profile]. */
+  about_me?: string
+  /** #1314: who can read GET /v1/activity/ (off | operator | all). */
+  activity_log_visibility?: ActivityLogVisibility
+  values?: Record<string, unknown>
+}
+
+/** GET/POST /v1/activity/ — operator ActivityEvent feed (#1314). */
+export type ActivityLogVisibility = 'off' | 'operator' | 'all'
+
+export interface ActivityEvent {
+  id: string
+  actor_type: string
+  actor_id: string
+  action: string
+  entity_type: string
+  entity_id: string
+  agent_id?: string | null
+  run_id?: string | null
+  responsible_user_id?: string | null
+  detail?: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface ActivityList {
+  object: 'activity_list'
+  items: ActivityEvent[]
+  count: number
+  visibility: ActivityLogVisibility
 }

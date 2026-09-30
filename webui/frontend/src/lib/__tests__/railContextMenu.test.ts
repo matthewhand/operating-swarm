@@ -248,7 +248,7 @@ describe('sectionMenuItems (REQ-209)', () => {
       'section-delete',
     ])
     expect(items.find((item) => item.id === 'section-talk-lock')?.label).toBe(
-      'Isolate members (no peer awareness)',
+      'Isolate members',
     )
     expect(sectionMenuItems({ canMoveUp: true, canMoveDown: true, internalOnly: true }).find(
       (item) => item.id === 'section-talk-lock',

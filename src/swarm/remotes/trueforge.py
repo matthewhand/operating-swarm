@@ -40,3 +40,20 @@ class TrueForgeAdapter(RemoteAdapter):
         from swarm.core import remotes
 
         return remotes._trueforge_routines(self.spec, timeout)
+
+    def resume_with_answer(
+        self,
+        session_id: str,
+        pending_action: dict[str, Any],
+        answer: str,
+        timeout: float,
+    ) -> OperateResult:
+        from swarm.core import remotes
+
+        return remotes._trueforge_resume_pending(
+            self.spec,
+            session_id=session_id,
+            pending_action=pending_action,
+            content=answer,
+            timeout=timeout,
+        )

@@ -1,6 +1,6 @@
 # remote_harness
 
-Open Swarm as a **harness for other harnesses**: Hermes, OpenMausBot (OMB), Rakazo, and a nested open-swarm process.
+Operating Swarm as a **harness for other harnesses**: Hermes, OpenMausBot (OMB), Rakazo, and a nested open-swarm process.
 
 This blueprint does **not** clone Grok / OMB / Rakazo seats. It configures remotes,
 probes health, and (when the remote exposes an API) lists or sends a job through

@@ -161,6 +161,8 @@ describe('REQ-910 (#509): plugins popup frame is pane-independent', () => {
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
     fireEvent.click(screen.getByRole('tab', { name: 'Add skills' }))
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
+    fireEvent.click(screen.getByRole('tab', { name: 'Pack' }))
+    expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
     // #516: the pane label renamed from "This chat" — the scope is the agent.
     fireEvent.click(screen.getByRole('tab', { name: 'This agent' }))
     expect(screen.getByRole('dialog', { name: 'Plugins' }).className).toBe(initial)
@@ -209,11 +211,12 @@ describe('REQ-911 (#510): the pane strip is a legible tab control', () => {
     expect(light).toMatch(/background/)
   })
 
-  it('renders three real tabs whose aria-selected tracks the active pane', async () => {
+  it('renders four real tabs whose aria-selected tracks the active pane', async () => {
     renderPopup()
     const tabs = await screen.findAllByRole('tab')
     // #516: the pane label renamed from "This chat" — the scope is the agent.
-    expect(tabs.map((t) => t.textContent)).toEqual(['This agent', 'Add tools', 'Add skills'])
+    // #1397: Pack / import / status is a first-class pane.
+    expect(tabs.map((t) => t.textContent)).toEqual(['This agent', 'Add tools', 'Add skills', 'Pack'])
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(tabs[1])
     expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
@@ -245,9 +248,9 @@ describe('REQ-912 (#511): Plugins/Calendar gated to swarm-owned seats', () => {
     const calendar = screen.getByTestId('os-calendar-button')
     expect(plugins).not.toHaveAttribute('data-disabled')
     fireEvent.click(plugins)
-    expect(screen.getByTestId('os-plugins-popup')).toBeInTheDocument()
+    expect(await screen.findByTestId('os-plugins-popup')).toBeInTheDocument()
     fireEvent.click(calendar)
-    expect(screen.getByTestId('agent-calendar-overlay')).toBeInTheDocument()
+    expect(await screen.findByTestId('agent-calendar-overlay')).toBeInTheDocument()
   })
 
   it('CLI seat: buttons refuse, and the window-event routes are gated too', async () => {

@@ -10,6 +10,7 @@ from swarm.core.agent_types import AGENT_TYPES, agent_type_for_kind
 from swarm.core.remote_harness import (
     COMPUTER_OPS,
     REMOTE_IMPL_IDS,
+    SERVER_SIDE_ONLY_CAPABILITIES,
     USER_FACING_KIND,
     BoundRemoteHarness,
     RemoteCapabilities,
@@ -35,7 +36,6 @@ def test_user_facing_kind_is_always_remote():
     assert set(REMOTE_IMPL_IDS) == {
         "hermes",
         "anythingllm",
-        "letta",
         "openwebui",
         "flowise",
         "n8n",
@@ -44,6 +44,8 @@ def test_user_facing_kind_is_always_remote():
         "herdr",
         "swarm",
         "trueforge",
+        "octop",
+        "openmuse",
     }
 
 
@@ -71,16 +73,13 @@ def test_capabilities_computer_only_on_omb_and_rakazo():
     assert capabilities_for("rakazo").operate is True
     assert capabilities_for("hermes").operate is False
     assert capabilities_for("anythingllm").operate is False
-    assert capabilities_for("letta").operate is False
     assert capabilities_for("herdr").operate is False
     assert capabilities_for("herdr").interrogate is True
     assert capabilities_for("herdr").transport == "cli"
     assert capabilities_for("hermes").transport == "http"
     assert capabilities_for("anythingllm").transport == "http"
-    assert capabilities_for("letta").transport == "http"
     assert capabilities_for("hermes").sessions is True
     assert capabilities_for("anythingllm").sessions is True
-    assert capabilities_for("letta").sessions is True
     assert capabilities_for("openwebui").sessions is True
     assert capabilities_for("flowise").sessions is True
     assert capabilities_for("n8n").sessions is True
@@ -100,10 +99,44 @@ def test_implementation_catalog_kind_is_remote_impl_is_id():
         assert caps["list"] is True
         assert caps["send"] is True
         assert caps["health"] is True
-        if row["id"] in {"omb", "rakazo"}:
-            assert caps["operate"] is True
-        else:
-            assert caps["operate"] is False
+        # #1672: `operate` is gone from the wire. The catalog used to publish
+        # True for omb/rakazo while `computer_operate_stub()` answered
+        # `computer_operate_unwired` for them — the key announced a control no
+        # call could deliver, and nothing in the SPA read it. The
+        # server-side classification is unchanged (see the test above).
+        assert "operate" not in caps
+        for key in SERVER_SIDE_ONLY_CAPABILITIES:
+            assert key not in caps
+
+
+def test_the_public_dict_publishes_no_server_side_only_capability():
+    # #1672. Both wire paths go through `as_dict()`: the kinds catalog
+    # (`list_remote_kinds`) and every `/v1/remotes/` row (`public_dict`).
+    for row in remotes_core.list_remote_kinds():
+        for key in SERVER_SIDE_ONLY_CAPABILITIES:
+            assert key not in row["capabilities"], row["id"]
+    for kind in ("hermes", "omb", "rakazo", "herdr", "openmuse"):
+        caps = remotes_core.default_spec(kind).public_dict()["capabilities"]
+        assert caps["list"] is True
+        assert caps["send"] is True
+        assert caps["health"] is True
+        assert "operate" not in caps, kind
+        assert "interrogate" in caps and "sessions" in caps
+
+
+def test_the_server_side_classification_survives_the_removal():
+    # #1672: dropping the key from the payload must not change which message a
+    # computer op gets. `operate` still says "this vendor is a computer remote"
+    # and is still what separates the two honest refusals.
+    assert SERVER_SIDE_ONLY_CAPABILITIES == ("operate",)
+    assert capabilities_for("omb").operate is True
+    assert capabilities_for("rakazo").operate is True
+    assert capabilities_for("hermes").operate is False
+    assert computer_operate_stub("omb", "computer-status").gap == "computer_operate_unwired"
+    assert computer_operate_stub("hermes", "computer-status").gap == "computer_not_supported"
+    for impl_id in REMOTE_IMPL_IDS:
+        # Nothing claims a computer op works, whatever the classification says.
+        assert computer_operate_stub(impl_id, "computer").ok is False
 
 
 def test_public_dict_user_kind_is_remote():
@@ -140,7 +173,6 @@ def test_herdr_is_remote_impl_not_fifth_kind():
     assert classify_agent_kind("herdr:w3:p1") == "remote"
     assert classify_agent_kind("hermes") == "remote"
     assert classify_agent_kind("anythingllm") == "remote"
-    assert classify_agent_kind("letta") == "remote"
     assert classify_agent_kind("openwebui") == "remote"
     assert classify_agent_kind("open-webui") == "remote"
     assert classify_agent_kind("flowise") == "remote"

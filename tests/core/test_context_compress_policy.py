@@ -316,15 +316,23 @@ def _prep_result_for(agent_id: str, messages: list):
 
 
 @pytest.mark.django_db
-def test_blueprint_seats_keep_compression_per_issue_72_acceptance():
-    """#72: CLI/remote manage their own context; API *and* blueprint seats keep compress."""
+def test_blueprint_and_cli_and_remote_seats_are_not_auto_compacted():
+    """#1230: auto-compact is API-only. Blueprint seats used to be folded in by
+    #72's acceptance convenience; they now gate exactly like CLI/remote so the
+    send-path matches the API-only Compact affordance."""
     messages = _turns(
         ("user", "turn 1"),
         ("assistant", "turn 2"),
     )
-    for seat in ("codey", "blueprint:codey"):
+    # API seats stay eligible (reason is anything other than the non-api gate).
+    api_res = _prep_result_for("codey", messages)
+    assert api_res.reason != "non_api_agent"
+    # Blueprint-prefixed and CLI/remote seats are refused identically.
+    for seat in ("blueprint:codey", "cli:grok", "remote:hermes"):
         res = _prep_result_for(seat, messages)
-        assert res.reason != "non_api_agent", seat
+        assert res.acted is False, seat
+        assert res.reason == "non_api_agent", seat
+        assert res.info is None, seat
 
 
 @pytest.mark.django_db

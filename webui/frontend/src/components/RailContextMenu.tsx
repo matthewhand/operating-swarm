@@ -86,14 +86,21 @@ function SubMenuItem({
           <hr className="border-base-300" />
         </li>
       ) : null}
-      <li>
+      <li className={child.disabled ? 'disabled' : undefined}>
         <button
           type="button"
           role="menuitem"
           data-menu-id={parentId}
           data-move-to={child.id}
+          data-move-to-disabled={child.disabled ? 'true' : undefined}
           aria-checked={child.checked || undefined}
-          onClick={() => onSubSelect?.(parentId, child.id)}
+          aria-disabled={child.disabled || undefined}
+          disabled={child.disabled}
+          title={child.reason}
+          onClick={() => {
+            if (child.disabled) return
+            onSubSelect?.(parentId, child.id)
+          }}
         >
           <Check
             className={`h-4 w-4 ${child.checked ? '' : 'opacity-0'}`}
@@ -148,6 +155,12 @@ export function RailMenuItem({ spec, onSelect, onSubSelect }: RailMenuItemProps)
         type="button"
         role="menuitem"
         disabled={spec.disabled}
+        // #1727: parity with the Move-to sub-items (#1714). A greyed top-level
+        // item has to be announced as unavailable, not merely look it —
+        // `aria-disabled` is what a screen reader reads, and it is also what
+        // makes "this cannot be done here" legible to anyone who cannot see
+        // the grey.
+        aria-disabled={spec.disabled || undefined}
         title={spec.reason}
         data-menu-id={spec.id}
         className={danger ? 'text-error' : undefined}

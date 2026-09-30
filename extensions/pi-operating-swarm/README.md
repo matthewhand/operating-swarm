@@ -1,6 +1,6 @@
 # pi-operating-swarm
 
-Open Swarm extension for the [Pi agent harness](https://github.com/earendil-works/pi)
+Operating Swarm extension for the [Pi agent harness](https://github.com/earendil-works/pi)
 (#1081 Phase 2 — prototype).
 
 Registers Swarm-side tools and lifecycle hooks into Pi's extension host so a

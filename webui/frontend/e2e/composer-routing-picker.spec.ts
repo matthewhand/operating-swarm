@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import path from 'node:path'
+import { artifactsDir } from './helpers/artifacts'
 
 const CLI_AGENTS = {
   clis: ['agy', 'claude', 'codex', 'gemini', 'grok'],
@@ -80,7 +82,7 @@ test('composer routing picker is beside mic, borderless at rest, zero layout shi
 
   // Rest screenshot
   await page.screenshot({
-    path: '/app/artifacts/584-composer-routing-rest.png',
+    path: path.join(artifactsDir(), '584-composer-routing-rest.png'),
   })
 
   // Hover over the routing pill
@@ -94,7 +96,7 @@ test('composer routing picker is beside mic, borderless at rest, zero layout shi
 
   // Hover screenshot
   await page.screenshot({
-    path: '/app/artifacts/584-composer-routing-hover.png',
+    path: path.join(artifactsDir(), '584-composer-routing-hover.png'),
   })
 
   // Click pill to open flyout upward
@@ -109,6 +111,6 @@ test('composer routing picker is beside mic, borderless at rest, zero layout shi
 
   // Open screenshot
   await page.screenshot({
-    path: '/app/artifacts/584-composer-routing-open.png',
+    path: path.join(artifactsDir(), '584-composer-routing-open.png'),
   })
 })

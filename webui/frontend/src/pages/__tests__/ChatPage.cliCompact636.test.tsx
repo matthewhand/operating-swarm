@@ -1,7 +1,10 @@
 /**
- * #636 — the composer Compact flow for a CLI seat: enabled by a configured
- * default API, click runs the compact + new-session orchestration, and the
- * transcript shows the new-session status. Greyed state carries the API reason.
+ * #1230 — a CLI seat offers no Compact at all.
+ *
+ * The old #636 flow (compact a CLI seat through a summary + fresh session) is
+ * gone: Compact is API-only. This pins the user-visible contract — the `+`
+ * menu lists no Compact item, and no disabled/"not available" Compact text is
+ * ever rendered for a CLI seat.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
@@ -55,7 +58,7 @@ function renderChat(initialEntry = '/chat?blueprint=cli_agent&mode=cli&cli=grok'
   )
 }
 
-describe('#636 CLI seat Compact', () => {
+describe('#1230 CLI seat offers no Compact', () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn()
     MockWebSocket.instances = []
@@ -94,6 +97,15 @@ describe('#636 CLI seat Compact', () => {
                 ],
                 slash_commands: {},
                 cli_compact: {},
+                // #551: the published kind-base declarations (CLI compact OFF).
+                seat_capabilities: {
+                  cli: {
+                    attach: { enabled: false, reason: 'CLI attachments off' },
+                    compact: { enabled: false, reason: 'Compact is API-only' },
+                    plugins: { enabled: false, reason: 'API/blueprint only' },
+                    routines: { enabled: false, reason: 'swarm-side only' },
+                  },
+                },
               }),
               { status: 200 },
             ),
@@ -101,40 +113,7 @@ describe('#636 CLI seat Compact', () => {
         }
         if (urlStr.includes('/v1/llm-profiles')) {
           return Promise.resolve(
-            new Response(
-              JSON.stringify({ default_llm_ready: true }),
-              { status: 200 },
-            ),
-          )
-        }
-        if (urlStr.includes('/chat/compact/')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                summary: { id: 'sum-1', span: [0, 10], body: 'Summary body' },
-                summaries: [{ id: 'sum-1', span: [0, 10], body: 'Summary body' }],
-                raw_count: 10,
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        if (urlStr.includes('/v1/cli-sessions/select/')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                object: 'cli_session_select',
-                agent_id: 'cli_agent',
-                cli: 'grok',
-                conversation_id: 'conv-new-9',
-                cli_session_id: null,
-                messages: [],
-                status: 'Started a new grok session.',
-                collapsed_prior: false,
-                import: 'none',
-              }),
-              { status: 200 },
-            ),
+            new Response(JSON.stringify({ default_llm_ready: true }), { status: 200 }),
           )
         }
         return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
@@ -159,35 +138,28 @@ describe('#636 CLI seat Compact', () => {
     })
   }
 
-  it('enables Compact on a CLI seat when a default API is configured', async () => {
+  it('renders no Compact menu item on a CLI seat, even with a default API', async () => {
     renderChat()
     await openWebSocket()
     await openPlusMenu()
 
-    const item = await screen.findByTestId('composer-compact-button')
-    expect(item).toBeEnabled()
+    // The menu opens (Add files is present) …
+    expect(await screen.findByRole('menuitem', { name: 'Add files' })).toBeInTheDocument()
+    // … but there is no Compact control at all — no disabled, no "not available".
+    expect(screen.queryByTestId('composer-compact-button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Compact' })).not.toBeInTheDocument()
   })
 
-  it('clicking Compact runs compact + new session and reports the status', async () => {
+  it('never surfaces the "not available" compact copy on a CLI seat', async () => {
     renderChat()
     await openWebSocket()
-
-    // Seed a message so compact has material and the composer has a thread.
-    const input = screen.getByRole('textbox', { name: 'Chat message' })
-    await act(async () => {
-      fireEvent.change(input, { target: { value: 'hello world' } })
-    })
     await openPlusMenu()
 
-    fireEvent.click(await screen.findByTestId('composer-compact-button'))
-
-    await waitFor(
-      () => {
-        expect(
-          screen.queryByTestId('composer-compact-button'),
-        ).not.toBeInTheDocument()
-      },
-      { timeout: 3000 },
-    )
+    await waitFor(() => {
+      expect(screen.queryByText(/no api is configured/i)).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Compact is not implemented/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Compact is unavailable/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/compact not available/i)).not.toBeInTheDocument()
   })
 })

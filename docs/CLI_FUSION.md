@@ -2,7 +2,7 @@
 
 Most agentic CLIs (`claude`, `gemini`, `codex`, `opencode`, `omp`, …) are powerful but
 **not** OpenAI-compatible, and each only orchestrates its own model's subagents.
-Open Swarm's CLI-fusion blueprints turn whatever CLIs you already have installed
+Operating Swarm's CLI-fusion blueprints turn whatever CLIs you already have installed
 into composable, API-addressable subagents:
 
 - **`cli_agent`** — expose a *single* CLI over `/v1/chat/completions`.
@@ -15,7 +15,7 @@ except the panelists are *your local toolbox*, not a fixed hosted set — and th
 can use any tools their own CLI provides (MCP servers, file access, web, …).
 
 Any OpenAI client (Open WebUI, Cursor, the OpenAI SDK, a shell script) talks to
-them with no changes — just point at the Open Swarm API and pick the model name.
+them with no changes — just point at the Operating Swarm API and pick the model name.
 
 ---
 
@@ -34,7 +34,7 @@ swarm-cli cli-agents --smoke          # confirm they answer non-interactively
 ```
 
 **Opt-in catalog (REQ-157 / #565) + CLI-first start set (#149 / #151).**
-`cli_agents` starts **empty**. On startup (and `GET /v1/cli-agents/`) Open Swarm
+`cli_agents` starts **empty**. On startup (and `GET /v1/cli-agents/`) Operating Swarm
 **discovers** known CLIs on PATH / user-local bins **without an auth check**:
 `grok`, `agy` (antigravity), `claude`, `gemini`, `codex`, `opencode`, `omp`,
 `pi`, `qwen`. Three lists:
@@ -70,7 +70,7 @@ wire it by hand instead:
 1. Add a `cli_agents` block (and optionally `cli_fusion`) to your
    `~/.config/swarm/swarm_config.json` — see [the example](#full-example) below.
 2. Make sure the CLIs are installed and **logged in** on the host (each CLI
-   authenticates itself; Open Swarm does not proxy their credentials).
+   authenticates itself; Operating Swarm does not proxy their credentials).
 3. Call the API:
 
 ```bash
@@ -87,7 +87,7 @@ curl -sf http://localhost:8000/v1/chat/completions \
        "params":{"preset":"general-high","show_analysis":true}}' | jq -r '.choices[0].message.content'
 ```
 
-`params` is the standard Open Swarm per-request field; OpenAI SDKs send it via
+`params` is the standard Operating Swarm per-request field; OpenAI SDKs send it via
 `extra_body={"params": {...}}`.
 
 ### Autodiscovery
@@ -187,7 +187,7 @@ get a panelist that actually *does work*, pin down two flags from its `--help`:
 
 ### CLI session resume (REQ-52)
 
-Catalog CLIs **own** their sessions. Open Swarm stores each CLI session id next
+Catalog CLIs **own** their sessions. Operating Swarm stores each CLI session id next
 to the chat thread (`cli_sessions` on the per-agent JSON record) and, on the
 next send to that CLI, inserts the resume argv so the CLI restores its own
 context. This is not a Django/API conversation id and not OS
@@ -587,7 +587,8 @@ curl -sf localhost:8000/v1/chat/completions -H "Content-Type: application/json" 
 The same skill works on grok, claude, or gemini (verified live, 3/3). Bundled
 examples: `conventional-commit`, `reviewing-code`, `writing-changelog`,
 `counting-lines` (ships an executable `count.py`), `support-session-ownership`
-(Support session ownership). See the illustrated
+(Support session ownership), `orca-cli` (JSON driver for Orca ADE worktrees
+and terminals, #1364). See the illustrated
 [walkthrough](SKILLS_AND_CONSENSUS_WALKTHROUGH.md).
 
 ## Inference profiles — say what you want, not which model

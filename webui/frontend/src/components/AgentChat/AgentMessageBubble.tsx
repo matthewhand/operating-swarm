@@ -14,6 +14,7 @@ import {
   messageHasCopyableText,
 } from '../../lib/clipboard'
 import { renderSafeMarkdown } from '../../lib/markdown'
+import { handleSettingsLinkClick } from '../../lib/settingsLinks'
 import { SystemPreloadPill } from '../SystemPreloadPill'
 import { useCompactedCardMenu } from '../CompactedCardContextMenu'
 import { compactedCardCopyText, messageFromLabel } from '../../lib/compactedCardMenu'
@@ -392,6 +393,9 @@ export function AgentMessageBubble({
             <div
               className="chat-md os-chat-md break-words [&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:underline"
               dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(message.text) }}
+              onClick={(event) => {
+                handleSettingsLinkClick(event.nativeEvent)
+              }}
             />
           )}
           {message.delegationId && onOpenDelegation && (
@@ -415,8 +419,11 @@ export function AgentMessageBubble({
                 key={`${r.emoji}-${idx}`}
                 type="button"
                 data-testid={`reaction-${r.emoji}`}
-                className={`badge badge-sm cursor-pointer select-none gap-1 py-2 px-2 text-xs transition-colors ${
-                  r.userReacted ? 'badge-primary' : 'badge-ghost border-base-300'
+                data-user-reacted={r.userReacted ? 'true' : undefined}
+                className={`os-reaction-pill badge badge-sm cursor-pointer select-none gap-1 py-2 px-2 text-xs transition-opacity motion-reduce:transition-none ${
+                  r.userReacted
+                    ? 'badge-primary opacity-100'
+                    : 'badge-ghost border-base-300 opacity-45 hover:opacity-100 focus-visible:opacity-100'
                 }`}
                 onClick={() =>
                   onAddReaction?.(

@@ -181,7 +181,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByRole('tab', { name: /^API\b/i })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: /^CLI\b/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /^Remote\b/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /manage teams/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /group chats/i })).toBeInTheDocument()
   })
 
   it('tabs available agents by kind without per-row KIND_LABEL badges', async () => {
@@ -291,6 +291,27 @@ describe('TeamComposer first-launch overlay', () => {
     expect(screen.getByText(/drop agents here/i)).toBeInTheDocument()
   })
 
+  it('anchors the context menu in the open dialog top layer with readable text and clamped coords', async () => {
+    renderComposer()
+    const available = await screen.findByRole('list', { name: /available agents list/i })
+    selectAgentKindTab('CLI')
+    // contextmenu bubbles from the label to the row's handler.
+    fireEvent.contextMenu(within(available).getByText('grok'), { clientX: 1400, clientY: 880 })
+
+    const menu = await screen.findByRole('menu', { name: /Actions for grok/i })
+    // The dialog's `.modal-box` carries a `translate`, which makes it the
+    // containing block for `position: fixed` descendants — the menu is
+    // portalled into the open dialog so `left`/`top` stay viewport-relative.
+    expect(menu.className).toContain('text-neutral-content')
+    const style = window.getComputedStyle(menu)
+    const left = Number.parseInt(style.left, 10)
+    const top = Number.parseInt(style.top, 10)
+    expect(Number.isFinite(left)).toBe(true)
+    expect(Number.isFinite(top)).toBe(true)
+    expect(left).toBeGreaterThanOrEqual(8)
+    expect(top).toBeGreaterThanOrEqual(8)
+  })
+
   it('saves the roster contract without posting to /v1/teams/', async () => {
     const fetchMock = vi.mocked(fetch)
     renderComposer()
@@ -298,7 +319,7 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.drop(dropZone, {
       dataTransfer: mockDataTransfer({ [DRAG_MIME]: encodeDragAgent(AGENTS[1]) }),
     })
-    fireEvent.change(screen.getByLabelText(/team name/i), {
+    fireEvent.change(screen.getByLabelText(/group chat name/i), {
       target: { value: 'Research Squad' },
     })
 
@@ -375,13 +396,13 @@ describe('TeamComposer first-launch overlay', () => {
     await addAvailableAgent('Remote')
     expandInstructions()
 
-    fireEvent.change(screen.getByLabelText(/team name/i), {
+    fireEvent.change(screen.getByLabelText(/group chat name/i), {
       target: { value: 'Research Squad' },
     })
     fireEvent.change(screen.getByTestId('team-cos-select'), { target: { value: 'jeeves' } })
     const instructions = screen.getByTestId('team-cos-instructions')
     expect(instructions).not.toBeDisabled()
-    expect((instructions as HTMLTextAreaElement).value).toMatch(/coordinate this team's roster/i)
+    expect((instructions as HTMLTextAreaElement).value).toMatch(/coordinate this rig's roster/i)
     fireEvent.change(instructions, {
       target: { value: 'prefer grok_agent for revision control' },
     })
@@ -475,7 +496,7 @@ describe('TeamComposer first-launch overlay', () => {
     expect(within(reordered[1]).getByTestId('roster-index')).toHaveTextContent('2')
     expect(screen.getByTestId('team-cos-select')).toHaveDisplayValue('First agent (roster #1)')
 
-    fireEvent.change(screen.getByLabelText(/team name/i), {
+    fireEvent.change(screen.getByLabelText(/group chat name/i), {
       target: { value: 'Research Squad' },
     })
     fetchMock.mockImplementation(async (input, init) => {
@@ -712,7 +733,7 @@ describe('TeamComposer first-launch overlay', () => {
     fireEvent.click(screen.getByRole('button', { name: /add github mcp tool/i }))
     expect(screen.getByTestId('team-tool-mcp-agents')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText(/team name/i), { target: { value: 'Research Squad' } })
+    fireEvent.change(screen.getByLabelText(/group chat name/i), { target: { value: 'Research Squad' } })
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input)
       if (init?.method === 'POST') {
@@ -805,11 +826,11 @@ describe('#841 — no backend jargon in user-facing copy', () => {
     expect(container.textContent).not.toMatch(/Django/i)
     expect(container.textContent).not.toMatch(/teams\.json/)
     expect(container.textContent).not.toMatch(/team_rosters\.json/)
-    expect(container.textContent).toMatch(/Compose a roster of API, CLI, and remote agents/i)
+    expect(container.textContent).toMatch(/Build a group chat: add API, CLI, and remote agents/i)
   })
 })
 
-describe('#839 — Team Lead naming, lead badge, per-member delegation toggle', () => {
+describe('#839 — group chat lead naming, lead badge, per-member delegation toggle', () => {
   beforeEach(() => {
     localStorage.clear()
     agentsFixture = AGENTS
@@ -826,11 +847,11 @@ describe('#839 — Team Lead naming, lead badge, per-member delegation toggle', 
     await addAvailableAgent('CLI') // grok → roster #2
   }
 
-  it('labels the coordinator fieldset "Team Lead" with explanatory copy', async () => {
+  it('labels the coordinator fieldset "Group chat lead" with explanatory copy', async () => {
     await composerWithTwoApiMembers()
     const fieldset = screen.getByTestId('team-cos-fieldset')
-    expect(within(fieldset).getByText('Team Lead')).toBeInTheDocument()
-    expect(screen.getByTestId('team-lead-hint').textContent).toMatch(/Team Lead is the primary agent/i)
+    expect(within(fieldset).getByText('Group chat lead')).toBeInTheDocument()
+    expect(screen.getByTestId('team-lead-hint').textContent).toMatch(/group chat lead is the primary agent/i)
   })
 
   it('shows the 👑 Lead badge on the first roster member only', async () => {

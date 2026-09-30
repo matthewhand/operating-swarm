@@ -42,8 +42,10 @@ uv run pytest -k spinner      # by keyword
 cd webui/frontend && npm ci && npm test   # Vitest SPA contracts (PR gate)
 ```
 
-Pytest is configured in `pyproject.toml` (Django settings, asyncio mode,
-test paths). Some suites are skipped without API keys or optional services;
+Pytest is configured in `pytest.ini` (Django settings, asyncio mode, test
+paths, the global per-test hang guard). It used to also be declared in
+`pyproject.toml`, where pytest silently ignored it — do not re-add a second
+config source. Some suites are skipped without API keys or optional services;
 that is expected.
 
 **CI is a thin default suite** (Actions budget / #250). On every PR/`main`

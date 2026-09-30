@@ -73,7 +73,7 @@ describe('SPA /teams/<id> deep link (#524)', () => {
   })
 
   it('mounts the chat surface for /teams/demo-team (no blank, no seat fallback)', async () => {
-    renderAppAt('/teams/demo-team')
+    await renderAppAt('/teams/demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -86,7 +86,7 @@ describe('SPA /teams/<id> deep link (#524)', () => {
   })
 
   it('lands on the team chat (not the bare new-chat blueprint) via the path form', async () => {
-    renderAppAt('/teams/demo-team')
+    await renderAppAt('/teams/demo-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -97,7 +97,7 @@ describe('SPA /teams/<id> deep link (#524)', () => {
   })
 
   it('renders gracefully (no blank) for an unknown team id', async () => {
-    renderAppAt('/teams/definitely-not-a-team')
+    await renderAppAt('/teams/definitely-not-a-team')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -109,12 +109,16 @@ describe('SPA /teams/<id> deep link (#524)', () => {
   })
 })
 
-function renderAppAt(path: string) {
+async function renderAppAt(path: string) {
   window.history.pushState({}, '', path)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: the chat surface is a lazy chunk now; wait for the first painted
+  // frame instead of racing the dynamic import.
+  await screen.findByRole('textbox', { name: 'Chat message' })
+  return view
 }

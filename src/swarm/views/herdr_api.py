@@ -11,6 +11,9 @@ Endpoints:
     GET    /v1/herdr-agents/discover/   -> live ``herdr agent list`` +
                                            ``herdr workspace list`` as addable
                                            members (mocked in CI)
+    GET    /v1/herdr-agents/status/     -> normalized per-pane status for every
+                                           live Herdr agent (#1728). One
+                                           ``herdr agent list`` call.
     GET    /v1/herdr-agents/<id>/       -> row (id or unique name)
     DELETE /v1/herdr-agents/<id>/       -> 204
 
@@ -29,6 +32,7 @@ from rest_framework.views import APIView
 
 from swarm.core.remotes import RemoteError
 from swarm.herdr.client import HerdrCLIError, HerdrClient
+from swarm.herdr.status import pane_statuses
 from swarm.models import HerdrAgent
 from swarm.permissions import HasValidTokenOrSession
 from swarm.serializers import HerdrAgentSerializer
@@ -191,6 +195,78 @@ class HerdrDiscoverAPIView(APIView):
                 "data": data,
                 "kind": "herdr",
                 "herdr_available": True,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class HerdrStatusAPIView(APIView):
+    """GET /v1/herdr-agents/status/ — interrogate Herdr's live state (#1728).
+
+    One ``herdr agent list`` answers for every pane, so this is a single
+    subprocess rather than a query per seat. Each row carries the OS status
+    (:mod:`swarm.herdr.status`) *and* the raw Herdr ``agent_status`` it was
+    derived from, so a client can show what OS actually read.
+
+    **Fails open, honestly.** A missing CLI, a stopped Herdr server, an SSH hop
+    that refuses, or a timeout all answer ``200`` with
+    ``herdr_available: false``, an empty list, and the real reason in ``error``.
+    A pane whose status OS cannot vouch for reports ``"unknown"`` — never
+    ``"idle"``, which would read as "nothing is happening" when the truth is
+    "we do not know". This mirrors ``/v1/herdr-agents/discover/`` so the two
+    Herdr query surfaces degrade the same way.
+    """
+
+    permission_classes = HERDR_API_PERMISSIONS
+
+    @extend_schema(
+        operation_id="v1_herdr_agents_status",
+        summary="Query live Herdr agent/session status",
+        description=(
+            "Runs `herdr agent list` (no `--remote` unless `remote` is passed) "
+            "and returns one normalized row per pane. `status` is one of "
+            "`unknown` | `idle` | `working` | `waiting` | `finished`, mapped "
+            "from Herdr's `idle`/`working`/`blocked`/`done`. When the CLI is "
+            "missing, the server is down, or the host answers with something "
+            "unexpected, the response is still `200` with "
+            "`herdr_available: false` and an `error` string — a down Herdr "
+            "must never block the UI or fabricate a status."
+        ),
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, *_args, **_kwargs):
+        remote = (request.query_params.get("remote") or "").strip()
+        client = herdr_client(remote)
+        try:
+            payload = client.agent_list()
+        except HerdrCLIError as exc:
+            # The CLI is missing, the server is not running, or the SSH hop
+            # refused. Honest: say so, and report no panes.
+            logger.info("Herdr status query failed: %s", exc)
+            return Response(
+                {
+                    "object": "list",
+                    "data": [],
+                    "kind": "herdr",
+                    "herdr_available": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception:
+            logger.exception("Error querying Herdr status.")
+            return Response(
+                {"error": "Failed to query Herdr status."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        rows = [row.as_dict() for row in pane_statuses(payload)]
+        return Response(
+            {
+                "object": "list",
+                "data": rows,
+                "kind": "herdr",
+                "herdr_available": True,
+                "error": None,
             },
             status=status.HTTP_200_OK,
         )

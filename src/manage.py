@@ -4,13 +4,25 @@ import os
 import sys
 from pathlib import Path
 
+
 def main():
     # Define the base directory
     base_dir = Path(__file__).resolve().parent
 
-    # XDG ~/.config/swarm/.env (primary) + checkout .env (fallback)
+    # Migrate outside the dotenv fallback. Swallowing a conflict or a copy
+    # error would load the checkout .env, which can set SWARM_CONFIG_DIR or
+    # SWARM_SKIP_CONFIG_MIGRATE so the later startup hooks skip the refusal.
+    # src/manage.py → project root is parent of src/
+    from swarm.core.paths import (
+        migrate_legacy_config_root,
+        startup_should_migrate_config,
+    )
+
+    if startup_should_migrate_config():
+        migrate_legacy_config_root()
+
+    # User-config .env (primary) + checkout .env (fallback)
     try:
-        # src/manage.py → project root is parent of src/
         from swarm.utils.dotenv_load import load_swarm_dotenv
         load_swarm_dotenv(project_root=base_dir.parent)
     except Exception:

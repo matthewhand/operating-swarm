@@ -1,6 +1,6 @@
-# Open Swarm Troubleshooting Guide
+# Operating Swarm Troubleshooting Guide
 
-Having issues with Open Swarm? Here are some common problems and solutions.
+Having issues with Operating Swarm? Here are some common problems and solutions.
 
 ---
 
@@ -110,7 +110,7 @@ is honest unknown — never a green isolated sandbox.
 
 Blueprints that declare a ``browser`` capability (e.g. ``whiskeytango_foxtrot``,
 ``jeeves``) expect the official **microsoft/playwright-mcp** server
-(``npx -y @playwright/mcp@latest``). Open Swarm auto-provisions it in the tool
+(``npx -y @playwright/mcp@latest``). Operating Swarm auto-provisions it in the tool
 catalog when missing from config, but it still needs Node/npx available on the
 host and a successful MCP process start.
 
@@ -139,7 +139,7 @@ See [MOA.md](./MOA.md) for the model, flags, and team path. Short fixes:
 
 | Symptom | What it means | Fix |
 |---------|---------------|-----|
-| Grok seats `ok=False` / auth-ish stderr (“not signed in”, login, etc.) | Live `--backend grok` runs local `grok -p`; Open Swarm does **not** supply xAI credentials. | Sign in with the Grok CLI itself; probe with `swarm-cli cli-agents --check-auth`. Use `--backend fake` for offline/CI. |
+| Grok seats `ok=False` / auth-ish stderr (“not signed in”, login, etc.) | Live `--backend grok` runs local `grok -p`; Operating Swarm does **not** supply xAI credentials. | Sign in with the Grok CLI itself; probe with `swarm-cli cli-agents --check-auth`. Use `--backend fake` for offline/CI. |
 | `Error: --team requires --workdir` (exit **2**) | Team mode needs a specialist write workspace. `--cwd` is panel read context only. | Pass both: `--team --workdir /path/to/ws`. |
 | `workdir … is outside the workspaces root` (exit **2** / API error text) | Absolute `--workdir`/`params.workdir` outside `SWARM_WORKSPACES_DIR` (default XDG `…/swarm/workspaces`). | Use a relative path under that root, set `SWARM_WORKSPACES_DIR`, or for local CLI only set `ALLOW_UNRESTRICTED_WORKDIR=true`. |
 | `--permission approve-all` refused (exit **5**) | Panelists are read-only; `approve-all` is never valid for MoA seats. | Use `approve-reads` (default) or `deny-all`. Specialists still write under `--team`. |

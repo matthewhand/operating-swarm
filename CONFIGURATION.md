@@ -364,6 +364,8 @@ clear, redacted message — see
 | `DJANGO_LOG_LEVEL` / `LOGLEVEL` | Log verbosity. | `INFO` |
 | `STATEFUL_CHAT_ID_PATH` | `\|\|`-separated JMESPath expressions used to extract the chat/session id from an incoming request payload (first non-empty match wins). | `metadata.channelInfo.channelId`, `metadata.userInfo.userId`, … |
 | `SWARM_TRUNCATION_MODE` | Context truncation strategy when trimming message history to fit the token budget: `pairs` (sophisticated — keeps assistant/tool call pairs intact) or `simple` (most-recent only). Unknown values fall back to `simple`. | `pairs` |
+| `SWARM_TRUEFORGE_TIMEOUT` | TrueForge send/poll budget in seconds. Values **above** 180 raise the cap. A positive value **at or below** 180 is raised to 180: a one-token session resume measured 46–59s ([#1307](https://github.com/matthewhand/open-swarm-private/issues/1307)), so a 90s cap leaves too little slack. An explicit per-call timeout (and `remotes.<id>.timeout` when this var is unset) is not floored. Health and list probes stay on the short operate timeout. | unset → 180s |
+| `SWARM_REQUEST_LOG` | One structured `[REQUEST]` line per HTTP request (method, normalised path, status, client, user, bytes, duration) in the journal. Set to `off`/`0`/`false` to silence it; the `[RATE_LIMIT_WINDOW]` / `[RATE_LIMIT_SUMMARY]` throttle lines are unaffected either way. | on |
 
 ### Speech (REQ-77)
 
@@ -394,7 +396,7 @@ Model/provider keys and service endpoints — `OPENAI_API_KEY`, `OPENAI_BASE_URL
 `${VAR}`.
 
 > **Note for CLI agents:** wrapped CLIs (`claude`, `gemini`, `grok`, …) carry
-> **their own** authentication — Open Swarm never reads or stores it. These
+> **their own** authentication — Operating Swarm never reads or stores it. These
 > provider keys are only for `llm` profiles and MCP tool servers.
 
 ---
@@ -416,7 +418,7 @@ CRUD: `/v1/herdr-agents/`. Discover live panes: `/v1/herdr-agents/discover/`
 **not** an HTTP remote like OpenMousBot / Hermes / Rakazo.
 
 * Local: `swarm-cli remotes set herdr --herdr-mode local` (localhost URL only
-  when you choose that). Open Swarm talks to Herdr on this host; no SSH.
+  when you choose that). Operating Swarm talks to Herdr on this host; no SSH.
 * Remote: `swarm-cli remotes set herdr --herdr-mode ssh --ssh-host <host>
   --ssh-user <user> --ssh-identity-env HERDR_SSH_IDENTITY`. Health / list /
   send / interrogate go over SSH to that Herdr host, then to Herdr’s CLIs.

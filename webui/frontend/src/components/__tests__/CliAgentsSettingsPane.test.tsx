@@ -6,14 +6,17 @@ import { ToastProvider } from '../DaisyUI'
 
 const KNOWN = ['agy', 'claude', 'codex', 'gemini', 'grok', 'opencode', 'pi']
 
-function renderPane(focusProviderId?: string | null) {
+function renderPane(focusProviderId?: string | null, prefillCliName?: string | null) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <CliAgentsSettingsPane focusProviderId={focusProviderId} />
+        <CliAgentsSettingsPane
+          focusProviderId={focusProviderId}
+          prefillCliName={prefillCliName}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   )
@@ -203,8 +206,48 @@ describe('CliAgentsSettingsPane (REQ-157 / #117)', () => {
     expect(screen.getByRole('dialog', { name: 'grok settings' })).toBeInTheDocument()
   })
 
-  it('collapses hop prefs by default', async () => {
+  it('prefills the add form from the detected CLI handed by the #1703 tip', async () => {
     stubFetch({
+      catalog: {
+        configured: [],
+        discovered: ['opencode'],
+        installed: ['opencode'],
+        suggestions: { opencode: { cmd: ['opencode', '-p', '{prompt}'] } },
+      },
+    })
+
+    renderPane(null, 'opencode')
+    const nameInput = (await screen.findByLabelText(/^Name/i)) as HTMLInputElement
+    const cmdInput = screen.getByLabelText(/Command/i) as HTMLInputElement
+    expect(nameInput.value).toBe('opencode')
+    expect(cmdInput.value).toBe('opencode -p {prompt}')
+    // The form is open, so the operator lands on Save rather than hunting for it.
+    expect(screen.getByRole('button', { name: 'Save CLI agent' })).toBeInTheDocument()
+  })
+
+  it('falls back to the bare name when the catalog has no suggestion for the prefill', async () => {
+    stubFetch({
+      catalog: { configured: [], discovered: [], installed: [], suggestions: {} },
+    })
+
+    renderPane(null, 'opencode')
+    const nameInput = (await screen.findByLabelText(/^Name/i)) as HTMLInputElement
+    const cmdInput = screen.getByLabelText(/Command/i) as HTMLInputElement
+    expect(nameInput.value).toBe('opencode')
+    expect(cmdInput.value).toBe('opencode')
+  })
+
+  it('leaves the add form closed when no prefill is handed', async () => {
+    stubFetch({
+      catalog: { configured: [], discovered: ['grok'], installed: ['grok'], suggestions: { grok: { cmd: ['grok'] } } },
+    })
+
+    renderPane()
+    expect(await screen.findByTestId('cli-row-grok')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^Name/i)).not.toBeInTheDocument()
+  })
+
+  it('collapses hop prefs by default', async () => {    stubFetch({
       catalog: { configured: [], discovered: [], suggestions: {} },
     })
 

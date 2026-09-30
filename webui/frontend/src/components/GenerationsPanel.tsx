@@ -10,6 +10,10 @@
  * Honesty constraint (from the issue): the raw view renders the backend's
  * production context splice verbatim — nothing is fabricated client-side.
  * Tool args/output render only when the ws events actually carried them.
+ *
+ * #1354: the panel is reached from Settings → System (not the prime navbar),
+ * Raw is expanded by default, Escape closes it with focus returned to the
+ * opener, and every empty/failed state is honest instead of fabricated.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -61,12 +65,43 @@ export function GenerationsPanel({
   toolCalls,
 }: GenerationsPanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
-  const [rawOpen, setRawOpen] = useState(false)
+  // #1354: Raw (exactly what the model sees) is the reason to open this
+  // panel — expand it by default so diagnostics need no second click.
+  const [rawOpen, setRawOpen] = useState(true)
   const [rawData, setRawData] = useState<RawContextPayload | null>(null)
   const [rawLoading, setRawLoading] = useState(false)
   const [rawError, setRawError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const panelRef = useRef<HTMLElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  // #1354: keep the latest onClose without re-running the focus effect when
+  // the parent hands a fresh inline callback on every render.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  // #1354: focus management — move focus into the panel when it opens, close on
+  // Escape, and hand focus back to whatever opened it when it closes.
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus()
+      }
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -75,7 +110,14 @@ export function GenerationsPanel({
       const el = target instanceof Element ? target : (target as Node | null)?.parentElement
       if (!el) return
       if (panelRef.current?.contains(el)) return
-      if (el.closest('[data-testid="header-avatar-generations"]')) return
+      // #1258/#1354: the entry affordances (settings diagnostics, avatar)
+      // must not both close and reopen the panel on the same interaction.
+      if (
+        el.closest(
+          '[data-testid="header-avatar-generations"], [data-testid="settings-open-generations"]',
+        )
+      )
+        return
       onClose()
     }
     document.addEventListener('pointerdown', onPointerDown)
@@ -85,7 +127,8 @@ export function GenerationsPanel({
   useEffect(() => {
     if (!open) {
       setExpandedIds(new Set())
-      setRawOpen(false)
+      // #1354: Raw returns to its default-expanded state on the next open.
+      setRawOpen(true)
       setRawData(null)
       setRawError(null)
       setCopied(false)
@@ -105,7 +148,22 @@ export function GenerationsPanel({
         return (await resp.json()) as RawContextPayload
       })
       .then((data) => {
-        if (!cancelled) setRawData(data)
+        if (cancelled) return
+        // #1354: never trust the shape of an error-intercepted response —
+        // normalize so a malformed payload degrades to an honest empty state
+        // instead of crashing the diagnostics surface.
+        setRawData({
+          conversation_id: String(data?.conversation_id ?? ''),
+          context: Array.isArray(data?.context) ? data.context : [],
+          summaries_included: Array.isArray(data?.summaries_included)
+            ? data.summaries_included
+            : [],
+          summaries_excluded: Array.isArray(data?.summaries_excluded)
+            ? data.summaries_excluded
+            : [],
+          cull_offset: Number(data?.cull_offset ?? 0),
+          raw_turn_count: Number(data?.raw_turn_count ?? 0),
+        })
       })
       .catch((err: unknown) => {
         if (!cancelled) setRawError(err instanceof Error ? err.message : String(err))
@@ -178,6 +236,7 @@ export function GenerationsPanel({
             Raw
           </button>
           <button
+            ref={closeRef}
             type="button"
             className="btn btn-ghost btn-xs btn-square"
             aria-label="Close generations panel"
@@ -313,20 +372,30 @@ export function GenerationsPanel({
             </p>
           ) : null}
           {rawData ? (
-            <>
-              <p className="text-xs text-base-content/60 pb-1" data-testid="generations-raw-meta">
-                {rawData.raw_turn_count} raw turns · cull offset {rawData.cull_offset}
-                {rawData.summaries_excluded.length
-                  ? ` · summaries excluded from context: ${rawData.summaries_excluded.join(', ')}`
-                  : ''}
-              </p>
-              <pre
-                className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-base-200/50 p-2 font-mono text-xs"
-                data-testid="generations-raw-view"
+            rawData.context.length === 0 ? (
+              // #1354: honest empty state — an empty pre is not "no data yet".
+              <p
+                className="text-xs italic text-base-content/50"
+                data-testid="generations-raw-empty"
               >
-                {rawText}
-              </pre>
-            </>
+                No raw model context for this thread yet.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-base-content/60 pb-1" data-testid="generations-raw-meta">
+                  {rawData.raw_turn_count} raw turns · cull offset {rawData.cull_offset}
+                  {rawData.summaries_excluded.length
+                    ? ` · summaries excluded from context: ${rawData.summaries_excluded.join(', ')}`
+                    : ''}
+                </p>
+                <pre
+                  className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-base-200/50 p-2 font-mono text-xs"
+                  data-testid="generations-raw-view"
+                >
+                  {rawText}
+                </pre>
+              </>
+            )
           ) : null}
         </div>
       ) : null}

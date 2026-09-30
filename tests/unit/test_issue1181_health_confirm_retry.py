@@ -16,7 +16,7 @@ from swarm.core import remotes
 
 def _health(state: str, ok: bool | None = None) -> remotes.HealthResult:
     return remotes.HealthResult(
-        remote="letta-demo",
+        remote="trueforge-demo",
         ok=ok if ok is not None else state == "UP",
         state=state,
         detail=f"state {state}",
@@ -25,7 +25,7 @@ def _health(state: str, ok: bool | None = None) -> remotes.HealthResult:
 
 
 def _cfg():
-    return {"remotes": {"letta-demo": {"kind": "letta"}}}
+    return {"remotes": {"trueforge-demo": {"kind": "trueforge"}}}
 
 
 def test_transient_down_recovers_to_up_without_copy():
@@ -33,14 +33,14 @@ def test_transient_down_recovers_to_up_without_copy():
     with patch.object(
         remotes, "_check_health_once", side_effect=[_health("DOWN"), _health("UP")]
     ) as once, patch("time.sleep") as slept:
-        result = remotes.check_health("letta-demo", config=_cfg(), timeout=6)
+        result = remotes.check_health("trueforge-demo", config=_cfg(), timeout=6)
         assert result.state == "UP"
         assert once.call_count == 2
         slept.assert_called_once()
     with patch.object(
         remotes, "_check_health_once", side_effect=[_health("DOWN"), _health("UP")]
     ), patch("time.sleep"):
-        assert remotes.remote_down_preflight("letta-demo", config=_cfg()) is None
+        assert remotes.remote_down_preflight("trueforge-demo", config=_cfg()) is None
 
 
 def test_confirmed_down_still_down_with_copy():
@@ -48,10 +48,10 @@ def test_confirmed_down_still_down_with_copy():
     with patch.object(
         remotes, "_check_health_once", return_value=_health("DOWN")
     ), patch("time.sleep"):
-        result = remotes.check_health("letta-demo", config=_cfg(), timeout=6)
+        result = remotes.check_health("trueforge-demo", config=_cfg(), timeout=6)
         assert result.state == "DOWN"
-        text = remotes.remote_down_preflight("letta-demo", config=_cfg())
-    assert text is not None and "letta-demo" in text
+        text = remotes.remote_down_preflight("trueforge-demo", config=_cfg())
+    assert text is not None and "trueforge-demo" in text
 
 
 def test_up_never_pays_the_retry():
@@ -59,7 +59,7 @@ def test_up_never_pays_the_retry():
     with patch.object(remotes, "_check_health_once", return_value=_health("UP")) as once, patch(
         "time.sleep"
     ) as slept:
-        result = remotes.check_health("letta-demo", config=_cfg(), timeout=6)
+        result = remotes.check_health("trueforge-demo", config=_cfg(), timeout=6)
     assert result.state == "UP"
     assert once.call_count == 1
     slept.assert_not_called()
@@ -71,6 +71,6 @@ def test_degraded_and_unknown_stay_single_shot():
         with patch.object(
             remotes, "_check_health_once", return_value=_health(state)
         ) as once, patch("time.sleep") as slept:
-            remotes.check_health("letta-demo", config=_cfg(), timeout=6)
+            remotes.check_health("trueforge-demo", config=_cfg(), timeout=6)
         assert once.call_count == 1, state
         slept.assert_not_called(), state

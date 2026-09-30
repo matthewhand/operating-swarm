@@ -128,14 +128,18 @@ function stubAgentApis() {
   )
 }
 
-function renderApp(path = '/chat') {
+async function renderApp(path = '/chat') {
   window.history.pushState({}, '', path)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <App />
     </QueryClientProvider>,
   )
+  // #1629: the chat surface is a lazy chunk now; wait for the first painted
+  // frame instead of racing the dynamic import.
+  await screen.findByRole('textbox', { name: 'Chat message' })
+  return view
 }
 
 function rail() {
@@ -153,7 +157,11 @@ function swipeFromLeft() {
 }
 
 async function openRailAndPick(name: RegExp) {
-  fireEvent.click(screen.getByRole('button', { name: /Open agent list/i }))
+  // #1202 follow-up: on mobile the header rail toggle is dropped in favour of
+  // the left-edge swipe, so the helper restores the rail the mobile way.
+  await act(async () => {
+    swipeFromLeft()
+  })
   expect(rail()).toHaveAttribute('data-rail-open', 'true')
   const list = await screen.findByRole('navigation', { name: 'Agent list' })
   fireEvent.click(await within(list).findByRole('link', { name }))
@@ -176,44 +184,55 @@ describe('REQ-54 mobile rail tuck', () => {
 
   it('hides the rail after an agent pick on a narrow viewport and keeps chat mounted', async () => {
     installViewport(390)
-    renderApp('/chat')
+    await renderApp('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
     expect(document.querySelector('[data-narrow-viewport="true"]')).toBeTruthy()
     expect(rail()).toHaveAttribute('data-rail-open', 'false')
-    expect(screen.getByRole('button', { name: /Open agent list/i })).toBeInTheDocument()
+    // #1202 follow-up: the mobile header drops the rail toggle; the swipe is
+    // the single affordance that restores the tucked rail.
+    expect(screen.queryByRole('button', { name: /Open agent list/i })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Support' })).toBeInTheDocument()
-    const composer = screen.getByRole('textbox', { name: 'Chat message' })
-    expect(composer).toBeInTheDocument()
+    const dock = screen.getByTestId('chat-bottom-dock')
+    expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
 
     await openRailAndPick(/Codey/)
 
     expect(rail()).toHaveAttribute('data-rail-open', 'false')
     expect(screen.getByRole('heading', { name: 'Codey' })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Chat message' })).toBe(composer)
+    // #1331: the composer element is keyed by agent, so a pick mounts
+    // Codey's input. REQ-54 still requires the chat composer to stay on
+    // screen after the rail tucks — not the previous agent's textarea node.
+    // The dock staying put is what shows the chat route did not unmount.
+    expect(screen.getByTestId('chat-bottom-dock')).toBe(dock)
+    expect(screen.getByRole('textbox', { name: 'Chat message' })).toBeInTheDocument()
     expect(screen.getByTestId('os-swipe-hint')).toHaveTextContent(SWIPE_HINT_TEXT)
   })
 
-  it('restores the tucked rail from the header control and a left-edge swipe', async () => {
+  it('restores the tucked mobile rail from the left-edge swipe', async () => {
     installViewport(390)
-    renderApp('/chat')
+    await renderApp('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
 
     await openRailAndPick(/Codey/)
     expect(rail()).toHaveAttribute('data-rail-open', 'false')
+    // #1202 follow-up: no header toggle on the mobile tier.
+    expect(screen.queryByRole('button', { name: /Open agent list/i })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Open agent list/i }))
+    expect(LEFT_EDGE_PX).toBeGreaterThan(0)
+    await act(async () => {
+      swipeFromLeft()
+    })
     expect(rail()).toHaveAttribute('data-rail-open', 'true')
     expect(screen.getByRole('navigation', { name: 'Agent list' })).toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('button', { name: /Close agents sidebar/i })[0])
     expect(rail()).toHaveAttribute('data-rail-open', 'false')
 
-    expect(LEFT_EDGE_PX).toBeGreaterThan(0)
     await act(async () => {
       swipeFromLeft()
     })
@@ -223,7 +242,7 @@ describe('REQ-54 mobile rail tuck', () => {
 
   it('shows the first-concealment hint then persists dismiss', async () => {
     installViewport(390)
-    renderApp('/chat')
+    await renderApp('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -244,7 +263,7 @@ describe('REQ-54 mobile rail tuck', () => {
 
   it('never auto-hides the rail on a wide viewport', async () => {
     installViewport(NARROW_RAIL_MAX_PX + 1)
-    renderApp('/chat')
+    await renderApp('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })
@@ -266,7 +285,7 @@ describe('REQ-54 mobile rail tuck', () => {
 
   it('never shows the swipe hint on tablet viewports (>= 640px)', async () => {
     installViewport(768)
-    renderApp('/chat')
+    await renderApp('/chat')
     await act(async () => {
       MockWebSocket.instances[0]?.open()
     })

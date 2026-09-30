@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from swarm.core.remotes import HealthResult, RemoteSpec
 from tests.xdg_isolation import run_swarm_cli
+from helpers.private_net import assert_no_private_ip
 
 
 def test_remotes_list(tmp_path: Path):
@@ -210,7 +211,7 @@ def test_remotes_set_herdr_and_missing_is_error(tmp_path: Path):
     assert missing.returncode == 1
     blob = (missing.stderr + missing.stdout).lower()
     assert "not configured" in blob
-    assert "10.0.0." not in missing.stderr + missing.stdout
+    assert_no_private_ip(missing.stderr + missing.stdout)
 
     listed = run_swarm_cli("remotes", "list", "--config", str(cfg), xdg_root=tmp_path / "xdg", timeout=30)
     assert listed.returncode == 0

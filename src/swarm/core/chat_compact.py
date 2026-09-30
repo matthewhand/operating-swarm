@@ -576,10 +576,12 @@ def ensure_transcript(
 ) -> tuple[ChatConversation, list[dict[str, str]]]:
     """Resolve the raw transcript without deleting originals.
 
-    JSON on disk is the restore source of truth. Django ``ChatMessage`` rows
-    are a mirror: we only create missing rows, never delete.
+    Compact never deletes raw ``ChatMessage`` rows (REQ-37). Django is still
+    filled one-way when empty (#1440). JSON is rewritten as the Settings cache.
     """
     from swarm.core import chat_store
+    from swarm.core.chat_db import turn_from_row
+    from swarm.core.chat_repository import insert_turns
 
     if not conversation_id:
         raise CompactError("conversation_id is required.")
@@ -589,7 +591,14 @@ def ensure_transcript(
     from swarm.core.transcript_roles import is_ui_only_role, split_store
 
     user_key = chat_store.user_key_for(user)
-    record = chat_store.load(user_key, agent_id)
+    # Load the record for the conversation being compacted, not the seat's
+    # default file. A conversation that is not the owner's default one lives
+    # in ``<agent>__<conversation_id>.json`` (#1722), so a no-id load here
+    # returned another conversation's turns — and, once the write path stopped
+    # filing this thread under the default file, returned nothing at all and
+    # fell through to the raw ``ChatMessage`` rows with their canonical
+    # ``ts``/``seq`` stamped on.
+    record = chat_store.load(user_key, agent_id, conversation_id=conversation_id)
     stored: list[dict[str, str]] = []
     if record:
         stored, _stored_events = split_store(
@@ -612,8 +621,8 @@ def ensure_transcript(
     db_rows = list(chat.chat_messages.all())
     if not stored and db_rows:
         stored, _db_events = split_store(
-            [{"role": row.sender, "content": row.content} for row in db_rows],
-            [],
+            [turn_from_row(row) for row in db_rows],
+            list(chat.ui_events or []) if isinstance(chat.ui_events, list) else [],
             stamp_seq=False,
         )
         del _db_events
@@ -631,27 +640,16 @@ def ensure_transcript(
     if not raw:
         raise CompactError("Nothing to compact.")
 
-    # Rewrite JSON with the full raw turn list — chrome stays in ui_events.
-    chat_store.save(user_key, agent_id, raw, conversation_id=conversation_id)
+    # Rewrite JSON without clobbering existing Django PKs (REQ-37).
+    chat_store.save(
+        user_key, agent_id, raw, conversation_id=conversation_id, mirror_db=False
+    )
 
     if db_rows:
         if len(raw) > len(db_rows):
-            extras = raw[len(db_rows) :]
-            ChatMessage.objects.bulk_create(
-                [
-                    ChatMessage(conversation=chat, sender=item["role"], content=item["content"])
-                    for item in extras
-                    if not is_ui_only_role(item.get("role"))
-                ]
-            )
+            insert_turns(chat, raw[len(db_rows) :])
     else:
-        ChatMessage.objects.bulk_create(
-            [
-                ChatMessage(conversation=chat, sender=item["role"], content=item["content"])
-                for item in raw
-                if not is_ui_only_role(item.get("role"))
-            ]
-        )
+        insert_turns(chat, raw)
     return chat, raw
 
 

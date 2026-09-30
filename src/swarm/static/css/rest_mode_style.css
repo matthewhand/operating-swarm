@@ -1,5 +1,5 @@
 /*
- * Open Swarm — global theme for the server-rendered (Django + Bootstrap) pages.
+ * Operating Swarm — global theme for the server-rendered (Django + Bootstrap) pages.
  *
  * base.html has always linked this file, but it never existed (404), so every
  * legacy page rendered as raw white Bootstrap under a dark navbar. This brings
@@ -23,17 +23,28 @@
   --os-accent:    #4a6fa5;  /* muted steel accent     */
   --os-accent-hi: #3d5a80;  /* accent hover           */
   --os-link:      #9ab0c9;  /* links                  */
+  --os-error-text:#fca5a5;  /* error preview ink      */
   --os-radius:    12px;
   --os-radius-sm: 8px;
+  /* Same shell tokens as the SPA rail/header (Chat → Settings). */
+  --os-chrome-sidebar: #111111;
+  --os-chrome-header: #111111;
+  --os-pin-grid: var(--os-well);
+  --os-mark-0: #c45c5c;
+  --os-mark-1: #c47a3a;
+  --os-mark-2: #6b8f71;
+  --os-mark-3: #4a7a9b;
+  --os-mark-4: #7a6b9b;
+  --os-mark-5: #8a6a5a;
 }
 
 /* ---- page shell --------------------------------------------------------- */
 html {
-  background: #0c0c0c;
+  background: var(--os-bg);
   min-height: 100%;
 }
 html[data-os-theme="light"] {
-  background: #f4f4f5;
+  background: var(--os-bg);
 }
 body {
   background: var(--os-bg);
@@ -340,6 +351,7 @@ button.os-action-card:hover {
   border-bottom: 1px solid var(--os-border);
 }
 .os-navbar .navbar-brand {
+  position: relative;
   font-size: 1.05rem;
   letter-spacing: 0.01em;
 }
@@ -353,7 +365,7 @@ button.os-action-card:hover {
   padding: 0.4rem 0.65rem !important;
 }
 .os-navbar .nav-link.active {
-  color: #fff !important;
+  color: var(--os-text-strong) !important;
   font-weight: 600;
   border-bottom: 2px solid var(--os-accent);
 }
@@ -437,6 +449,10 @@ html[data-os-theme="light"] {
   --os-accent: #3d5a80;
   --os-accent-hi: #334c6e;
   --os-link: #3d5a80;
+  --os-error-text: #7a4040;
+  --os-chrome-sidebar: #ececee;
+  --os-chrome-header: #ececee;
+  --os-pin-grid: #e8e8ea;
 }
 
 .os-navbar-inner {
@@ -447,8 +463,32 @@ html[data-os-theme="light"] {
   padding: 0 0.85rem;
 }
 .os-header .os-navbar {
-  background: #0c0c0c !important;
+  background: var(--os-chrome-header) !important;
+  color: var(--os-text-strong);
   min-height: 56px;
+}
+.os-navbar .navbar-brand,
+.os-navbar .nav-link,
+.os-theme-toggle {
+  color: var(--os-text-strong) !important;
+}
+.os-navbar .os-brand-mark-geometric {
+  color: var(--os-text-strong);
+}
+.os-brand-mark-asset {
+  /* REQ-106 keeps the geometric master in the document. The painted mark is
+     the currentColor silhouette, so this plate must not take a box or a hit. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
 }
 .os-agent-pin-grid {
   display: grid;
@@ -457,10 +497,7 @@ html[data-os-theme="light"] {
   min-height: 4.75rem;
   padding: 0.4rem 0.75rem 0.55rem;
   border-top: 1px solid var(--os-border);
-  background: #101010;
-}
-html[data-os-theme="light"] .os-agent-pin-grid {
-  background: #e8e8ea;
+  background: var(--os-pin-grid);
 }
 .os-agent-pin-grid.is-over {
   outline: 1px dashed var(--os-accent);
@@ -494,6 +531,8 @@ html[data-os-theme="light"] .os-agent-pin-grid {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 999px;
+  transform: none;
+  background: var(--os-accent);
 }
 .os-agent-tile__name {
   overflow: hidden;
@@ -516,17 +555,24 @@ html[data-os-theme="light"] .os-agent-pin-grid {
 .os-agent-tile__remove:hover {
   color: var(--os-text-strong);
 }
-html[data-os-theme="light"] .os-header .os-navbar {
-  background: #ececee !important;
+.os-header .dropdown-menu,
+.os-bottom-nav .dropdown-menu {
+  background: var(--os-panel);
+  border: 1px solid var(--os-border);
+  color: var(--os-text);
 }
-html[data-os-theme="light"] .os-navbar .navbar-brand,
-html[data-os-theme="light"] .os-navbar .nav-link,
-html[data-os-theme="light"] .os-theme-toggle {
-  color: #18181b !important;
+.os-header .dropdown-item,
+.os-bottom-nav .dropdown-item {
+  color: var(--os-text-strong);
 }
-html[data-os-theme="light"] .os-navbar .nav-link.active {
-  color: #18181b !important;
-  border-bottom-color: var(--os-accent);
+.os-header .dropdown-item:hover,
+.os-header .dropdown-item:focus,
+.os-bottom-nav .dropdown-item:hover,
+.os-bottom-nav .dropdown-item:focus,
+.os-header .dropdown-item.active,
+.os-bottom-nav .dropdown-item.active {
+  background: var(--os-panel-2);
+  color: var(--os-text-strong);
 }
 .os-theme-toggle {
   background: transparent;
@@ -564,15 +610,12 @@ html[data-os-theme="light"] .os-navbar .nav-link.active {
 .os-agent-sidebar {
   width: 16.5rem;
   flex: 0 0 16.5rem;
-  background: #0c0c0c;
+  background: var(--os-chrome-sidebar);
   border-right: 1px solid var(--os-border);
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-}
-html[data-os-theme="light"] .os-agent-sidebar {
-  background: #ececee;
 }
 .os-agent-sidebar__head,
 .os-agent-sidebar__search {
@@ -657,12 +700,12 @@ html[data-os-theme="light"] .os-agent-sidebar {
   transform: rotate(45deg);
   margin-top: 0.35rem;
 }
-.os-agent-dot[data-mark="0"] { background: #c45c5c; }
-.os-agent-dot[data-mark="1"] { background: #c47a3a; }
-.os-agent-dot[data-mark="2"] { background: #6b8f71; }
-.os-agent-dot[data-mark="3"] { background: #4a7a9b; }
-.os-agent-dot[data-mark="4"] { background: #7a6b9b; }
-.os-agent-dot[data-mark="5"] { background: #8a6a5a; }
+.os-agent-dot[data-mark="0"] { background: var(--os-mark-0); }
+.os-agent-dot[data-mark="1"] { background: var(--os-mark-1); }
+.os-agent-dot[data-mark="2"] { background: var(--os-mark-2); }
+.os-agent-dot[data-mark="3"] { background: var(--os-mark-3); }
+.os-agent-dot[data-mark="4"] { background: var(--os-mark-4); }
+.os-agent-dot[data-mark="5"] { background: var(--os-mark-5); }
 .os-agent-item--support {
   background: color-mix(in srgb, #2f8f7b 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2f8f7b 45%, transparent);

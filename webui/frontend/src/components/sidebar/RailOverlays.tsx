@@ -4,10 +4,12 @@
  * the row-delete ConfirmModal, the #546 notification-permission hint, and
  * the AddAgentWizard. AgentSidebar owns all state; this module renders it.
  */
-import type { RefObject } from 'react'
+import { lazy, Suspense, type RefObject } from 'react'
 import RailContextMenu from '../RailContextMenu'
 import { ConfirmModal } from '../DaisyUI'
-import AddAgentWizard, { type AgentKind } from '../AddAgentWizard'
+import type { AgentKind } from '../AddAgentWizard'
+
+const AddAgentWizard = lazy(() => import('../AddAgentWizard'))
 import { NOTIFY_HINT_COPY } from '../../lib/agentNotifications'
 import type { RailMenuItemId } from '../../lib/railContextMenu'
 import type { ContextMenuState } from '../../features/sidebar/rows'
@@ -130,12 +132,16 @@ export function RailOverlays({
           </span>
         </div>
       ) : null}
-      <AddAgentWizard
-        isOpen={addWizardOpen}
-        onClose={onAddWizardClose}
-        onCreated={onAddWizardCreated}
-        onSelectAgent={onAddWizardSelect}
-      />
+      {addWizardOpen ? (
+        <Suspense fallback={null}>
+          <AddAgentWizard
+            isOpen={addWizardOpen}
+            onClose={onAddWizardClose}
+            onCreated={onAddWizardCreated}
+            onSelectAgent={onAddWizardSelect}
+          />
+        </Suspense>
+      ) : null}
     </>
   )
 }

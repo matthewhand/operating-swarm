@@ -863,7 +863,19 @@ def create_designed_agent(request):
             cfg["remote_teams"] = teams
             blueprint._config = cfg
     blueprint.load_designed_agents()
-    return JsonResponse({"status": "success", "agent": spec}, status=201)
+    payload = {"status": "success", "agent": spec}
+    raw_plugins = body.get("plugins") if isinstance(body, dict) else None
+    if raw_plugins:
+        from swarm.core.agent_plugin_pack import apply_plugin_pack_on_create
+
+        applied = apply_plugin_pack_on_create(str(spec.get("agent_id") or ""), raw_plugins)
+        rows = applied.get("plugins") if isinstance(applied.get("plugins"), list) else []
+        partial = applied.get("ok") is False or any(
+            not isinstance(row, dict) or row.get("status") != "enabled" for row in rows
+        )
+        # Same report lifecycle create returns, plus partial. Do not drop code/error.
+        payload["plugins"] = {**applied, "plugins": rows, "partial": partial}
+    return JsonResponse(payload, status=201)
 
 
 @enforce_api_auth

@@ -83,11 +83,13 @@ describe('navbar workspace subtitle (#65)', () => {
       MockWebSocket.instances[0]?.open()
     })
     const subtitle = screen.getByTestId('os-navbar-workspace-subtitle')
-    expect(subtitle.tagName).toBe('P')
+    expect(subtitle.tagName).toBe('BUTTON')
     expect(subtitle).toHaveClass('os-navbar-identity-subtitle')
+    // #1257: leading ellipsis keeps the rightmost 32 chars of the folder.
     expect(subtitle).toHaveTextContent(
-      '/home/dev/very/long/path/to/open-swarm-private — branch: main',
+      '.../long/path/to/open-swarm-private — branch: main',
     )
+    // Tooltip keeps the complete, un-truncated path.
     expect(subtitle).toHaveAttribute(
       'title',
       '/home/dev/very/long/path/to/open-swarm-private — branch: main',
@@ -95,6 +97,54 @@ describe('navbar workspace subtitle (#65)', () => {
     const card = screen.getByTestId('selected-agent-header')
     expect(card.querySelector('h1')).toHaveTextContent('Support')
     expect(card.querySelector('.os-navbar-identity-text')).toContainElement(subtitle)
+  })
+
+  it('clicking the subtitle opens the folder/agent settings flow', async () => {
+    saveAgentEdit('support', { folder: '/tmp/proj' })
+    renderChat('/chat?blueprint=support')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    const openSpy = vi.fn()
+    window.addEventListener('swarm:open-agent-editor', openSpy)
+    screen.getByTestId('os-navbar-workspace-subtitle').click()
+    window.removeEventListener('swarm:open-agent-editor', openSpy)
+    expect(openSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('reveals an unset "Select folder" affordance that opens the folder flow', async () => {
+    // A CLI seat: its editor destination really has the folder control, so the
+    // offer is honest. This used to run against `support` (an API seat) and
+    // assert the control was there — which was the #1713 dead end.
+    renderChat('/chat?blueprint=cli_codey')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    expect(screen.queryByTestId('os-navbar-workspace-subtitle')).not.toBeInTheDocument()
+    const unset = screen.getByTestId('os-navbar-workspace-subtitle-unset')
+    expect(unset.tagName).toBe('BUTTON')
+    expect(unset).toHaveClass('os-navbar-identity-subtitle--unset')
+    const openSpy = vi.fn()
+    window.addEventListener('swarm:open-agent-editor', openSpy)
+    unset.click()
+    window.removeEventListener('swarm:open-agent-editor', openSpy)
+    expect(openSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT offer it on an API seat, whose editor has no folder control', async () => {
+    // The other half of #1713, on the seat the affordance used to appear on.
+    // A control that looks actionable and lands on a "Coming soon" stub is the
+    // defect; asserting its absence here is what keeps it fixed.
+    renderChat('/chat?blueprint=support')
+    await act(async () => {
+      MockWebSocket.instances[0]?.open()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(screen.queryByTestId('os-navbar-workspace-subtitle-unset')).toBeNull()
+    // The subtitle row itself is untouched — only the unset button is gated.
+    expect(screen.queryByTestId('os-navbar-workspace-subtitle')).toBeNull()
   })
 
   it('updates the subtitle when folder or branch changes', async () => {

@@ -320,6 +320,11 @@ body.os-login button[type="submit"]:focus-visible {
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+  .se-preview[data-preview="error"] {
+    color: var(--os-error-text);
+    border-left: 2px solid var(--os-error-text);
+    padding-left: .55rem;
+  }
   .se-deleg { display:inline-flex; gap:.3rem; align-items:center; }
   .dot { width:.6rem; height:.6rem; border-radius:50%; display:inline-block; }
   .dot.completed { background:#22c55e; } .dot.failed { background:#ef4444; }

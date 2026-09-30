@@ -12,7 +12,6 @@ export const ADD_REMOTE_VALUE = '__add_remote__'
 export const FALLBACK_REMOTE_KINDS: RemoteKind[] = [
   { id: 'hermes', label: 'Hermes' },
   { id: 'anythingllm', label: 'AnythingLLM' },
-  { id: 'letta', label: 'Letta' },
   { id: 'openwebui', label: 'Open WebUI' },
   { id: 'flowise', label: 'Flowise' },
   { id: 'n8n', label: 'n8n' },
@@ -21,6 +20,7 @@ export const FALLBACK_REMOTE_KINDS: RemoteKind[] = [
   { id: 'herdr', label: 'Herdr' },
   { id: 'open-swarm', label: 'open-swarm' },
   { id: 'trueforge', label: 'TrueForge' },
+  { id: 'octop', label: 'Tencent Octop' },
 ]
 
 const FALLBACK_LABELS: Record<string, string> = Object.fromEntries(
@@ -35,6 +35,9 @@ export function remoteKindLabel(id: string, kinds: RemoteKind[] = FALLBACK_REMOT
     openmousbot: 'omb',
     openswarm: 'open-swarm',
     open_swarm: 'open-swarm',
+    'tencent-octop': 'octop',
+    tencentoctop: 'octop',
+    tencent_octop: 'octop',
   }
   const resolved = aliases[rid] || rid
   const fromKinds = kinds.find((kind) => kind.id === resolved)?.label

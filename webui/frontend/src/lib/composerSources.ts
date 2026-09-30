@@ -7,11 +7,18 @@
  * workflow's inputs. No hardcoded stubs — an empty payload yields no rows.
  */
 import type { ComposerProviderOption } from './composerPicker'
+import { isCategorizerProfile, type LlmModelType } from './llmProfiles'
 import type { ModelSearchOption } from './modelSearch'
 
 export interface ComposerApiSource {
   /** LLM profiles as the API seat already lists them (#108, #584). */
-  profiles?: ReadonlyArray<{ id: string; label: string }>
+  profiles?: ReadonlyArray<{
+    id: string
+    label: string
+    /** #1745 `chat` / `categorizer`; absent ⇒ chat. */
+    modelType?: LlmModelType | string
+    ownedBy?: string
+  }>
   defaultProfileId?: string
 }
 
@@ -64,24 +71,54 @@ export interface ComposerBlueprintSource {
   description?: string
 }
 
+/**
+ * #1288 — opt-in client-side WebGPU provider. Never populated unless the
+ * `webgpu` experiment is enabled, and never server-routed. Omit it entirely to
+ * guarantee the row is absent (the default for every existing caller).
+ */
+export interface ComposerWebGpuSource {
+  models?: ReadonlyArray<{ id: string; label: string }>
+  defaultModelId?: string
+}
+
 export interface ComposerSources {
   api?: ComposerApiSource
   clis?: readonly ComposerCliSource[]
   remotes?: readonly ComposerRemoteSource[]
   teams?: readonly ComposerTeamSource[]
   blueprints?: readonly ComposerBlueprintSource[]
+  webgpu?: ComposerWebGpuSource
+}
+
+/**
+ * #1745 — the API provider's stage-2 rows. A System1 categorizer answers a
+ * gate, not chat tokens, so it is dropped here: the composer picker is a chat
+ * surface and must never offer a gate as a model. The same filter guards the
+ * "Use default" row, which must not silently resolve to a gate either.
+ */
+function chatApiProfiles(source: ComposerApiSource | undefined) {
+  const rows = source?.profiles ?? []
+  return rows.filter((row) => !isCategorizerProfile({ model_type: row.modelType, owned_by: row.ownedBy }))
+}
+
+function chatDefaultProfileId(source: ComposerApiSource | undefined): string | undefined {
+  const rows = chatApiProfiles(source)
+  const declared = source?.defaultProfileId
+  if (declared && rows.some((row) => row.id === declared)) return declared
+  return rows[0]?.id
 }
 
 /** Stage-1 rows, in a stable kind order: api, cli, remote, blueprint. */
 export function buildComposerProviders(sources: ComposerSources): ComposerProviderOption[] {
   const rows: ComposerProviderOption[] = []
   if (sources.api) {
+    const chatProfiles = chatApiProfiles(sources.api)
     rows.push({
       id: 'api',
       label: 'API gateway',
       kind: 'api',
-      defaultOptionId: sources.api.defaultProfileId,
-      description: 'LLM profiles',
+      defaultOptionId: chatDefaultProfileId(sources.api),
+      description: chatProfiles.length ? 'LLM profiles' : 'No chat models connected',
     })
   }
   for (const cli of sources.clis ?? []) {
@@ -121,7 +158,7 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
       descParts.push(`${blueprintCount} blueprint${blueprintCount === 1 ? '' : 's'}`)
     }
     if (teamCount > 0) {
-      descParts.push(`${teamCount} team${teamCount === 1 ? '' : 's'}`)
+      descParts.push(`${teamCount} rig${teamCount === 1 ? '' : 's'}`)
     }
     rows.push({
       id: 'custom_blueprint',
@@ -129,6 +166,18 @@ export function buildComposerProviders(sources: ComposerSources): ComposerProvid
       kind: 'blueprint',
       defaultOptionId: customBlueprints[0]?.id ?? customTeams[0]?.id,
       description: descParts.join(', '),
+    })
+  }
+  // #1288: client-side WebGPU provider — only present when the caller passes
+  // a source (which it must gate behind the experimental flag). It stays last
+  // so it never reorders the server-side providers.
+  if (sources.webgpu) {
+    rows.push({
+      id: 'webgpu',
+      label: 'WebGPU (in-browser)',
+      kind: 'webgpu',
+      defaultOptionId: sources.webgpu.defaultModelId,
+      description: 'Runs in this browser tab',
     })
   }
   return rows
@@ -140,7 +189,7 @@ export function composerOptionsForProvider(
   provider: ComposerProviderOption,
 ): ModelSearchOption[] {
   if (provider.kind === 'api') {
-    return (sources.api?.profiles ?? []).map((p) => ({ id: p.id, label: p.label }))
+    return chatApiProfiles(sources.api).map((p) => ({ id: p.id, label: p.label }))
   }
   if (provider.kind === 'cli') {
     const name = provider.id.slice('cli:'.length)
@@ -160,6 +209,15 @@ export function composerOptionsForProvider(
       // #789: configured herdr panes trail explicit agent bots.
       ...(remote?.herdrAgents ?? []).map((h) => ({ id: h.name, label: h.name })),
     ]
+  }
+  if (provider.kind === 'webgpu') {
+    // #1288: stage-2 rows are the browser-runnable models. An empty catalogue
+    // yields no rows (honest — no invented models).
+    return (sources.webgpu?.models ?? []).map((m) => ({
+      id: m.id,
+      label: m.label,
+      tag: 'model' as const,
+    }))
   }
   if (provider.kind === 'blueprint' || provider.id === 'custom_blueprint') {
     const options: ModelSearchOption[] = []

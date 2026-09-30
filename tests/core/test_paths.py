@@ -349,15 +349,32 @@ class TestPlatformDirsIntegration:
             appname=APP_NAME, appauthor=APP_AUTHOR
         )
 
+    @patch("sys.platform", "linux")
     @patch("swarm.core.paths.platformdirs.user_config_dir")
-    def test_get_user_config_dir_calls_platformdirs(self, mock_user_config_dir):
-        """Test that get_user_config_dir_for_swarm calls platformdirs correctly."""
-        mock_user_config_dir.return_value = "/mock/config/dir"
-        path = get_user_config_dir_for_swarm()
-        assert str(path) == "/mock/config/dir"
-        mock_user_config_dir.assert_called_once_with(
-            appname=APP_NAME, appauthor=APP_AUTHOR
-        )
+    def test_get_user_config_dir_does_not_call_platformdirs(self, mock_user_config_dir):
+        """Non-Windows config root is XDG, not platformdirs OpenSwarm/swarm."""
+        mock_user_config_dir.return_value = "/mock/OpenSwarm/swarm"
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": "/xdg-home"}, clear=False):
+            os.environ.pop("SWARM_CONFIG_DIR", None)
+            path = get_user_config_dir_for_swarm()
+        assert path == Path("/xdg-home") / APP_NAME
+        mock_user_config_dir.assert_not_called()
+
+    @patch("sys.platform", "win32")
+    @patch("swarm.core.paths.platformdirs.user_config_dir")
+    def test_windows_config_root_ignores_xdg_and_platformdirs(self, mock_user_config_dir):
+        """Windows uses %APPDATA% even when XDG_CONFIG_HOME is set."""
+        mock_user_config_dir.return_value = "/mock/OpenSwarm/swarm"
+        appdata = r"C:\Users\Test\AppData\Roaming"
+        with patch.dict(
+            os.environ,
+            {"APPDATA": appdata, "XDG_CONFIG_HOME": "/xdg-home"},
+            clear=False,
+        ):
+            os.environ.pop("SWARM_CONFIG_DIR", None)
+            path = get_user_config_dir_for_swarm()
+        assert path == Path(appdata) / APP_AUTHOR / APP_NAME
+        mock_user_config_dir.assert_not_called()
 
 
 class TestCrossPlatformMocks:

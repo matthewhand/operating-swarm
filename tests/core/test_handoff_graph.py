@@ -25,6 +25,7 @@ from swarm.core.handoff_graph import (
     seed_demo_rosters,
 )
 from swarm.core.team_rosters import normalize_roster
+from helpers.private_net import assert_no_private_ip
 
 PIPELINE_EDGES = frozenset({("ba", "engineer"), ("engineer", "tester")})
 PIPELINE_FORBIDDEN = frozenset(
@@ -198,7 +199,7 @@ def test_example_json_has_no_secret_literals():
     lowered = blob.lower()
     for needle in ("sk-", "github_pat_", "ghp_", "bearer ", "xox"):
         assert needle not in lowered
-    assert "10.0.0." not in blob
+    assert_no_private_ip(blob)
 
 
 def test_seed_is_additive_and_skips_existing(tmp_path):

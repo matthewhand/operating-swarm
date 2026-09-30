@@ -20,70 +20,39 @@ import {
   fetchTeamRosters,
 } from '../lib/api'
 import { openChromeOverlay, type ChromeOverlay } from '../lib/chromeOverlay'
-import { openSettingsSheet, SETTINGS_SEARCH_CONTENT, type SettingsSection } from './SettingsSheet'
+import { openSettingsSheet, SETTINGS_SEARCH_CONTENT, type SettingsSection } from './settings/kernel'
 import { openTechSupportModal } from './TechSupportModal'
 import { agentMarkIndex, loadHiddenAgentIds, unhideAgentId } from '../lib/hiddenAgents'
 import { railSeatAgents } from '../lib/railSeats'
 import { agentLabel } from '../lib/supportAgent'
 import { remoteHideId, remoteDisplayName } from '../lib/remotesCatalog'
 import { parseTeamRosters, teamHideId } from '../lib/teamRosters'
+import type { CliRailAgent, HerdrAgent, RemoteConnection } from '../lib/api/types'
+import { emptyArray } from '../lib/stableEmpty'
 import { dispatchToggleTheme } from '../lib/theme'
 import { searchShortcutLabel } from '../lib/keybindingTips'
 import AgentAvatar from './AgentAvatar'
 import { OverlayFocusTrap } from './OverlayFocusTrap'
 
-export const SEARCH_PALETTE_TABS = [
-  'All',
-  'Messages',
-  'Agents',
-  'Teams',
-  'Files',
-  'Links',
-  'Routines',
-  'Actions',
-  'Settings',
-] as const
-
-export type SearchPaletteTab = (typeof SEARCH_PALETTE_TABS)[number]
-
-export const OPEN_SEARCH_EVENT = 'swarm:open-search'
-
-/**
- * #549: a hidden rail row the palette cannot derive from `/v1/blueprints/`.
- *
- * The rail badge counts **agents + teams + remotes**, assembled from blueprints,
- * rosters, remotes, cli and herdr feeds — but the palette's universe is
- * `railSeatAgents(blueprints)`, i.e. recipes only. So "Hidden Bots 3" could
- * open on an empty list whenever the hidden things were a team, a remote or a
- * CLI/herdr seat. The rail knows those rows, so it hands them over.
- */
-export interface HiddenRailRow {
-  /** The rail/pin id — a bare agent id, or `team:<id>` / `remote:<id>`. */
-  id: string
-  name: string
-  description?: string
-  href?: string
-  avatarPath?: string | null
-  tab?: 'Agents' | 'Teams'
-}
-
-export interface SearchPaletteOptions {
-  filterHidden?: boolean
-  tab?: SearchPaletteTab
-  query?: string
-  /**
-   * #549: the **reconciled** hidden ids the rail badge counted (local storage
-   * plus server prefs). The palette used to seed from localStorage alone, so
-   * the count could exceed the list for an id hidden only on the server.
-   */
-  hiddenIds?: string[]
-  /** #549: non-catalog hidden rows — teams, remotes, herdr and CLI seats. */
-  hiddenRows?: HiddenRailRow[]
-}
-
-export function openSearchPalette(options?: SearchPaletteOptions): void {
-  window.dispatchEvent(new CustomEvent(OPEN_SEARCH_EVENT, { detail: options }))
-}
+export {
+  SEARCH_PALETTE_TABS,
+  searchPaletteTabLabel,
+  OPEN_SEARCH_EVENT,
+  openSearchPalette,
+} from './searchPaletteKernel'
+export type {
+  SearchPaletteTab,
+  HiddenRailRow,
+  SearchPaletteOptions,
+} from './searchPaletteKernel'
+import {
+  OPEN_SEARCH_EVENT,
+  SEARCH_PALETTE_TABS,
+  searchPaletteTabLabel,
+  type HiddenRailRow,
+  type SearchPaletteOptions,
+  type SearchPaletteTab,
+} from './searchPaletteKernel'
 
 interface PaletteRow {
   id: string
@@ -108,6 +77,7 @@ const SETTINGS_SECTION_NAMES: Record<SettingsSection, string> = {
   general: 'General',
   aesthetics: 'Aesthetics',
   hostname: 'Hostname',
+  'about-me': 'About me',
   rail: 'Rail',
   providers: 'Providers',
   'cli-agents': 'CLI agents',
@@ -115,6 +85,8 @@ const SETTINGS_SECTION_NAMES: Record<SettingsSection, string> = {
   remotes: 'Remotes',
   sandboxes: 'Sandboxes',
   'backend-audit': 'Backend audit',
+  'seat-doctor': 'Seat doctor',
+  'operator-activity': 'Operator activity',
   mcp: 'MCP servers',
   plugins: 'Plugins',
   roles: 'Roles',
@@ -124,11 +96,9 @@ const SETTINGS_SECTION_NAMES: Record<SettingsSection, string> = {
   speech: 'Speech',
   retention: 'Retention',
   system: 'System',
+  experimental: 'Experimental',
 }
 
-function shortcutLabel(index: number): string {
-  return `⌃${index + 1}`
-}
 
 export default function SearchPalette({ open, onClose, options }: SearchPaletteProps) {
   const [query, setQuery] = useState('')
@@ -174,10 +144,20 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
     enabled: open,
     retry: 1,
   })
-  const cliAgents = cliQuery.data?.rail ?? []
-  const remoteConnections = remotesQuery.data?.data ?? []
-  const herdrAgents = herdrQuery.data?.data ?? []
-  const teams = parseTeamRosters(rostersQuery.data ?? [])
+  // `?? []` would allocate a fresh array every render while a query is empty,
+  // and `parseTeamRosters` builds fresh objects besides. All four feed the
+  // `rows` memo below, which would then miss on every render and rebuild the
+  // whole palette. See `lib/stableEmpty`.
+  const cliAgents = useMemo(() => cliQuery.data?.rail ?? emptyArray<CliRailAgent>(), [cliQuery.data])
+  const remoteConnections = useMemo(
+    () => remotesQuery.data?.data ?? emptyArray<RemoteConnection>(),
+    [remotesQuery.data],
+  )
+  const herdrAgents = useMemo(
+    () => herdrQuery.data?.data ?? emptyArray<HerdrAgent>(),
+    [herdrQuery.data],
+  )
+  const teams = useMemo(() => parseTeamRosters(rostersQuery.data), [rostersQuery.data])
 
   const rows = useMemo<PaletteRow[]>(() => {
     const seen = new Set<string>()
@@ -248,7 +228,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         name: team.name || team.id,
         description:
           team.description ||
-          `Team · ${team.members?.length ?? 0} member${(team.members?.length ?? 0) === 1 ? '' : 's'}`,
+          `Rig · ${team.members?.length ?? 0} member${(team.members?.length ?? 0) === 1 ? '' : 's'}`,
         href: `/chat?team=${encodeURIComponent(team.id)}`,
         agentId: teamHideId(team.id),
         avatarPath: null,
@@ -280,8 +260,8 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
       {
         id: 'action-teams',
         tab: 'Actions',
-        name: 'Teams',
-        description: 'Open the teams sheet over chat',
+        name: 'Rigs',
+        description: 'Open the rigs sheet over chat',
         overlay: 'teams',
       },
       // #550 / #182: `Compose team` was moved to the rail footer (the `Teams`
@@ -293,6 +273,13 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
         name: 'Settings',
         description: 'Open settings over chat',
         overlay: 'settings',
+      },
+      {
+        id: 'action-templates',
+        tab: 'Actions',
+        name: 'Templates',
+        description: 'Open the template gallery and installer',
+        overlay: 'templates',
       },
       {
         id: 'action-hidden',
@@ -587,7 +574,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
                 className={selected ? 'os-search-tab os-search-tab--active' : 'os-search-tab'}
                 onClick={() => setTab(name)}
               >
-                {name}
+                {searchPaletteTabLabel(name)}
               </button>
             )
           })}
@@ -669,7 +656,7 @@ export default function SearchPalette({ open, onClose, options }: SearchPaletteP
                     Unhide
                   </button>
                 )}
-                {idx < 9 && <kbd className="os-search-shortcut">{shortcutLabel(idx)}</kbd>}
+                
               </li>
             ))
           )}

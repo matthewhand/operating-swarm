@@ -1,4 +1,4 @@
-# Open Swarm — DEV override: bind-mount source + uvicorn --reload.
+# Operating Swarm — DEV override: bind-mount source + uvicorn --reload.
 #
 # WHAT THIS DOES
 #   Bind-mounts the repo over /app and overrides the image CMD so uvicorn runs
@@ -49,7 +49,8 @@ services:
       - |
         set -e
         python manage.py migrate --fake-initial
-        echo "--- Starting Open Swarm ASGI (uvicorn --reload) ---"
+        echo "--- Starting Operating Swarm ASGI (uvicorn --reload) ---"
+        export SWARM_PROCESS_ROLE=serve
         exec uvicorn swarm.asgi:application --host 0.0.0.0 --port 8000 --reload --reload-include '*.py'
     volumes:
       # Live source tree. hatchling installs into site-packages (no src/

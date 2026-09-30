@@ -45,9 +45,27 @@ describe('classifyAgentKind', () => {
     expect(classifyAgentKind('omb')).toBe('remote')
     expect(classifyAgentKind('trueforge')).toBe('remote')
     expect(classifyAgentKind('n8n')).toBe('remote')
+    expect(classifyAgentKind('octop')).toBe('remote')
+    expect(classifyAgentKind('tencent-octop')).toBe('remote')
+    expect(canEditAgentMessages('octop')).toBe(false)
     expect(classifyAgentKind('swarm')).toBe('api')
     expect(canEditAgentMessages('herdr')).toBe(false)
     expect(canEditAgentMessages('trueforge')).toBe(false)
+  })
+
+  it('#1436: a blueprint tag does not hide a remote seat', () => {
+    expect(classifyAgentKind('blueprint:omb')).toBe('remote')
+    expect(classifyAgentKind('blueprint:remote:herdr')).toBe('remote')
+    expect(classifyAgentKind('blueprint:remote_harness')).toBe('remote')
+    expect(classifyAgentKind('omb', 'blueprint')).toBe('remote')
+    expect(canEditAgentMessages('blueprint:omb')).toBe(false)
+    expect(classifyAgentKind('blueprint:planner')).toBe('blueprint')
+    expect(classifyAgentKind('jeeves', 'blueprint')).toBe('blueprint')
+    expect(classifyAgentKind('omb', 'api')).toBe('api')
+    expect(classifyAgentKind('blueprint:cli:grok')).toBe('cli')
+    expect(classifyAgentKind('cli:grok', 'blueprint')).toBe('cli')
+    expect(classifyAgentKind('blueprint:cli:grok', 'api')).toBe('api')
+    expect(canEditAgentMessages('blueprint:cli:grok')).toBe(true)
   })
 
   it('treats blueprint as a first-class swarm-owned kind', () => {

@@ -36,3 +36,27 @@ jobs:
       - name: Typecheck count ratchet (issue #246)
         working-directory: webui/frontend
         run: npm run typecheck:ratchet
+
+      # #1443: main chunk < 600 KB minified and no ineffective dynamic imports.
+      # Same job as the typecheck ratchet (already path-filtered to the SPA)
+      # so this does not add a pull_request workflow.
+      - name: Production bundle budget (issue #1443)
+        working-directory: webui/frontend
+        run: npm run build
+
+      # #1730 claim C: the measured-layout gates. jsdom has no layout engine, so
+      # pinned-grid / rail-chrome / chat-chrome assert on what Chromium actually
+      # lays out -- the only way to catch a collapsed grid, a top-aligned pill
+      # label, or a chrome band with nothing to blur. Until now none of them ran
+      # in CI, so their acceptance criteria were checked by hand.
+      #
+      # AFTER the build: rail-chrome measures the BUILT stylesheet, and a gate
+      # that quietly rebuilt a different bundle would be measuring fiction.
+      - name: Install Playwright Chromium (measured-layout gates)
+        working-directory: webui/frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Measured-layout gates (issue #1730)
+        working-directory: webui/frontend
+        run: npm run measure:ci
+

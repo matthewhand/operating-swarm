@@ -21,6 +21,7 @@ from swarm.core.cli_driver import (
     HermesCliAgent,
     KiloCodeCliAgent,
     OpenCodeCliAgent,
+    OpenCodeReviewCliAgent,
     PiCliAgent,
     QwenCliAgent,
     find_cli_candidates,
@@ -40,6 +41,7 @@ BUILT_IN_DRIVERS: tuple[type[BaseCliAgent], ...] = (
     PiCliAgent,
     QwenCliAgent,
     HermesCliAgent,
+    OpenCodeReviewCliAgent,
 )
 
 

@@ -21,7 +21,8 @@ catalog; ``discovered`` / ``installed`` is the PATH seed; ``configured`` is
 opt-in.
 
 Known catalog names (agy is the antigravity CLI): grok, agy, claude, gemini,
-codex, opencode, kilocode, pi, omp, qwen.
+codex, opencode, kilocode, pi, omp, qwen, ocr. ``ocr`` is a reviewer CLI
+(#1363), not a chat agent: it is absent from ``SIDEBAR_CLIS``.
 
 Remote/headless serving (Issue #180): opencode and kilocode can attach to a
 ``serve`` endpoint on another box. See :mod:`swarm.core.cli_remote`.
@@ -29,7 +30,7 @@ Remote/headless serving (Issue #180): opencode and kilocode can attach to a
 Each entry runs the CLI **one-shot, non-interactive, auto-approve** (full
 capability) — the flag that matters is the auto-approve one, without which the
 CLI blocks on a permission prompt and is killed on timeout (see
-``docs/CLI_FUSION.md``). That is how Open Swarm **simulates always-approve**;
+``docs/CLI_FUSION.md``). That is how Operating Swarm **simulates always-approve**;
 Agent Router Shift+Tab therefore cycles only plan / auto-edit / default.
 Exact flags and JSON shapes drift by CLI version, so these are suggestions
 to verify with each CLI's ``--help``, not guarantees.
@@ -50,6 +51,14 @@ Known per-CLI gotchas are encoded here so the defaults *just run* (verified live
   token as the prompt*. ``agy -p --output-format json 'hi'`` errors with
   ``-p took "--output-format" as its prompt``. Attach the prompt to the flag
   (``-p={prompt}``) and keep ``--output-format`` as a sibling flag.
+* **pi 0.74.2 rejects ``--`` and has no approval flag at all.** Its parser is
+  hand-rolled with no ``--`` terminator (``Unknown option: --``) and its core
+  ships no permission popups, so there is no ``--approve`` to pass either.
+  The prompt therefore rides on **stdin** via ``prompt_mode: "stdin"`` — pi's
+  own docs document merging piped stdin into the print-mode prompt. A
+  positional prompt cannot be made safe here: ``@`` starts a file argument and
+  ``-`` starts an option, and nothing escapes either. Do not "fix" this by
+  re-adding ``--`` or ``--approve``; both are rejected by the binary.
 
 The gemini default uses the fast flash tier (no ``-m``). To select the pro tier
 use ``with_model("gemini", "gemini-3-pro-preview", timeout=600)`` — but note
@@ -61,10 +70,11 @@ paid ``GEMINI_API_KEY``. Flash answers in a few seconds.
 from __future__ import annotations
 
 import os
-import shutil
+import sys
 from typing import Any
 
 from swarm.core.kind_bases import CliSlashCommand
+from swarm.utils.cli_path import extra_cli_path_dirs, host_cli_path
 
 # REQ-910 / #641: per-CLI **native slash commands**, declared by the provider
 # (ADR-005 ``CliKindBase`` capability) and published verbatim in
@@ -155,74 +165,35 @@ def seat_capabilities_payload(extra_bases: list[type] | None = None) -> dict[str
         for kind, base in bases.items()
     }
 
-# User-local bins Daphne often misses when started with PATH=/usr/bin:/bin.
-_EXTRA_BIN_REL = (
-    (".local", "bin"),
-    ("bin",),
-    (".grok", "bin"),
-    (".opencode", "bin"),
-    (".npm-global", "bin"),
-    (".local", "share", "pnpm"),
-    # #1175: hermes's launcher execs `python` from its venv bin; the venv's
-    # python symlink resolves into ~/.local/share/uv (mounted ro for CLI
-    # discovery). Without this dir on PATH the launcher dies with
-    # "venv/bin/python: No such file or directory".
-    (".hermes", "hermes-agent", "venv", "bin"),
-)
-
-
-def extra_cli_path_dirs() -> list[str]:
-    """User and nvm bin dirs that commonly hold grok/agy/pi/opencode.
-
-    ``SWARM_CLI_PATH_DIRS`` (``os.pathsep``-joined) extends the scan — the
-    deployment knob for containerised runs whose host bin mounts differ
-    (#716/#717). Configured dirs come first and must exist.
-    """
-    home = os.path.expanduser("~")
-    dirs: list[str] = []
-    configured = os.environ.get("SWARM_CLI_PATH_DIRS", "")
-    for d in configured.split(os.pathsep):
-        if d.strip() and os.path.isdir(d) and d not in dirs:
-            dirs.append(d)
-    for parts in _EXTRA_BIN_REL:
-        path = os.path.join(home, *parts)
-        if os.path.isdir(path):
-            dirs.append(path)
-    nvm = os.path.join(home, ".nvm", "versions", "node")
-    if os.path.isdir(nvm):
-        for ver in sorted(os.listdir(nvm), reverse=True):
-            path = os.path.join(nvm, ver, "bin")
-            if os.path.isdir(path):
-                dirs.append(path)
-    for path in ("/usr/local/bin",):
-        if os.path.isdir(path):
-            dirs.append(path)
-    return dirs
-
-
-def host_cli_path(current: str | None = None) -> str:
-    """``PATH`` with extra user bin dirs prepended (deduped)."""
-    current = os.environ.get("PATH", "") if current is None else current
-    parts: list[str] = []
-    seen: set[str] = set()
-    for d in [*extra_cli_path_dirs(), *current.split(os.pathsep)]:
-        if d and d not in seen:
-            seen.add(d)
-            parts.append(d)
-    return os.pathsep.join(parts)
-
-
 def which_cli(exe: str) -> str | None:
-    """Resolve ``exe`` on the same PATH runs use (``host_cli_path``)."""
+    """Resolve ``exe`` on the same PATH runs use (``host_cli_path``).
+
+    Walks ``host_cli_path`` in order (same doctrine as ``find_cli_candidates``)
+    so ``SWARM_CLI_PATH_DIRS`` / in-image bins win over later PATHEXT hits.
+    #1718: skip Windows PE binaries on Linux (Docker Desktop host mounts).
+    """
+    from swarm.utils.cli_path import is_runnable_cli_binary
+
     if not exe:
         return None
-    if os.path.sep in exe:
-        return exe if os.path.isfile(exe) and os.access(exe, os.X_OK) else None
+    if os.path.sep in exe or (os.altsep and os.altsep in exe):
+        return exe if is_runnable_cli_binary(exe) else None
     path = host_cli_path()
-    try:
-        return shutil.which(exe, path=path)
-    except TypeError:
-        return shutil.which(exe)
+    exts = [""]
+    if sys.platform == "win32":
+        pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+        # Bare name first so extensionless shims in configured dirs win over a
+        # later ``pi.CMD`` on the real Windows PATH.
+        exts = [""] + [e.lower() for e in pathext.split(";") if e]
+    for directory in path.split(os.pathsep):
+        if not directory:
+            continue
+        for ext in exts:
+            candidate = os.path.join(directory, exe + ext)
+            if is_runnable_cli_binary(candidate):
+                return candidate
+    return None
+
 
 # name -> adapter config dict (same shape as one `cli_agents` entry).
 CATALOG: dict[str, dict[str, Any]] = {
@@ -252,12 +223,25 @@ CATALOG: dict[str, dict[str, Any]] = {
         "timeout": 240,
     },
     "claude": {
-        "cmd": ["claude", "-p={prompt}", "--output-format", "json",
-                "--dangerously-skip-permissions"],
+        # claude 2.x: -p/--print is a BOOLEAN print flag (takes no value); the
+        # prompt is positional. Attaching it (-p={prompt}) makes commander read
+        # "-p=<text>" as a short-flag cluster -> "unknown option '-=<text>'".
+        # Keep the prompt last, after `--`. Verified live on claude 2.1.141.
+        "cmd": ["claude", "-p", "--output-format", "json",
+                "--dangerously-skip-permissions", "--", "{prompt}"],
         "parse": "json:.result",
         "mode": "write",
         "timeout": 240,
-        "env_allowlist": ["ANTHROPIC_API_KEY"],
+        # Claude Code reaches a third-party Anthropic-compatible gateway through
+        # these vars (this operator routes to api.deepseek.com/anthropic).
+        # Allowlisting only ANTHROPIC_API_KEY stripped the gateway config, so the
+        # CLI fell back to an expired OAuth token -> 401. Verified live 2026-09-26.
+        "env_allowlist": [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+        ],
     },
     "gemini": {
         # --skip-trust: gemini refuses to run in an untrusted dir without it.
@@ -269,7 +253,51 @@ CATALOG: dict[str, dict[str, Any]] = {
     },
     "codex": {
         # Flags before `--` so a positional prompt cannot swallow them.
-        "cmd": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--", "{prompt}"],
+        # Pin the operator LiteLLM gateway explicitly: the host default
+        # (~/.codex/config.toml model_provider=lmstudio) can point at a dead
+        # local model server, which makes `codex exec` loop on
+        # "Reconnecting... waiting for network" until timeout. `-c key=value`
+        # is the documented --config override; provider `litellm` is the
+        # operator's own gateway (its base_url is pinned in that same
+        # config.toml — see the env note below) and `codex exec resume` also
+        # accepts -c, so resume still works. Model `delegation` is the fast
+        # routing tier (codex `orchestration` cold-start occasionally needs >60s;
+        # `tiny` stalls). Verified live 2026-09-26: exit 0 in ~9s.
+        #
+        # Timeout floor: a real agentic turn measured **95s** on this host
+        # (2026-09-28), so anything at or below ~90 is an intermittent hard
+        # timeout. The catalog default is 240s (2.5x the worst observed turn);
+        # do not lower it. The 90s seen in the wild is the *operator config*
+        # override in the operator config (see core/paths.py for its location),
+        # not this catalog — a
+        # configured `cli_agents.timeout` wins over the catalog, so raise it
+        # there (or drop the key to inherit 240).
+        #
+        # env_allowlist, reconciled against reality 2026-09-28: the seat does
+        # **not** run on the LITELLM_* gateway vars. `_build_env` keeps only
+        # _ESSENTIAL_ENV + this allowlist, so LITELLM_BASE_URL / LITELLM_API_KEY
+        # never reach the child process even though both are set in the unit's
+        # .env. What actually carries the route is static config: the
+        # `litellm` provider in ~/.codex/config.toml pins the gateway's
+        # `base_url` alongside `env_key = "OPENAI_API_KEY"`. The address is the
+        # operator's own LAN endpoint, so it is deliberately NOT copied here —
+        # #1670's tracked-files sanitisation gate rejects private RFC1918
+        # literals, and a hardcoded copy would be one edit away from a real
+        # internal host leaking into the repo. The unit does not export
+        # OPENAI_API_KEY (it is absent from both EnvironmentFiles), so codex
+        # logs "Missing environment variable: OPENAI_API_KEY" on every run —
+        # that line is the provider's *auth* bootstrap complaining, not a
+        # transport failure, and it is benign precisely because the base URL is
+        # hardcoded. OPENAI_API_KEY is kept in the allowlist so the seat
+        # starts working the moment the operator exports it; until then this
+        # entry is "reachable via config.toml, unauthenticated".
+        "cmd": [
+            "codex", "exec",
+            "-c", "model_provider=litellm",
+            "-c", "model=delegation",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--", "{prompt}",
+        ],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
@@ -277,23 +305,38 @@ CATALOG: dict[str, dict[str, Any]] = {
     },
     "opencode": {
         # --model: opencode's built-in default errors as "not supported"; an
-        # explicit model is required. Prefer LAN LiteLLM via host opencode
-        # provider (`litellm/orchestration` on .30:8000). Run `opencode models`
-        # to pick another available id if needed.
-        # --model before `--` so a positional prompt cannot turn it into text.
-        "cmd": ["opencode", "run", "--model", "litellm/orchestration", "--", "{prompt}"],
+        # explicit model is required. OpenRig dogfood default is Space Bunny
+        # free (`opencode/space-bunny-free`) with `--auto` so CLI seats keep
+        # working when Grok Bot quota is exhausted (#1747). Override via
+        # seat model / `opencode models` (e.g. litellm/orchestration,
+        # opencode-go/*). --model and --auto before `--`.
+        "cmd": [
+            "opencode",
+            "run",
+            "--model",
+            "opencode/space-bunny-free",
+            "--auto",
+            "--",
+            "{prompt}",
+        ],
         "parse": "text",
         "mode": "write",
         "timeout": 240,
     },
     "kilocode": {
-        # Kilo Code CLI (opencode fork). Binary is ``kilo``. One-shot ``run``
-        # with a positional prompt after ``--``. Headless: ``kilo serve``;
-        # attach with ``--attach http://host:port`` (see cli_remote).
-        "cmd": ["kilo", "run", "--", "{prompt}"],
+        # Kilo Code CLI (opencode fork). Binary is ``kilo``.
+        #
+        # Verified against kilo 1.0.0 on this host: there is NO ``run``
+        # subcommand — ``kilo run --help`` prints the top-level help, i.e.
+        # ``run`` is being swallowed as the positional prompt. The old
+        # `kilo run -- {prompt}` therefore dropped the prompt and died on a
+        # non-tty stdin ("Piped input requires --ci flag to be enabled").
+        # One-shot non-interactive form is `kilo --auto -t <secs> "<prompt>"`
+        # (`--auto` is the long form of `-ci`; `-t` requires it).
+        "cmd": ["kilo", "--auto", "-t", "240", "{prompt}"],
         "parse": "text",
         "mode": "write",
-        "timeout": 240,
+        "timeout": 300,
     },
     "omp": {
         # Oh My Pi non-interactive print mode. -p/--print does not consume the
@@ -316,27 +359,61 @@ CATALOG: dict[str, dict[str, Any]] = {
         "timeout": 240,
     },
     "pi": {
-        # pi -p/--print is non-interactive; prompt is a positional message
-        # (not attached to -p). `--` keeps user text from becoming flags.
-        # --mode text; --approve trusts project-local files for that run.
+        # Re-derived from `pi --help` on pi **0.74.2** (the installed build).
+        # The previous argv was written against a remembered pi and is rejected
+        # outright by this one — `pi -p --mode text --approve -- <prompt>`
+        # exits with `Error: Unknown options: --approve, --`, so the seat could
+        # not start at all. Three facts from the binary's own help pin this argv:
+        #
+        # 1. **There is no --approve, and no approval concept to approve.**
+        #    `pi --help` lists no such flag, and the string "approve" does not
+        #    occur anywhere in the @earendil-works/pi-coding-agent 0.74.2
+        #    package. pi's own docs (usage.md, Design Principles) say it
+        #    "intentionally does not include built-in MCP, sub-agents,
+        #    permission popups, plan mode, to-dos, or background bash" — the
+        #    core has no permission gate, so there is nothing to auto-approve.
+        #    Dropped rather than replaced; do not re-add an invented synonym.
+        # 2. **pi has no `--` terminator.** Its parser is hand-rolled
+        #    (dist/cli/args.js) with no separator branch, so `--` is parsed as
+        #    an unknown long flag: `pi -p --mode text -- hi` -> `Error: Unknown
+        #    option: --`. Unknown long flags are fatal too, and a positional
+        #    starting with `-` is `Unknown option: -x` while one starting with
+        #    `@` is silently eaten as a @file argument. So a positional prompt
+        #    cannot be made safe: there is no escape hatch to reach for.
+        #    Consequence: **do not** let _protect_prompt_argv insert `--` for
+        #    this CLI — it would inject exactly the flag pi rejects.
+        # 3. **-p reads piped stdin.** `pi --help` documents `--print, -p
+        #    Non-interactive mode: process prompt and exit`, and usage.md:
+        #    "In print mode, pi also reads piped stdin and merges it into the
+        #    initial prompt" (`cat README.md | pi -p "Summarize this text"`).
+        #    Feeding the prompt on stdin is therefore a documented pi feature,
+        #    not a workaround — and it is the only channel that is immune to
+        #    both mangling hazards above. prompt_mode "stdin" also keeps the
+        #    prompt out of argv, so the user can never inject a pi option.
+        #
         # --no-session is smoke/verify only (see SMOKE_FLAGS) so production
         # runs can resume with --session.
         # #1186: pin the provider-qualified model. A bare slug (tiny) makes pi
-        # fall back to the openai provider and 401; `litellm/tiny` routes to
-        # the operator gateway declared in ~/.pi/agent/models.json.
-        "cmd": [
-            "pi",
-            "-p",
-            "--mode",
-            "text",
-            "--approve",
-            "--model",
-            "litellm/tiny",
-            "--",
-            "{prompt}",
-        ],
+        # fall back to the openai provider and 401. The old `litellm/tiny` pin
+        # no longer resolves (pi errors `Model "litellm/tiny" not found`), and
+        # `litellm-local/*` hangs when the loopback gateway is down. Use the
+        # reachable operator gateway declared in ~/.pi/agent/models.json.
+        # Verified live 2026-09-26: `litellm-fly/orchestration` -> exit 0.
+        # Re-verified 2026-09-28 against 0.74.2 with this exact argv: the
+        # corrected shape (plus a probe-only --no-extensions to step around a
+        # host-side extension/version skew that is NOT a catalog problem) exits
+        # 0 and answers.
+        #
+        # NOT fixed here: `pi-subagents` and `pi-mcp-adapter` (installed under
+        # the nvm node-22 prefix) import
+        # @earendil-works/pi-ai/dist/index.js/compat, which pi-ai 0.74.2 no
+        # longer ships, so every pi run aborts with
+        # "Cannot find module .../pi-ai/dist/index.js/compat". That is a host
+        # install skew, not an argv defect — this entry is correct without it.
+        "cmd": ["pi", "-p", "--mode", "text", "--model", "litellm-fly/orchestration"],
         "parse": "text",
         "mode": "write",
+        "prompt_mode": "stdin",
         "timeout": 240,
     },
     "qwen": {
@@ -352,6 +429,22 @@ CATALOG: dict[str, dict[str, Any]] = {
         "parse": "json:.-1.result",
         "mode": "write",
         "timeout": None,
+    },
+    "ocr": {
+        # Alibaba Open Code Review (#1363). `ocr review` is cobra.NoArgs — the
+        # seat instruction is NOT a positional prompt. prompt_mode "none" keeps
+        # stdin closed and lets augment_ocr_argv add --from/--to/--commit/--path,
+        # --audience agent, and --background=<prose>. JSON goes to stdout via
+        # --format json. The default --output is already stdout (`-` also means
+        # stdout); leaving the flag off avoids creating a file.
+        # Auth is the operator's own OpenAI- or Anthropic-compatible endpoint
+        # (`ocr config provider`). No Alibaba-hosted credential. Not a sidebar
+        # chat CLI — the code_reviewer blueprint is the skeptic/gate seat.
+        "cmd": ["ocr", "review", "--format", "json"],
+        "parse": "ocr",
+        "prompt_mode": "none",
+        "mode": "readonly",
+        "timeout": 600,
     },
 }
 
@@ -479,17 +572,26 @@ SESSION: dict[str, dict[str, Any]] = {
             "List: ``opencode session list --format json`` ({id, title, updated})."
         ),
     },
+    # kilo 1.0.0 has no `--session`/`-s` flag (verified from `kilo --help`,
+    # which lists only -V/-m/-w/-ci(--auto)/-t), and no `run` subcommand either.
+    # Resuming is therefore impossible, and a fabricated flag would make every
+    # resumed turn fail on an unknown option. `resume_argv: None` plus a
+    # reason is the supported way to say "this CLI cannot resume, and here is
+    # the evidence" — a missing resume_argv with NO reason is still a defect.
     "kilocode": {
-        "resume_argv": ["--session", "{session_id}"],
-        "resume_insert": 2,  # after `kilo run` → `kilo run --session <id> …`
+        "resume_argv": None,
+        "resume_unsupported_reason": (
+            "kilo 1.0.0 exposes no session/resume flag (kilo --help lists "
+            "only -V, -m, -w, -ci/--auto, -t) and no run subcommand"
+        ),
         "resume_strip": ["--continue", "-c"],
-        "session_id_paths": [".session", ".sessionID", ".id"],
         "list_capability": LIST_CAPABILITY_PASTE_ONLY,
         "notes": (
-            "kilo run --session <id> (also -s). --continue/-c is last-session "
-            "in the cwd, not thread-scoped — do not use it. "
-            "Headless: ``kilo serve``; attach with ``--attach http://host:port``. "
-            "List is paste-only until a non-interactive list argv is verified."
+            "Non-resumable: kilo 1.0.0 has no session flag, so each turn "
+            "starts a fresh run. --continue/-c is last-session in the cwd, "
+            "not thread-scoped — do not use it. Headless: ``kilo serve``; "
+            "attach with `--attach http://host:port`. List is paste-only "
+            "until a non-interactive list argv is verified."
         ),
     },
     "omp": {
@@ -523,16 +625,38 @@ SESSION: dict[str, dict[str, Any]] = {
         ),
     },
     "pi": {
+        # VERIFIED against `pi --help` on 0.74.2: "--session <path|id>  Use
+        # specific session file or partial UUID" (usage.md, Session Options
+        # table, agrees). So pi IS resumable and keeps a real resume_argv —
+        # the explicit opt-out used for kilocode does NOT apply here.
         "resume_argv": ["--session", "{session_id}"],
         "resume_insert": 2,  # after `pi -p` → `pi -p --session <id> …`
         "resume_strip": ["--no-session", "--continue", "-c"],
         "session_id_paths": [".session", ".id"],
         "list_capability": LIST_CAPABILITY_PASTE_ONLY,
         "notes": (
-            "pi -p --session <path|id>. --resume/-r is a TUI picker; "
-            "--continue/-c is last session — do not use those here. "
+            "pi -p --session <path|id> (VERIFIED in pi 0.74.2 --help). "
+            "--resume/-r is a session *picker*; --continue/-c is the last "
+            "session — neither is thread-scoped, so do not use them here. "
+            "pi's arg parser is order-independent, so --session may sit at "
+            "resume_insert 2 ahead of the rest of the flags. "
             "Smoke/verify injects --no-session (ephemeral); production cmd does not. "
             "List is paste-only — no verified non-interactive list argv."
+        ),
+    },
+    "ocr": {
+        # After `ocr review` / `ocr scan` (index 2). JSON stdout carries
+        # session_id. `ocr session list` is not a verified non-interactive
+        # JSON list, so listing stays paste-only.
+        "resume_argv": ["--resume", "{session_id}"],
+        "resume_insert": 2,
+        "session_id_paths": [".session_id"],
+        "list_capability": LIST_CAPABILITY_PASTE_ONLY,
+        "notes": (
+            "ocr review --resume <session-id> (also ocr scan --resume). "
+            "The command takes no positional prompt. JSON stdout includes "
+            "session_id. List is paste-only — `ocr session list` is not a "
+            "verified non-interactive JSON list."
         ),
     },
     "qwen": {
@@ -753,6 +877,27 @@ def _discovered_default_cli(discovered: list[str]) -> str:
     return found[0] if found else ""
 
 
+def _fusion_default_cli(
+    config: dict[str, Any] | None,
+    configured: list[str],
+    discovered: list[str],
+) -> str:
+    """``cli_fusion.default_cli`` when it names a present catalog CLI, else "".
+
+    The config's explicit default wins over the alphabetical configured-first /
+    discovered fallback (#149 precedence) — but only when the named CLI is
+    genuinely present (configured or discovered on PATH). A name that is absent
+    is ignored so the payload never advertises an executable we cannot run.
+    """
+    fusion = (config or {}).get("cli_fusion") or {}
+    if not isinstance(fusion, dict):
+        return ""
+    name = str(fusion.get("default_cli") or "").strip()
+    if name in CATALOG and (name in configured or name in discovered):
+        return name
+    return ""
+
+
 def rail_cli_rows(
     config: dict[str, Any] | None = None,
     *,
@@ -864,8 +1009,10 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
     configured = configured_cli_names(config)
     discovered = discover_host_clis()
     suggestions = suggested_cli_agents(config)
-    default_cli = next((name for name in configured if name), "") or _discovered_default_cli(
-        discovered
+    default_cli = (
+        _fusion_default_cli(config, configured, discovered)
+        or next((name for name in configured if name), "")
+        or _discovered_default_cli(discovered)
     )
     return {
         "clis": catalog_names(),
@@ -873,6 +1020,9 @@ def cli_agents_catalog_payload(config: dict[str, Any] | None = None) -> dict[str
         "configured": configured,
         "discovered": discovered,
         "installed": discovered,
+        # Absolute path per discovered CLI (name -> path) so the Add-agent /
+        # Settings UI can show where a binary was found and default to it.
+        "paths": discovered_cli_paths(),
         "suggestions": suggestions,
         "default_cli": default_cli,
         # #736: no ``modes`` advertisement — surfaces are always on if
@@ -916,6 +1066,22 @@ def _remote_boxes_payload(config: dict[str, Any] | None) -> list[dict[str, Any]]
 def installed_catalog_clis() -> list[str]:
     """Catalog CLIs whose executable resolves on this host (sorted)."""
     return [n for n in catalog_names() if which_cli(CATALOG[n]["cmd"][0])]
+
+
+def discovered_cli_paths() -> dict[str, str]:
+    """Absolute executable path per discovered catalog CLI (name -> path).
+
+    The same PATH/``stat`` resolution :func:`which_cli` already performs for
+    :func:`installed_catalog_clis`, kept instead of discarded so the UI can
+    show *where* a binary was found and offer a path override. Missing
+    executables are omitted — a path is never invented.
+    """
+    out: dict[str, str] = {}
+    for name in catalog_names():
+        resolved = which_cli(CATALOG[name]["cmd"][0])
+        if resolved:
+            out[name] = resolved
+    return out
 
 
 def _executable_on_path(exe: str) -> bool:

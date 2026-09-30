@@ -41,6 +41,14 @@ export function systemTtsAvailable(win: Window = window): boolean {
   return Boolean(win.speechSynthesis && typeof win.speechSynthesis.speak === 'function')
 }
 
+/** Thrown by recordMicrophoneAudio and reused by the mic click toast. */
+export const MICROPHONE_CAPTURE_UNAVAILABLE =
+  'Microphone capture is not available in this browser.'
+
+export function microphoneCaptureAvailable(win: Window = window): boolean {
+  return Boolean(win.navigator?.mediaDevices?.getUserMedia)
+}
+
 export function resolveSttPath(settings: SpeechSettings, win: Window = window): SpeechPath | null {
   const customReady = isCustomSpeechConfigured(settings.stt)
   if (settings.stt.source === 'custom') {
@@ -132,7 +140,7 @@ export async function recordMicrophoneAudio(
 ): Promise<{ stop: () => Promise<Blob>; abort: () => void }> {
   const media = win.navigator?.mediaDevices
   if (!media?.getUserMedia) {
-    throw new Error('Microphone capture is not available in this browser.')
+    throw new Error(MICROPHONE_CAPTURE_UNAVAILABLE)
   }
   const stream = await media.getUserMedia({ audio: true })
   const Recorder = (win as unknown as { MediaRecorder?: typeof MediaRecorder }).MediaRecorder

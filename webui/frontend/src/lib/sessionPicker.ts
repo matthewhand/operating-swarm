@@ -8,6 +8,9 @@
 import { parseStartedAt, type StackFace } from './avatarStack'
 import type { RemoteAgent, RemoteEntry } from './remotesCatalog'
 import type { TeamRoster } from './teamRosters'
+// #1692: one avatar-URL precedence for every seat surface (rail, header,
+// pickers). This module used to carry a private copy of the four-name chain.
+import { seatAvatarSrc } from './seatAvatar'
 
 export type SessionStatus = 'running' | 'finished'
 export type SessionGroupKind = 'team' | 'remote' | 'agent'
@@ -24,6 +27,13 @@ export interface MemberSession {
   href: string
   role?: string
   avatarSrc?: string | null
+  /**
+   * #1353 — the provider scope this session belongs to (`cli:<name>`,
+   * `remote:<id>`, `api`, …). The session picker is scoped to the selected
+   * agent's provider; a session from another provider (or the default
+   * inference profile) is never listed.
+   */
+  provider?: string
 }
 
 export function facesFromSessions(sessions: MemberSession[]): StackFace[] {
@@ -49,6 +59,22 @@ export function filterSessions(sessions: MemberSession[], query: string): Member
       session.memberId.toLowerCase().includes(q)
     )
   })
+}
+
+/**
+ * #1353 — scope a session list to one provider. A `null`/empty provider keeps
+ * every row (no provider context). When a provider is given, only sessions
+ * declaring that provider are listed; sessions with no declared provider are
+ * foreign once a scope exists (they cannot be proven to belong), and a stale
+ * session carrying the default inference profile is dropped by key mismatch.
+ */
+export function filterSessionsByProvider(
+  sessions: MemberSession[],
+  provider: string | null | undefined,
+): MemberSession[] {
+  const key = (provider ?? '').trim()
+  if (!key) return sessions
+  return sessions.filter((session) => (session.provider ?? '').trim() === key)
 }
 
 function memberName(member: { id: string; name?: string }): string {
@@ -82,13 +108,13 @@ export function sessionsForTeam(team: TeamRoster): MemberSession[] {
       startedAt,
       href,
       role: member.role,
-      avatarSrc: member.avatarSrc || member.avatar_path || member.avatar || member.src || null,
+      avatarSrc: seatAvatarSrc(member),
     }
   })
 }
 
 export function sessionsForRemote(remote: RemoteEntry): MemberSession[] {
-  // Session-capable remotes (AnythingLLM/Letta/Open WebUI) are listed via operate(),
+  // Session-capable remotes (AnythingLLM/Open WebUI) are listed via operate(),
   // not a fake single-agent row that cannot resume.
   if (!remote.agents.length && remote.capabilities?.sessions) {
     return []
@@ -109,7 +135,7 @@ export function sessionsForRemote(remote: RemoteEntry): MemberSession[] {
       startedAt,
       href: `/chat?remote=${encodeURIComponent(remote.id)}&session=${encodeURIComponent(agent.id)}`,
       role: agent.role,
-      avatarSrc: (agent as any).avatarSrc || (agent as any).avatar_path || (agent as any).avatar || (agent as any).src || null,
+      avatarSrc: seatAvatarSrc(agent),
     }
   })
 }

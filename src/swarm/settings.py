@@ -2,6 +2,7 @@
 Django settings for swarm project.
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ from swarm.core.database_config import django_databases
 from swarm.utils.env_utils import *
 from swarm.utils.dotenv_load import load_swarm_dotenv
 
-# --- Load .env: XDG ~/.config/swarm/.env (primary) + project .env (fallback) ---
+# --- Load .env: user-config .env (primary) + project .env (fallback) ---
 load_swarm_dotenv(project_root=BASE_DIR.parent)
 # ---
 
@@ -65,9 +66,7 @@ def _blueprint_extra_dirs() -> list[str]:
     include that dir — creator saves never execute code on the write path.
     """
     dirs: list[str] = []
-    allow_user = os.getenv("SWARM_ALLOW_USER_BLUEPRINT_DISCOVERY", "").lower() in (
-        "true", "1", "yes", "y", "t",
-    )
+    allow_user = env_flag("SWARM_ALLOW_USER_BLUEPRINT_DISCOVERY")
     if allow_user:
         try:
             from swarm.core.paths import get_user_blueprints_dir
@@ -85,7 +84,7 @@ def _blueprint_extra_dirs() -> list[str]:
 BLUEPRINT_EXTRA_DIRS = _blueprint_extra_dirs()
 
 # Web UI Configuration
-ENABLE_WEBUI = os.getenv('ENABLE_WEBUI', 'true').lower() in ('true', '1', 'yes')
+ENABLE_WEBUI = env_flag('ENABLE_WEBUI', default=True)
 WEBUI_STATIC_DIR = BASE_DIR.parent / 'staticfiles' / 'webui'
 # --- End Custom Swarm Settings ---
 
@@ -174,6 +173,128 @@ MIDDLEWARE = [
     # CSP header when CONTENT_SECURITY_POLICY is set (prod DEBUG=False block).
     'swarm.middleware.ContentSecurityPolicyMiddleware',
 ]
+
+def _social_auth_credentials_from_env() -> dict[str, str]:
+    """Map provider credential env vars onto their Django setting names.
+
+    Kept as a function (rather than inline in the ``if`` body) so it is
+    directly testable: the assignment happens at settings-import time, so a
+    test cannot populate it afterwards the way it can with a normal setting.
+    """
+    resolved: dict[str, str] = {}
+    for env_prefix, setting_prefix in (
+        ("SWARM_OAUTH_GITHUB", "SOCIAL_AUTH_GITHUB"),
+        ("SWARM_OAUTH_GOOGLE", "SOCIAL_AUTH_GOOGLE_OAUTH2"),
+    ):
+        for part in ("KEY", "SECRET"):
+            value = os.getenv(f"{env_prefix}_{part}") or os.getenv(f"{setting_prefix}_{part}")
+            if value:
+                resolved[f"{setting_prefix}_{part}"] = value
+    return resolved
+
+
+def _social_auth_installed() -> bool:
+    """Whether social-auth-app-django is importable, without importing it.
+
+    find_spec raises ValueError when a name is in sys.modules with
+    ``__spec__ is None`` -- the shape a test stub or bootstrapper leaves
+    behind. settings.py is imported extremely early, so an unguarded probe
+    here means Django cannot start at all. The MCP block above already
+    handles this; this is the same guard applied to the same class of risk.
+    """
+    try:
+        return importlib.util.find_spec("social_django") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+# --- Social auth (optional; requires the `oauth` / `deploy` extra) -------------
+# social_django is registered ONLY when installed. A barebones `pip install .`
+# has no social-auth, and an unconditional entry here would make
+# django.setup() raise ModuleNotFoundError -- turning a missing extra into a
+# total boot failure instead of "OAuth is not configured".
+# Defined unconditionally so it is always a real setting. When it lived inside
+# the `if`, a barebones install had no such attribute at all, and every reader
+# needed a getattr() default to avoid AttributeError.
+SOCIAL_AUTH_AVAILABLE = _social_auth_installed()
+
+if SOCIAL_AUTH_AVAILABLE:
+    INSTALLED_APPS.append("social_django")
+    MIDDLEWARE = MIDDLEWARE + ["social_django.middleware.SocialAuthExceptionMiddleware"]
+    # social-core backends first, so a social/session login is tried before
+    # the plain username+password ModelBackend.
+    AUTHENTICATION_BACKENDS = (
+        "social_core.backends.github.GithubOAuth2",
+        "social_core.backends.google.GoogleOAuth2",
+        "django.contrib.auth.backends.ModelBackend",
+    )
+    # --- provider credentials ---------------------------------------------
+    # social-core resolves keys/secrets via getattr(settings, ...), so nothing
+    # here means social auth can never be configured: the backend raises
+    # "client_id not configured" and the login page hides the button. Read
+    # them from the environment so a deploy is `flyctl secrets set` and not a
+    # hand-edit of this file. SWARM_OAUTH_* is the documented prefix; the bare
+    # SOCIAL_AUTH_* name is accepted for anyone following upstream docs.
+    #
+    # Only ever read from the environment -- never committed.
+    globals().update(_social_auth_credentials_from_env())
+    # Email is required for the allowlist check in swarm.oauth_pipeline.
+    SOCIAL_AUTH_GITHUB_SCOPE = ["user:email", "read:user"]
+    SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ["openid", "email", "profile"]
+    # Order matters. swarm.oauth_pipeline steps run BEFORE social_user /
+    # create_user so a refused sign-in halts without leaving a row behind --
+    # that is the whole point of failing closed. stable_username runs before
+    # social-core's get_username, which only fills details["username"] if it
+    # is absent, so ours wins.
+    SOCIAL_AUTH_PIPELINE = (
+        "social_core.pipeline.social_auth.social_details",
+        "social_core.pipeline.social_auth.social_uid",
+        "social_core.pipeline.social_auth.auth_allowed",
+        "swarm.oauth_pipeline.require_verified_email",
+        "swarm.oauth_pipeline.stable_username",
+        "swarm.oauth_pipeline.restrict_to_approved_email",
+        "social_core.pipeline.user.get_username",
+        "social_core.pipeline.social_auth.social_user",
+        "social_core.pipeline.user.create_user",
+        "social_core.pipeline.social_auth.associate_user",
+        "social_core.pipeline.user.user_details",
+        "social_core.pipeline.social_auth.load_extra_data",
+    )
+    # A refusal lands on the login page with an explanation instead of 500.
+    SOCIAL_AUTH_LOGIN_ERROR_URL = "/accounts/login/"
+    LOGIN_ERROR_URL = "/accounts/login/"
+
+
+# Behind a TLS-terminating proxy (Fly, nginx, any ingress) Django sees the hop
+# as plain HTTP and builds absolute URLs — request.build_absolute_uri(),
+# redirect(), and crucially the OAuth `redirect_uri` — with an http:// scheme.
+# GitHub and Google both reject a redirect_uri whose scheme/host disagrees with
+# the registered callback, so OAuth behind a proxy silently fails without this.
+#
+# =============================================================================
+# #1345 — REQUIRED FLY FOLLOW-UP, DO NOT DEPLOY WITHOUT IT
+# =============================================================================
+# The trust is now gated on an explicit deployment signal,
+# SWARM_BEHIND_TLS_PROXY, and it DEFAULTS TO FALSE. A header trusted with no
+# proxy in front means any client can claim HTTPS, which is wrong for
+# docker-compose.yml (publishes 8000:8000 with DJANGO_DEBUG=false and no
+# proxy) and for the systemd / LAN units that bind uvicorn directly.
+#
+# >> ACTION REQUIRED: add `SWARM_BEHIND_TLS_PROXY = 'true'` to the `[env]`
+# >> block of BOTH fly.toml AND fly.demo.toml before the next `fly deploy`.
+# >> Both apps run behind fly-proxy, which terminates TLS. Without the
+# >> variable, SOCIAL_AUTH redirects are built as http:// and every social
+# >> sign-in fails with a redirect_uri mismatch -- silently, at click time.
+# >> `swarm.utils.env_utils.behind_tls_proxy()` logs one warning at startup
+# >> when the variable is missing in production so this is not silent, but
+# >> the warning is a backstop, not the fix.
+#
+# Deployments that bind directly (docker-compose.yml, systemd units,
+# `manage.py runserver`) leave it unset -- that is now the correct default.
+# See env_utils.behind_tls_proxy() and issue #1345.
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if behind_tls_proxy() else None
+)
 
 ROOT_URLCONF = 'swarm.urls'
 
@@ -345,6 +466,13 @@ CONTENT_SECURITY_POLICY = None  # set below when DEBUG=False (unless SWARM_CSP=f
 # back in with SWARM_COOP=same-origin (or any other policy) once the origin
 # is HTTPS/localhost. Unconditional: the middleware ignores DEBUG, so the
 # opt-out cannot live in the production block below.
+#
+# Does NOT delegate to env_flag (#1344): the value itself is consumed as a
+# CSP policy string, not interpreted as a boolean. Only its *negative* set
+# overlaps env_flag's, and env_flag's FALSY is a strict superset of the
+# ("false", "0", "no", "n", "off") used here -- adopting it would mean
+# SWARM_COOP=f silently setting the header to the literal policy "f". Kept
+# explicit; the shared spelling set is documented on env_utils.FALSY.
 _SWARM_COOP_ENV = os.getenv("SWARM_COOP", "").strip().lower()
 if _SWARM_COOP_ENV in ("false", "0", "no", "n", "off"):
     SECURE_CROSS_ORIGIN_OPENER_POLICY = None
@@ -360,6 +488,15 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = os.getenv("DJANGO_X_FRAME_OPTIONS", "DENY")
     # Secure cookies default on in production; opt out with SWARM_SECURE_COOKIES=false.
+    #
+    # Does NOT delegate to env_flag (#1344), and the reason is the fail-open
+    # direction: this flag is default-TRUE (unset means secure cookies), so a
+    # negated env_flag would have to be `not env_flag(..., default=True)`.
+    # With env_flag's rule "unrecognised -> False", that turns
+    # SWARM_SECURE_COOKIES=maybe into *insecure* cookies, where today it stays
+    # secure. FALSY additionally contains ""/"none"/"null", so an unset-vs-empty
+    # distinction this block relies on would collapse. Kept explicit: for a
+    # security-tightening flag, only the listed spellings may relax it.
     _secure_cookies_env = os.getenv("SWARM_SECURE_COOKIES", "").strip().lower()
     if _secure_cookies_env in ("false", "0", "no", "n", "off"):
         _secure_cookies = False
@@ -368,6 +505,9 @@ if not DEBUG:
         _secure_cookies = True
     SESSION_COOKIE_SECURE = _secure_cookies
     CSRF_COOKIE_SECURE = _secure_cookies
+    # Same reasoning as SWARM_SECURE_COOKIES above, inverted: this is
+    # default-ON CSP, so delegating to env_flag's "unknown -> False" would
+    # strip the CSP header on a typo instead of leaving it on.
     _csp_env = os.getenv("SWARM_CSP", "").strip().lower()
     if _csp_env not in ("false", "0", "no", "n", "off"):
         CONTENT_SECURITY_POLICY = _SWARM_CSP_POLICY

@@ -29,17 +29,40 @@ except ImportError:
     Handoff = Any
 
 from swarm.blueprints.agent_router.engines import RouterEnginesMixin
+from swarm.core.agent_run_timeout import agent_run_timeout
 from swarm.core.agent_types import AGENT_TYPE_CATALOG, agent_type_for_kind, public_personas
 from swarm.core.kind_bases import ApiKindBase
 from swarm.core.blueprint_spec import BLUEPRINT_AGENT_BRIEF, BLUEPRINT_ONE_LINER
 from swarm.core.cli_catalog import listed_cli_specs
 from swarm.core.remote_teams import listed_remote_specs
+from swarm.core.operator_profile import instructions_with_about_me
 from swarm.core.router_designs import load_designs
 
 logger = logging.getLogger(__name__)
 
 # Router itself is already the page orchestrator — do not list it twice.
 _SKIP_BLUEPRINT_IDS = {"agent_router"}
+
+# The router's own built-in personas (``_initialize_agents`` /
+# ``_initialize_basic_agents``). They are openai-agents objects bound on *this*
+# instance: no blueprint package exists for them and none is expected. Same ids
+# as ``swarm.core.router_designs.RESERVED_IDS`` minus ``consensus`` (a routing
+# strategy, never a persona).
+#
+# #426 Option B fixed these as rail chrome: they stay on the roster, honestly
+# labelled with ``chat_model: None``, and are reached through the ``agent_router``
+# seat. Aliasing them to ``agent_router`` was rejected there because it would
+# silently drop the persona. Pinned by
+# ``tests/unit/test_req893_rail_seat_model_ids.py`` and
+# ``tests/test_agent_router.py::test_list_agents_endpoint``.
+_ROUTER_PERSONA_IDS = frozenset({"researcher", "writer", "analyst", "coder", "router"})
+
+# ``cli`` / ``remote`` seats run on the ``cli_agent`` / ``remote_harness``
+# recipes with their own per-seat params, so the blueprint map is not what makes
+# them loadable and must not gate them. Catalog ids already resolve through
+# ``resolve_chat_blueprint_id``; designer-created ones carry the CLI in params.
+_NON_RECIPE_KINDS = frozenset({"cli", "remote"})
+
 _BP_PALETTE = (
     "#38bdf8",
     "#a78bfa",
@@ -50,6 +73,87 @@ _BP_PALETTE = (
     "#f472b6",
     "#2dd4bf",
 )
+
+
+def _discovered_blueprints() -> dict[str, Any]:
+    """The discovered blueprint map this roster promises against.
+
+    Empty when discovery itself fails. Every recipe-backed seat then reads as
+    unloadable and drops out of ``GET /v1/agents/`` — the honest direction
+    (#426: "advertise nothing rather than advertise a 404") — while
+    ``_ROUTER_PERSONA_IDS`` rail chrome survives, since it never claimed a
+    recipe.
+    """
+    try:
+        from swarm.views.utils import get_available_blueprints_sync
+
+        found = get_available_blueprints_sync()
+    except Exception:
+        logger.error(
+            "Blueprint discovery failed while building the GET /v1/agents/ roster; "
+            "no recipe-backed seat can be advertised",
+            exc_info=True,
+        )
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+def _is_incomplete_seat(agent_id: str, kind: str, recipes: dict[str, Any]) -> bool:
+    """True when this seat's recipe exists but is an acknowledged placeholder.
+
+    ``blueprint_discovery`` documents ``status`` in blueprint metadata for
+    incomplete blueprints ("skip in list or warn in CLI/UI") but nothing consumed
+    it, so a placeholder seat was indistinguishable from a working one until an
+    operator clicked it and read a refusal. Returns a bool so the caller decides
+    presentation and this never guesses a reason.
+    """
+    if kind in _NON_RECIPE_KINDS:
+        return False
+    from swarm.core.agent_kind import resolve_chat_blueprint_id
+
+    recipe = resolve_chat_blueprint_id(str(agent_id))
+    if not recipe or recipe not in recipes:
+        return False
+    meta = getattr(recipes.get(recipe), "metadata", None) or {}
+    if not isinstance(meta, dict):
+        return False
+    return str(meta.get("status") or "").strip().lower() == "incomplete"
+
+
+def _unloadable_reason(agent_id: str, kind: str, recipes: dict[str, Any]) -> str:
+    """Why ``GET /v1/agents/`` must not advertise ``agent_id``, or ``""``.
+
+    A roster row is a promise that clicking the seat runs a turn. The turn
+    resolves through ``resolve_chat_blueprint_id`` into the discovered blueprint
+    map, so a seat whose recipe is missing from that map renders on the rail and
+    then fails every turn in ~2s with ``blueprint '<id>' was not found`` — the
+    defect #426 opened on this roster.
+
+    A recipe is missing when its blueprint package failed to import, because
+    ``discover_blueprints`` excludes anything that raises. That is why the two
+    escapes below are narrow and keyed on id/kind rather than inferred:
+
+    * the router's own personas (rail chrome, no recipe by design);
+    * ``cli`` / ``remote`` seats, which carry their own execution path.
+    """
+    if kind == "builtin":
+        if agent_id in _ROUTER_PERSONA_IDS:
+            return ""
+        return (
+            f"kind 'builtin' but {agent_id!r} is not a router persona "
+            f"(expected one of {sorted(_ROUTER_PERSONA_IDS)})"
+        )
+    if kind in _NON_RECIPE_KINDS:
+        return ""
+    from swarm.core.agent_kind import resolve_chat_blueprint_id
+
+    recipe = resolve_chat_blueprint_id(agent_id)
+    if recipe and recipe in recipes:
+        return ""
+    return (
+        f"no runnable recipe: resolve_chat_blueprint_id({agent_id!r}) -> "
+        f"{recipe!r}, which is not in the discovered blueprints"
+    )
 
 
 def listed_blueprint_specs() -> list[dict[str, Any]]:
@@ -161,7 +265,7 @@ class AgentRouterBlueprint(ApiKindBase, RouterEnginesMixin):
             "workspace where agents are listed in a sidebar and messages can be routed between them."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["multi-agent", "routing", "handoff", "orchestration", "openai-agents"],
         "required_mcp_servers": [],
         "env_vars": ["OPENAI_API_KEY"],
@@ -230,7 +334,7 @@ class AgentRouterBlueprint(ApiKindBase, RouterEnginesMixin):
                 "type": "specialist",
                 "group": "tools",
                 "agent_id": "coder",
-                "description": "Code, tests, and Open Swarm blueprints (Python BlueprintBase teams for Chat and swarm-cli)."
+                "description": "Code, tests, and Operating Swarm blueprints (Python BlueprintBase teams for Chat and swarm-cli)."
             }
         }
         
@@ -332,7 +436,7 @@ class AgentRouterBlueprint(ApiKindBase, RouterEnginesMixin):
                 "name": "Coder",
                 "instructions": (
                     "You are a senior software developer. Your role is to write, "
-                    "review, and debug code — including Open Swarm blueprints "
+                    "review, and debug code — including Operating Swarm blueprints "
                     "(coded agent teams). "
                     + BLUEPRINT_AGENT_BRIEF +
                     " You can request specifications from the Analyst and documentation from the Writer."
@@ -348,7 +452,7 @@ class AgentRouterBlueprint(ApiKindBase, RouterEnginesMixin):
             agent = Agent(
                 name=config["name"],
                 model=model_instance,
-                instructions=config["instructions"]
+                instructions=instructions_with_about_me(config["instructions"]),
             )
             
             # Add metadata as custom attribute for UI
@@ -520,7 +624,7 @@ Remember to provide a clear, unified response to the user, even when multiple ag
         router_agent = Agent(
             name="Agent Router",
             model=model_instance,
-            instructions=router_instructions,
+            instructions=instructions_with_about_me(router_instructions),
             tools=all_tools
         )
         router_agent.metadata = {
@@ -549,8 +653,22 @@ Remember to provide a clear, unified response to the user, even when multiple ag
         self._params = dict(params or {})
         profile = str(self._params.get("llm_profile") or "").strip()
         if profile:
-            self._llm_profile_name = profile
-            self._resolved_llm_profile = None
+            # An LLM profile is API-namespace: a foreign id (CLI model etc.)
+            # must not pin the router seat — keep the resolved default.
+            from swarm.core.model_namespace import model_valid_for_provider
+
+            if model_valid_for_provider(
+                "api", "", profile, config=self._config
+            ):
+                self._llm_profile_name = profile
+                self._resolved_llm_profile = None
+            else:
+                # Drop it from the request params too: `_request_llm_profile`
+                # reads them directly for designed agents.
+                self._params.pop("llm_profile", None)
+                logger.info(
+                    "Ignoring llm_profile %r not valid for the router API seat", profile
+                )
 
     def _request_llm_profile(self) -> str:
         return str(self._params.get("llm_profile") or "").strip() or self._resolve_llm_profile()
@@ -597,7 +715,7 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                 agent = Agent(
                     name=spec["name"],
                     model=model_instance,
-                    instructions=spec.get("instructions") or "",
+                    instructions=instructions_with_about_me(spec.get("instructions") or ""),
                 )
                 agent.metadata = {
                     "specialty": spec.get("specialty") or "",
@@ -634,10 +752,25 @@ Remember to provide a clear, unified response to the user, even when multiple ag
         # Do not expand remotes here — discovery belongs off the hot path.
         self.load_designed_agents(expand_remotes=False)
         agents_info = {}
-        
+
+        # Honesty gate: advertise a seat only when a turn can actually run it.
+        recipes = _discovered_blueprints()
+        if not recipes:
+            logger.error(
+                "GET /v1/agents/: no blueprint is discoverable, so no recipe-backed "
+                "seat is advertised (only the router's own rail-chrome personas)"
+            )
+
         for agent_id, agent in self._agents.items():
             meta = getattr(agent, "metadata", {}) or {}
             kind = meta.get("kind", getattr(agent, "kind", "builtin")) or "builtin"
+            reason = _unloadable_reason(str(agent_id), str(kind), recipes)
+            if reason:
+                # Fail loudly with the reason instead of advertising a 404.
+                logger.warning(
+                    "GET /v1/agents/: not advertising seat %r — %s", agent_id, reason
+                )
+                continue
             personas = public_personas(
                 meta.get("personas") or getattr(agent, "personas", None)
             )
@@ -675,6 +808,16 @@ Remember to provide a clear, unified response to the user, even when multiple ag
                 "personas": personas,
                 "mcp_mode": mcp_mode,
                 "mcp_servers": mcp_servers,
+                # #1658: one gate, two honest outcomes. A seat with NO runnable
+                # recipe is dropped above (it would 404 on every turn). A seat
+                # whose recipe exists but is an acknowledged placeholder — its
+                # blueprint declares `metadata["status"] = "incomplete"` and
+                # refuses rather than faking an answer — stays advertised and is
+                # flagged here, so the operator sees why before clicking instead
+                # of discovering it from a refusal. `blueprint_discovery` already
+                # documents `status` for incomplete blueprints; this is the
+                # consumer that was missing.
+                "incomplete": _is_incomplete_seat(agent_id, kind, recipes),
             }
             
         return {
@@ -792,14 +935,18 @@ Remember to provide a clear, unified response to the user, even when multiple ag
             
         try:
             from agents import Runner
+
+            from swarm.core.operator_profile import apply_operator_profile_to_agent
+
+            apply_operator_profile_to_agent(self._router_agent, messages)
             run_result = await asyncio.wait_for(
                 Runner.run(starting_agent=self._router_agent, input=user_content),
-                timeout=25.0,
+                timeout=agent_run_timeout(self._config),
             )
             out = run_result.final_output if hasattr(run_result, 'final_output') else str(run_result)
             yield {"content": out, "role": "assistant", "agent": "Agent Router"}
         except asyncio.TimeoutError:
-            logger.error("Router LLM run timed out after 25s")
+            logger.error("Router LLM run timed out after %ss", agent_run_timeout(self._config))
             yield {
                 "content": (
                     "PONG agent_router — router LLM timed out after 25s. "

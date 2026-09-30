@@ -1,4 +1,4 @@
-# Open Swarm — containerized gateway.
+# Operating Swarm — containerized gateway.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # WHAT THIS GIVES YOU BY DEFAULT: the OpenAI-compatible API only.
@@ -57,6 +57,17 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # #1766: named volume /home/swarm is created root-owned; swarm runs as
+  # DOCKER_UID (default 1000). One-shot chown so OpenCode can mkdir state
+  # under $HOME without a manual chmod after every recreate.
+  sandbox-home-init:
+    image: alpine:latest
+    user: "0:0"
+    volumes:
+      - swarm_sandbox_home:/home/swarm
+    command: ["sh", "-c", "mkdir -p /home/swarm && chown -R 1000:1000 /home/swarm"]
+    restart: "no"
+
   swarm:
     build:
       context: .
@@ -85,9 +96,12 @@ services:
       # this shields the container from a host-oriented PORT in .env (e.g. the
       # gateway's 8765) — the published `ports:` mapping alone sets the host port.
       PORT: "8000"
-      # Keep HOME identical to the host so configs that reference absolute paths
-      # resolve, and the bare CLI commands find their state once you map them in.
-      HOME: "${HOME}"
+      # Prefer host HOME so bind mounts and absolute config paths match (Linux
+      # dogfood). When host HOME is blank (common on Windows Docker Desktop),
+      # fall back to /home/swarm — blank HOME=/ makes OpenCode write under
+      # /.local (root-owned) and EACCES bricks seats (#1766). Pair with the
+      # swarm_sandbox_home named volume below so state survives recreate.
+      HOME: "${HOME:-/home/swarm}"
       # Production defaults: auth ON unless .env sets SWARM_ALLOW_NO_AUTH=true
       # (explicit opt-out for local demos / reverse-proxy auth).
       DJANGO_DEBUG: "${DJANGO_DEBUG:-false}"
@@ -129,6 +143,10 @@ services:
       # with EACCES. Appended (not prepended) so app source always wins.
       PYTHONPATH: "${PYTHONPATH:-/app/src}:${HOME}/.local/share/swarm/pylibs"
     volumes:
+      # #1766: durable writable sandbox HOME when host HOME is blank/fallback.
+      # OpenCode + other CLIs mkdir state under $HOME; this named volume keeps
+      # /home/swarm across force-recreate (chmod on /.local does not).
+      - "swarm_sandbox_home:/home/swarm"
       # Your swarm config (llm profiles, cli_agents, blueprint_library.json).
       # #762: must stay WRITABLE — blueprint_library.json persistence lives here
       # (POST /v1/blueprints/custom/ 500s "failed to persist" on a read-only
@@ -176,6 +194,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      sandbox-home-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -195,3 +215,7 @@ services:
 
 volumes:
   swarm_pgdata:
+  # #1766: persists /home/swarm when compose uses HOME fallback /home/swarm
+  # (Windows blank host HOME). Harmless unused mount on Linux host-HOME dogfood.
+  swarm_sandbox_home:
+

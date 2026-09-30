@@ -13,13 +13,19 @@ Remote implementation, not a fifth kind.
 | **Slack (NemoHermes)** | `slack` | Slack Web API | health, list, send | no |
 | **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
 | **TrueForge** | `trueforge` | HTTP | health, list, send, routines | no |
+| **Tencent Octop** | `octop` (`tencent-octop`) | HTTP + WebSocket | health, list, send | no — experts and AgentTeams stay inside Octop |
 | **Open WebUI** | `openwebui` (`open-webui`) | HTTP | health, list, send | no — **external** Open WebUI, not OS WebUI |
 
 Typed protocol: `from swarm.core.remote_harness import RemoteHarness`. Settings
 `GET /v1/remotes/` `kinds[]` uses `kind=remote` and `id`/`impl` as the
 discriminator. Add-agent Remote tab lists these impls — not a parallel Herdr kind.
 
-Open Swarm can sit **in front of** other agent harnesses: configure them, check
+> **Letta is no longer a remote impl.** Letta is reached as a plain
+> OpenAI-compatible **API provider/profile** (Settings → Providers: `base_url`
+> + `api_key` + `model`). A stale `remotes.letta` entry in `swarm_config.json`
+> is ignored/dropped honestly — remove it and add the API profile instead.
+
+Operating Swarm can sit **in front of** other agent harnesses: configure them, check
 they are up, and send work through **their** APIs. This is not a concurrent
 Grok / OMB / Rakazo seat clone, and **Grok-Bot chrome is not claimed live**.
 
@@ -123,6 +129,7 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | Rakazo | `GET /health` → `{"ok":true,"runtime":"pi",...}` |
 | Nested swarm | `GET /health` → `{"status":"ok"}`; version via `GET /v1/models` |
 | TrueForge | `GET /healthz` → `{"status":"ok","version":"..."}` |
+| Tencent Octop | `GET /api/health` → `{"ok":true,...}` (no auth) |
 | **Herdr** | **Not HTTP.** Local: `herdr workspace list`. Remote: `ssh user@host -- herdr workspace list` (stub SSH in tests). |
 
 ## Operate today vs not
@@ -133,7 +140,8 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | **OMB** | `GET /api/bots` | `POST /api/bots/{id}/messages` `{"text":"..."}` (202). Creates a bot if none exist. | HTTP only — no OMB source clone. Upstream default bind is `127.0.0.1:8799`; this LAN install is `:8802`. |
 | **Rakazo** | `POST /rpc/bots/list` | `POST /rpc/threads/send` `{botId,text}` | **Better Auth session required** for RPC. Public `GET /health` works without auth. Export `RAKAZO_SESSION_COOKIE` (Cookie) and/or `RAKAZO_API_KEY` (Authorization Bearer) via env/secret-store — names only in config (`CHANGE_ME`). No unauthenticated job API in upstream. |
 | **swarm** | `GET /v1/blueprints/` (fallback `GET /v1/models/`) | `POST /v1/chat/completions/` `{"model":"<blueprint>","messages":[…]}` | Network remote only. Unreachable child is the same DOWN / operate-fail as other remotes (no hang). Do not persist this process listen URL. |
-| **TrueForge** | `GET /api/v1/agents` — rows are **agents**, not sessions (`resume_key: session_id` in the list payload, #425) | `POST /api/v1/sessions` + `POST /turns` + poll `GET /turns/{id}` + `GET /events` | Async sessions/turns/events job workflow. The send resume key is a **session id**: pass an agent id (e.g. a list row) and `send` starts a session for that agent instead of returning `404 Session not found`; if no session can be started it says so (`trueforge_no_session`). Optional Bearer auth via `TRUEFORGE_API_KEY`. |
+| **TrueForge** | `GET /api/v1/agents` — rows are **agents**, not sessions (`resume_key: session_id` in the list payload, #425) | `POST /api/v1/sessions` + `POST /turns` + poll `GET /turns/{id}` + `GET /events` | Async sessions/turns/events job workflow. The send resume key is a **session id**: pass an agent id (e.g. a list row) and `send` starts a session for that agent instead of returning `404 Session not found`; if no session can be started it says so (`trueforge_no_session`). Optional Bearer auth via `TRUEFORGE_API_KEY`. Send polls until the turn finishes. The poll budget is `SWARM_TRUEFORGE_TIMEOUT` when that value is **above** 180s; a lower setting (including 90s) is raised to the 180s floor — a one-token resume measured 46–59s ([#1307](https://github.com/matthewhand/open-swarm-private/issues/1307)). |
+| **Tencent Octop** | `GET /api/agents` — rows are Octop agents, including AgentTeams (`resume_key: agent_id:thread_id`). Threads: `GET /api/agents/{id}/threads` | WebSocket `/api/agents/{id}/chat/ws?token=` frame `{"type":"user_turn","text":…}` until host `done` | One remote. Do not re-model experts or AgentTeams as OS seats. Bearer JWT via `OCTOP_API_KEY` (`POST /api/auth/login` `access_token`). No OS model pin. Opt-in. |
 | **Open WebUI** | `GET /api/v1/chats/` (search: `GET /api/v1/chats/search?text=`) | `POST /api/chat/completions` `{chat_id, messages, stream}` then `POST /api/chat/completed` | External Open WebUI only — not Operating Swarm's WebUI. Send requires an existing chat id; never mints. Bearer `OPENWEBUI_API_KEY`. |
 | **Herdr** | `herdr agent list` (local or over SSH) | `herdr agent prompt` / `herdr agent get` (interrogate) | SSH-shaped. Not HTTP like the rows above. Missing ssh_host/ssh_user is a clear error. Stub SSH in tests; no live LAN. |
 

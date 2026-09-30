@@ -160,6 +160,47 @@ def persist_sandbox_settings(
     return current, path
 
 
+def _classify_daytona_failure(error: str, env_name: str) -> tuple[str, str]:
+    """#1201 — classify a Daytona probe failure and name the operator path.
+
+    The classes answer the only question that matters mid-incident: which
+    side failed? ``sdk_missing`` and ``env_name_unset`` are server-side (fix
+    here); ``auth``/``network`` are Daytona-side or LAN-side.
+    """
+    low = error.lower()
+    if "pip install daytona" in low or "no module named 'daytona'" in low:
+        return "sdk_missing", (
+            "The daytona SDK is not installed in the server environment — "
+            "run: pip install daytona (inside the server's venv)."
+        )
+    if "api key missing" in low or "api key" in low and "set" in low:
+        name = env_name or "DAYTONA_API_KEY"
+        return "env_name_unset", (
+            f"Environment variable {name} is not set in the SERVER's environment "
+            f"(a shell export on your own session does not count). Operator path: "
+            f"systemctl --user set-environment {name}=<key> && systemctl --user restart "
+            f"open-swarm-private-backend, or add {name}=<key> to the unit's EnvironmentFile."
+        )
+    if "401" in low or "403" in low or "unauthorized" in low or "invalid api key" in low:
+        return "auth", (
+            "The key reached Daytona but was rejected — check the key in your Daytona "
+            "dashboard (app.daytona.io → Keys) and that it belongs to the right org."
+        )
+    if (
+        "econnrefused" in low
+        or "timed out" in low
+        or "timeout" in low
+        or "name or service not known" in low
+        or "getaddrinfo" in low
+        or "connection" in low and "refused" in low
+    ):
+        return "network", (
+            "Could not reach the Daytona API — check DNS/egress from this host "
+            "and the configured daytona_api_url."
+        )
+    return "unknown", ""
+
+
 def probe_sandbox_provider(provider: str | None = None) -> dict[str, Any]:
     """Honest provider probe. Nothing persisted; no secrets returned."""
     from swarm.core.sandbox import SandboxManager
@@ -184,6 +225,7 @@ def probe_sandbox_provider(provider: str | None = None) -> dict[str, Any]:
             "latency_ms": round((time.monotonic() - started) * 1000),
         }
     if provider == "daytona":
+        env_name = sandbox_settings_block().get("daytona_api_key_env") or ""
         manager = SandboxManager.from_config(
             {
                 "backend_type": "daytona",
@@ -192,13 +234,21 @@ def probe_sandbox_provider(provider: str | None = None) -> dict[str, Any]:
         )
         try:
             result = manager.execute_bash("echo ok")
-            return {
+            payload: dict[str, Any] = {
                 "provider": "daytona",
                 "ok": bool(result.success),
                 "detail": (result.stdout or result.stderr or "").strip()[:200]
                 or ("daytona execution ok" if result.success else "daytona execution failed"),
-                "latency_ms": round((time.monotonic() - started) * 1000),
             }
+            if not result.success:
+                classification, hint = _classify_daytona_failure(
+                    (getattr(result, "error", "") or getattr(result, "stderr", "") or ""), env_name
+                )
+                payload["classification"] = classification
+                if hint:
+                    payload["operator_hint"] = hint
+            payload["latency_ms"] = round((time.monotonic() - started) * 1000)
+            return payload
         finally:
             manager.cleanup()
     return {"provider": provider, "ok": False, "detail": f"Unknown provider '{provider}'", "latency_ms": 0}

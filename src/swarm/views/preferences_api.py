@@ -89,6 +89,8 @@ class UserPreferencesView(APIView):
                     required=False, allow_blank=True, max_length=64
                 ),
                 "rail_sections": serializers.DictField(required=False),
+                "operator_profile": serializers.DictField(required=False),
+                "about_me": serializers.CharField(required=False, allow_blank=True),
                 "values": serializers.DictField(required=False),
             },
         ),
@@ -110,6 +112,8 @@ class UserPreferencesView(APIView):
                 prefs.THEME_NAVBAR_MODE_KEY,
                 prefs.BUBBLE_THEME_KEY,
                 prefs.RAIL_SECTIONS_KEY,
+                prefs.OPERATOR_PROFILE_KEY,
+                prefs.ABOUT_ME_KEY,
                 "values",
             )
         ):
@@ -120,7 +124,7 @@ class UserPreferencesView(APIView):
                         "hostname_override, context_auto_compress_pct, "
                         "context_strategy, context_cull_trigger_pct, "
                         "context_cull_fraction_pct, theme, theme_navbar_mode, "
-                        "bubble_theme, rail_sections, values."
+                        "bubble_theme, rail_sections, operator_profile, about_me, values."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -198,6 +202,39 @@ class UserPreferencesView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             patch[prefs.RAIL_SECTIONS_KEY] = body[prefs.RAIL_SECTIONS_KEY]
+        if prefs.OPERATOR_PROFILE_KEY in body:
+            card = body.get(prefs.OPERATOR_PROFILE_KEY)
+            if not isinstance(card, dict):
+                return Response(
+                    {"error": "operator_profile must be an object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            for field in prefs.OPERATOR_PROFILE_FIELDS:
+                raw_field = card.get(field)
+                if isinstance(raw_field, str) and prefs.secret_looking_content(raw_field):
+                    return Response(
+                        {"error": "operator_profile contains secret-looking content."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            patch[prefs.OPERATOR_PROFILE_KEY] = card
+        about_candidates = []
+        if isinstance(body.get("values"), dict) and prefs.ABOUT_ME_KEY in body["values"]:
+            about_candidates.append(body["values"][prefs.ABOUT_ME_KEY])
+        if prefs.ABOUT_ME_KEY in body:
+            about_candidates.append(body[prefs.ABOUT_ME_KEY])
+        for raw_about in about_candidates:
+            if raw_about is not None and not isinstance(raw_about, str):
+                return Response(
+                    {"error": "about_me must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if isinstance(raw_about, str) and prefs.secret_looking_content(raw_about):
+                return Response(
+                    {"error": "about_me contains secret-looking content."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if prefs.ABOUT_ME_KEY in body:
+            patch[prefs.ABOUT_ME_KEY] = body[prefs.ABOUT_ME_KEY]
 
         current = row.values if row is not None else {}
         merged = prefs.merge_values(current, patch)

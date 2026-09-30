@@ -10,11 +10,15 @@ Replaces the passive record-only default with a real dispatch path:
 3. Append the assistant reply to the webhook conversation so the run is
    reviewable in chat.
 4. Record status/duration into the live-job log for the routine history.
+5. Measure the turn's token usage from the messages actually sent and the
+   reply actually produced, and hand it to ``routines`` so the seat
+   (agent) budget is debited the real cost of this run instead of 0.
 
 Failures are deliberately loud: the exception propagates so
 ``fire_routine`` records ``status=error`` with the cause. A routine that
 "ran" without an agent or silently swallowed the traceback would be a
-lie in the history.
+lie in the history. A budget refusal is *not* a failure — the turn ran and
+its reply is saved, so the refusal is reported in the job log instead.
 """
 
 from __future__ import annotations
@@ -43,6 +47,11 @@ async def run_routine_agent_job(
     *,
     conversation_id: str,
     max_turns: int = DEFAULT_MAX_TURNS,
+    tools: list[str] | None = None,
+    open_pr_context: dict[str, Any] | None = None,
+    routine_id: str = "",
+    model: str = "",
+    memories: dict[str, Any] | None = None,
 ) -> str:
     """Execute one live agent turn for a routine firing and persist the reply.
 
@@ -51,6 +60,12 @@ async def run_routine_agent_job(
         instruction: The full prompt (event briefing + routine instruction).
         conversation_id: Stable webhook conversation id to append to.
         max_turns: Upper bound on automated turns for this conversation.
+        tools: Enabled routine tool ids (``open_pull_request`` plus catalog /
+            MCP ids when the operator added them).
+        open_pr_context: Token-free GitHub issue/PR fields for the Open PR hook.
+        routine_id: Routine that fired, so the turn's usage is debited to the
+            right run (empty when the caller has no routine row to settle).
+        model: Seat/profile model id, for the token estimator only.
 
     Returns:
         The collected assistant reply text.
@@ -64,22 +79,52 @@ async def run_routine_agent_job(
     # Imported through the source module so tests can monkeypatch the seam.
     get_blueprint_instance = _jobs_mod.get_blueprint_instance
 
+    from swarm.core.routine_tools import (
+        append_memories_brief,
+        append_open_pr_brief,
+        apply_routine_memories_runtime,
+        apply_routine_plugin_runtime,
+        format_open_pr_note,
+        run_open_pr_if_enabled,
+    )
+
     started = time.monotonic()
     status = "ok"
     detail = ""
     reply = ""
+    # #1404: the memories document is injected into the prompt the same way the
+    # Open-PR brief is, so the two tool affordances behave identically. Passing
+    # `routine.get("memories")` (which may be None) is what makes removing the
+    # tool clear the attachment.
+    prompt = append_memories_brief(append_open_pr_brief(instruction, tools), tools, memories)
     try:
         blueprint = await get_blueprint_instance(agent_id, params={})
         if blueprint is None:
             raise RuntimeError(f"Agent '{agent_id}' could not be resolved to a blueprint instance.")
+        apply_routine_plugin_runtime(blueprint, tools)
+        apply_routine_memories_runtime(blueprint, tools, memories)
         messages = _conversation_messages(agent_id, conversation_id)
-        messages.append({"role": "user", "content": instruction})
+        messages.append({"role": "user", "content": prompt})
         # max_turns caps automated follow-on turns per conversation; this
         # entry point executes exactly one turn and returns.
         del max_turns
         reply = await _collect_turn(blueprint, messages)
+        pr_note = ""
+        pr_result = run_open_pr_if_enabled(tools, reply=reply, **(open_pr_context or {}))
+        if pr_result:
+            pr_note = format_open_pr_note(pr_result)
+            if pr_note:
+                reply = f"{reply}\n\n{pr_note}".strip() if reply else pr_note
         _persist_turn(agent_id, conversation_id, messages, reply)
-        detail = f"{len(reply)} chars"
+        usage = _report_turn_usage(
+            agent_id,
+            conversation_id,
+            messages,
+            reply,
+            routine_id=routine_id,
+            model=model,
+        )
+        detail = f"{len(reply)} chars, {usage}"
         return reply
     except Exception as exc:
         status = "error"
@@ -90,6 +135,49 @@ async def run_routine_agent_job(
         from swarm.core import routines
 
         routines.record_live_job_status(agent_id, status, duration_ms=duration_ms, detail=detail)
+
+
+def _report_turn_usage(
+    agent_id: str,
+    conversation_id: str,
+    messages: list[dict[str, Any]],
+    reply: str,
+    *,
+    routine_id: str = "",
+    model: str = "",
+) -> str:
+    """Measure this turn's usage, debit the seat budget, and describe it.
+
+    The turn already ran and its reply is already saved, so a budget refusal
+    here is reported, never raised: it must not turn a completed run into a
+    failed one. Returns the job-log fragment naming the tokens, the basis
+    (measured — this is a real count of the text sent and received, not a
+    provider invoice), and any refusal.
+    """
+    from swarm.core import routines
+
+    try:
+        tokens = routines.measure_turn_tokens(messages, reply, model)
+        settled = routines.record_routine_token_usage(
+            agent_id,
+            conversation_id,
+            tokens=tokens,
+            basis=routines.TOKEN_BASIS_MEASURED,
+            routine_id=routine_id,
+        )
+    except Exception as exc:
+        # The turn ran and its reply is saved; a metering failure must not
+        # undo or misreport that. Loud, but never fatal to the run.
+        logger.exception("Could not meter routine turn usage for %s", agent_id)
+        return f"usage unavailable ({exc or type(exc).__name__})"
+    if settled.get("refused"):
+        logger.warning(
+            "Seat budget refused the routine turn's %s tokens: %s",
+            tokens,
+            settled.get("reason") or "charge refused",
+        )
+        return f"{tokens} tokens (measured, charge refused: {settled.get('reason') or 'over budget'})"
+    return f"{tokens} tokens (measured)"
 
 
 def _conversation_messages(agent_id: str, conversation_id: str) -> list[dict[str, Any]]:

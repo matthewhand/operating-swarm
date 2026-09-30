@@ -61,6 +61,7 @@ REMOTE: dict[str, dict[str, Any]] = {
 
 CLI_ALIASES: dict[str, str] = {
     "kilo": "kilocode",
+    "antigravity": "agy",
 }
 
 DEFAULT_SERVE_PORT = 4096

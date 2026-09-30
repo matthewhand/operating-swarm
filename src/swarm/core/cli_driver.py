@@ -17,6 +17,7 @@ import sys
 from typing import Any
 
 from swarm.core.cli_catalog import extra_cli_path_dirs, host_cli_path
+from swarm.utils.cli_path import is_runnable_cli_binary
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def find_cli_candidates(name: str) -> list[str]:
     # If it is already an explicit path, verify and return it
     if os.path.sep in name or (os.altsep and os.altsep in name):
         expanded = os.path.abspath(os.path.expanduser(name))
-        return [expanded] if os.path.isfile(expanded) and os.access(expanded, os.X_OK) else []
+        return [expanded] if is_runnable_cli_binary(expanded) else []
 
     exts = [""]
     if sys.platform == "win32":
@@ -92,7 +93,7 @@ def find_cli_candidates(name: str) -> list[str]:
             continue
         for ext in exts:
             candidate = os.path.join(directory, name + ext)
-            if candidate not in seen and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            if candidate not in seen and is_runnable_cli_binary(candidate):
                 seen.add(candidate)
                 candidates.append(candidate)
                 break  # Match first extension in this directory
@@ -497,3 +498,41 @@ class HermesCliAgent(BaseCliAgent):
 
     def parse_output(self, stdout: str) -> str:
         return stdout.strip()
+
+
+class OpenCodeReviewCliAgent(BaseCliAgent):
+    """Alibaba Open Code Review. Review tool, not a chat prompt (#1363)."""
+
+    name = "ocr"
+    display_name = "Open Code Review"
+    default_binary = "ocr"
+    list_capability = "paste-only"
+
+    def build_exec_argv(
+        self,
+        prompt: str,
+        session_id: str | None = None,
+        model: str | None = None,
+        binary_override: str | None = None,
+    ) -> list[str]:
+        from swarm.core.ocr_review import augment_ocr_argv, resume_allowed
+
+        bin_cmd = split_cli_string(binary_override or self.default_binary)
+        argv = [*bin_cmd, "review", "--format", "json"]
+        if model:
+            argv.extend(["--model", model])
+        argv = augment_ocr_argv(argv, prompt)
+        # Workspace reviews cannot be resumed; a mismatched --resume is a hard
+        # error and skips the model call. Range, commit, and scan can.
+        if session_id and resume_allowed(prompt):
+            argv = [*argv[:2], "--resume", session_id, *argv[2:]]
+        return argv
+
+    def resume_session_argv(self, session_id: str) -> list[str]:
+        return ["--resume", session_id]
+
+    def parse_output(self, stdout: str) -> str:
+        from swarm.core.ocr_review import render_ocr_stdout
+
+        text, _err = render_ocr_stdout(stdout)
+        return text

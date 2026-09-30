@@ -32,7 +32,18 @@ from typing import Any
 
 from swarm.core.roles import adapters as _adapters  # noqa: F401  (populate registry)
 from swarm.core.roles.base import ROLE_CSS_CLASS_PREFIX
-from swarm.core.roles.registry import ROLE_REGISTRY
+
+# #1706: the single role-validity decision point, re-exported so call sites
+# (and their tests) keep importing from this hub like every other role name.
+from swarm.core.roles.registry import (  # noqa: F401  (re-export)
+    ROLE_REGISTRY,
+    SUPPORT_ROLE_KIND_ERROR,
+    SUPPORT_ROLE_SEAT_KINDS,
+    TEAM_CHAT_ROLE_INCAPABLE_SEAT_KINDS,
+    TEAM_CHAT_ROLE_KIND_ERROR,
+    role_seat_kind_for,
+    validate_role_for_kind,
+)
 
 ROLE_DEFAULT = "default"
 ROLE_ADMIN = "admin"
@@ -131,6 +142,12 @@ __all__ = [
     "is_belay_role",
     "can_manage_agent_lifecycle",
     "can_manage_topology",
+    "validate_role_for_kind",
+    "role_seat_kind_for",
+    "SUPPORT_ROLE_SEAT_KINDS",
+    "SUPPORT_ROLE_KIND_ERROR",
+    "TEAM_CHAT_ROLE_INCAPABLE_SEAT_KINDS",
+    "TEAM_CHAT_ROLE_KIND_ERROR",
     "role_css_class",
     "role_badge_label",
     "role_from_agent",

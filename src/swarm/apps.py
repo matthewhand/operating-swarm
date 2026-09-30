@@ -7,7 +7,10 @@ from django.apps import AppConfig
 # Import Django settings and logging config
 from django.conf import settings
 
+from swarm.core.serving_process import detect_process_role
+
 logger = logging.getLogger(__name__)
+
 
 class SwarmConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
@@ -28,6 +31,20 @@ class SwarmConfig(AppConfig):
                 exc_info=True
             )
 
+        # #800 follow-up: install the 429-report dedup filter on the throttle
+        # logger. Must run AFTER dictConfig (which rewrites handlers), and
+        # early, so the very first 429 of a process is already counted.
+        try:
+            from swarm.core.request_logging import install as install_throttle_log_filter
+
+            install_throttle_log_filter()
+        except Exception as e:
+            logger.warning(
+                f"Throttle log dedup filter not installed: {e}. "
+                "429 reports will be emitted per rejection as before.",
+                exc_info=True,
+            )
+
 
         # The blueprint discovery and URL registration should ideally happen
         # when blueprints are actually needed or instantiated, often handled
@@ -40,6 +57,18 @@ class SwarmConfig(AppConfig):
         # instantiation here.
         logger.info("Swarm AppConfig ready.")
 
+        # Record which install profile booted. The base install is barebones
+        # and heavyweight integrations live behind extras, so a boot log that
+        # says which extras are live turns a later "why is social_django
+        # missing" into a one-line answer. Never raises: reporting must not
+        # be able to block startup.
+        try:
+            from swarm.core.build_info import summary_line
+
+            logger.info("Install profile: %s", summary_line())
+        except Exception:
+            logger.debug("Could not report install profile", exc_info=True)
+
         # Blueprint discovery / URL registration happen where needed (e.g. list_models),
         # not at AppConfig.ready().
 
@@ -50,11 +79,37 @@ class SwarmConfig(AppConfig):
                 "DJANGO_SETTINGS_MODULE not set, setting default 'swarm.settings'"
             )
 
+        # #1434: copy a legacy tree (or refuse on conflict). Dotenv load already
+        # migrated when it ran, so this pass is idempotent and still covers
+        # SWARM_SKIP_DOTENV. Pytest must not touch the operator's real tree.
+        try:
+            from swarm.core.paths import (
+                ConfigRootConflict,
+                migrate_legacy_config_root,
+                startup_should_migrate_config,
+            )
+
+            if startup_should_migrate_config():
+                migrate_legacy_config_root()
+        except ConfigRootConflict:
+            raise
+        except OSError:
+            logger.error(
+                "Config root migration failed; refusing to start on a partial tree",
+                exc_info=True,
+            )
+            raise
+        except Exception:
+            logger.error(
+                "Config root migration failed; this process is using the canonical root only",
+                exc_info=True,
+            )
+
         # Load the swarm config ONCE and cache it on the AppConfig so every
         # blueprint reads the same file. BlueprintBase._load_configuration already
         # prefers ``apps.get_app_config('swarm').config`` — populating it here from
-        # the XDG path is what makes the server honor ~/.config/swarm/swarm_config.json
-        # (like swarm-cli does). We load ONLY SWARM_CONFIG_PATH or the XDG path;
+        # the canonical config root is what makes the server honor swarm_config.json
+        # (like swarm-cli does). We load ONLY SWARM_CONFIG_PATH or that root;
         # if neither exists we leave config empty and BlueprintBase's own
         # working-directory fallback still picks up a ./swarm_config.json — so cwd
         # behavior is unchanged, we only *add* XDG.
@@ -75,17 +130,36 @@ class SwarmConfig(AppConfig):
                 raise
             logger.warning("Test-mode guard check failed: %s", e)
 
-        self._warn_if_api_auth_disabled()
+        # #1342: refuse SWARM_ALLOW_ANONYMOUS / SWARM_DEMO_MODE in non-debug
+        # production — they hand any stranger a full logged-in session.
+        self._check_public_anonymous()
+
         self._check_database()
 
-        # Resume async /v1/responses tasks left in-flight by a restart — server
-        # processes only (not migrate/test), guarded against the runserver
-        # reloader's parent process to avoid double-resume.
-        self._check_uvicorn_workers()
-        self._maybe_resume_async_tasks()
-        self._maybe_start_schedule_engine()
+        # Serving hooks (auth warning, worker check, async resume, schedule
+        # engine). Policy lives in serving_process (SWARM_PROCESS_ROLE and
+        # argv basenames). One log lists what ran and what was skipped.
+        self._start_serving_hooks()
 
         logger.info("Swarm app initialization checks completed.")
+
+    @staticmethod
+    def _check_public_anonymous() -> None:
+        """#1342: refuse anonymous preview (a full unauthenticated session) on a
+        public host, unless the operator sets ``SWARM_ALLOW_PUBLIC_ANONYMOUS=1``.
+
+        Same shape as the ``SWARM_TEST_MODE`` guard in ``ready()``:
+        ``ImproperlyConfigured`` is re-raised, anything else is logged so a
+        surprise in flag parsing can never block startup.
+        """
+        try:
+            from swarm.middleware import assert_public_anonymous_allowed
+            assert_public_anonymous_allowed()
+        except Exception as e:
+            from django.core.exceptions import ImproperlyConfigured
+            if isinstance(e, ImproperlyConfigured):
+                raise
+            logger.warning("Public-anonymous guard check failed: %s", e)
 
     @staticmethod
     def _check_database() -> None:
@@ -99,34 +173,62 @@ class SwarmConfig(AppConfig):
         check_database_or_exit()
 
     @staticmethod
-    def _warn_if_api_auth_disabled() -> None:
-        """Surface the DEBUG / missing-token footgun when the process is serving."""
-        import sys
-
-        argv = " ".join(sys.argv)
-        serving = any(
-            s in argv for s in ("uvicorn", "swarm-api", "gunicorn", "daphne", "runserver")
+    def _log_startup_hooks(outcomes: list[tuple[str, str]]) -> None:
+        """One startup line: which serving hooks ran, which did not, and why."""
+        started = [name for name, status in outcomes if status == "started"]
+        skipped: list[str] = []
+        for name, status in outcomes:
+            if status == "started":
+                continue
+            detail = status.removeprefix("skipped: ")
+            skipped.append(f"{name} ({detail})")
+        logger.info(
+            "Startup hooks started: %s; skipped: %s; why: %s",
+            ", ".join(started) or "none",
+            ", ".join(skipped) or "none",
+            detect_process_role().reason,
         )
-        if not serving:
-            return
+
+    @staticmethod
+    def _start_serving_hooks() -> None:
+        """Run serving-process hooks and log a single started/skipped summary."""
+        outcomes: list[tuple[str, str]] = [
+            ("api_auth_warning", SwarmConfig._warn_if_api_auth_disabled()),
+        ]
+        try:
+            worker_status = SwarmConfig._check_uvicorn_workers()
+        except ValueError as exc:
+            outcomes.append(("uvicorn_workers", f"failed: {exc}"))
+            outcomes.append(("async_resume", "skipped: uvicorn worker check failed"))
+            outcomes.append(("schedule_engine", "skipped: uvicorn worker check failed"))
+            SwarmConfig._log_startup_hooks(outcomes)
+            raise
+        outcomes.append(("uvicorn_workers", worker_status))
+        outcomes.append(("async_resume", SwarmConfig._maybe_resume_async_tasks()))
+        outcomes.append(("schedule_engine", SwarmConfig._maybe_start_schedule_engine()))
+        SwarmConfig._log_startup_hooks(outcomes)
+
+    @staticmethod
+    def _warn_if_api_auth_disabled() -> str:
+        """Surface the DEBUG / missing-token footgun when the process is serving."""
+        role = detect_process_role()
+        if not role.warn_auth:
+            return f"skipped: {role.reason}"
         if bool(getattr(settings, "ENABLE_API_AUTH", False)):
-            return
+            return "skipped: ENABLE_API_AUTH is on"
         logger.warning(
             "API authentication is OFF (ENABLE_API_AUTH=false — typically DEBUG "
             "without API_AUTH_TOKEN / SWARM_API_KEY). Fine for local development; "
             "do not expose this process on a network without setting an API token."
         )
+        return "started"
 
     @staticmethod
-    def _check_uvicorn_workers() -> None:
+    def _check_uvicorn_workers() -> str:
         """Refuse/warn multi-worker async when serving (process-local inflight)."""
-        import sys
-
-        argv = " ".join(sys.argv)
-        if not any(s in argv for s in ("uvicorn", "swarm-api", "gunicorn", "daphne")):
-            # Still validate env when set so unit tests can exercise the helper.
-            if not os.environ.get("SWARM_UVICORN_WORKERS"):
-                return
+        role = detect_process_role()
+        if not role.check_workers and not os.environ.get("SWARM_UVICORN_WORKERS"):
+            return f"skipped: {role.reason}"
         try:
             from swarm.core.concurrency import resolved_uvicorn_workers
 
@@ -136,20 +238,16 @@ class SwarmConfig(AppConfig):
             raise
         except Exception as e:
             logger.debug("uvicorn workers check skipped: %s", e)
+            return f"skipped: {e}"
+        return "started"
 
     @staticmethod
-    def _maybe_resume_async_tasks() -> None:
-        import sys
-
+    def _maybe_resume_async_tasks() -> str:
         if os.environ.get("SWARM_TEST_MODE"):
-            return
-        argv = " ".join(sys.argv)
-        if "runserver" in argv:
-            serving = ("--noreload" in argv) or os.environ.get("RUN_MAIN") == "true"
-        else:
-            serving = any(s in argv for s in ("swarm-api", "daphne", "uvicorn", "gunicorn"))
-        if not serving:
-            return
+            return "skipped: SWARM_TEST_MODE"
+        role = detect_process_role()
+        if not role.serving:
+            return f"skipped: {role.reason}"
         try:
             import threading
 
@@ -158,27 +256,27 @@ class SwarmConfig(AppConfig):
             threading.Thread(target=resume_pending_responses, daemon=True).start()
         except Exception as e:  # never let resume break startup
             logger.warning("Could not schedule async-task resume: %s", e)
+            return f"skipped: {e}"
+        return "started"
 
     @staticmethod
-    def _maybe_start_schedule_engine() -> None:
+    def _maybe_start_schedule_engine() -> str:
         """Tick routines + test schedules in this process (not distributed)."""
-        import sys
-
-        if os.environ.get("SWARM_TEST_MODE") or os.environ.get("SWARM_DISABLE_SCHEDULE_ENGINE"):
-            return
-        argv = " ".join(sys.argv)
-        if "runserver" in argv:
-            serving = ("--noreload" in argv) or os.environ.get("RUN_MAIN") == "true"
-        else:
-            serving = any(s in argv for s in ("swarm-api", "daphne", "uvicorn", "gunicorn"))
-        if not serving:
-            return
+        if os.environ.get("SWARM_TEST_MODE"):
+            return "skipped: SWARM_TEST_MODE"
+        if os.environ.get("SWARM_DISABLE_SCHEDULE_ENGINE"):
+            return "skipped: SWARM_DISABLE_SCHEDULE_ENGINE"
+        role = detect_process_role()
+        if not role.serving:
+            return f"skipped: {role.reason}"
         try:
             from swarm.core.schedule_engine import start_loop
 
             start_loop()
         except Exception as e:  # never let the ticker break startup
             logger.warning("Could not start schedule engine: %s", e)
+            return f"skipped: {e}"
+        return "started"
 
     @staticmethod
     def _load_swarm_config() -> dict:

@@ -1,6 +1,9 @@
 """Tests for the built-in CLI adapter catalog (swarm-cli cli-agents --suggest)."""
 
 from __future__ import annotations
+import json
+
+import os
 
 from swarm.core import cli_catalog
 from swarm.core.cli_adapter import CliAdapter
@@ -16,8 +19,16 @@ def test_every_catalog_cli_documents_session_resume():
     for name in cli_catalog.catalog_names():
         policy = cli_catalog.session_policy(name)
         assert policy is not None, f"{name} missing SESSION policy"
-        assert policy.get("resume_argv"), f"{name} has no resume_argv"
-        assert "{session_id}" in " ".join(policy["resume_argv"])
+        # Either a real resume argv, or an explicit, reasoned opt-out. A
+        # missing resume_argv with no reason is still a defect — that is how
+        # kilo used to look before #1658 proved it has no session flag at all.
+        if not policy.get("resume_argv"):
+            assert policy.get("resume_unsupported_reason"), (
+                f"{name} has no resume_argv and no reason for it"
+            )
+            assert "{session_id}" not in json.dumps(policy.get("resume_unsupported_reason"))
+        else:
+            assert "{session_id}" in " ".join(policy["resume_argv"])
         assert policy.get("notes")
         assert policy.get("list_capability") in cli_catalog.LIST_CAPABILITIES
     assert cli_catalog.session_policy("antigravity") is None
@@ -98,6 +109,38 @@ def test_catalog_entry_returns_a_copy():
     assert b["mode"] == "write"
 
 
+def test_codex_timeout_clears_the_observed_95s_turn():
+    """A real codex turn took 95s on this host, so 90 is a hard timeout.
+
+    The 90s that produced the intermittent failure came from the operator's
+    ``cli_agents.codex.timeout`` override (a configured timeout wins over the
+    catalog), but the catalog default is the floor every future entry inherits
+    — pin it so it cannot be quietly lowered back under the observed turn.
+    """
+    entry = cli_catalog.catalog_entry("codex")
+    assert entry["timeout"] >= 240
+    # Unbounded is not a fix: the seat must still be killable.
+    assert isinstance(entry["timeout"], (int, float))
+
+
+def test_codex_env_allowlist_does_not_claim_the_litellm_gateway():
+    """The seat is routed by ~/.codex/config.toml, not by LITELLM_*.
+
+    ``CliAdapter._build_env`` keeps only _ESSENTIAL_ENV + env_allowlist, so a
+    LITELLM_* entry would have to be allowlisted to reach the child at all.
+    It is not: the `litellm` provider block in ~/.codex/config.toml pins its
+    own ``base_url``, which is why the run succeeds while codex still logs
+    "Missing environment variable: OPENAI_API_KEY".
+    """
+    entry = cli_catalog.catalog_entry("codex")
+    allow = entry["env_allowlist"]
+    assert allow == ["OPENAI_API_KEY"]
+    assert not [k for k in allow if k.startswith("LITELLM_")]
+    # Non-None allowlist is deliberate: a full os.environ copy would leak every
+    # other secret in the unit into the child.
+    assert allow is not None
+
+
 def test_catalog_entry_unknown_is_none():
     assert cli_catalog.catalog_entry("nope-not-real") is None
     assert cli_catalog.executable_for("nope-not-real") is None
@@ -114,8 +157,13 @@ def test_gemini_default_includes_skip_trust_gotcha():
 
 def test_opencode_default_pins_a_model_gotcha():
     # opencode's built-in default model errors as "not supported".
+    # OpenRig dogfood pins Space Bunny free + --auto (#1747).
     cmd = cli_catalog.catalog_entry("opencode")["cmd"]
-    assert "--model" in cmd and cmd[cmd.index("--model") + 1]
+    assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "opencode/space-bunny-free"
+    assert "--auto" in cmd
+    assert cmd.index("--model") < cmd.index("--")
+    assert cmd.index("--auto") < cmd.index("--")
+
 
 
 def test_build_starter_config_wires_every_mode():
@@ -209,18 +257,60 @@ def test_which_cli_finds_user_local_bin_when_path_is_stripped(tmp_path, monkeypa
     assert str(local_bin) in path.split(":")
 
 
-def test_pi_catalog_print_mode_is_positional_prompt():
+def test_catalog_payload_exposes_resolved_cli_paths(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    local_bin = home / ".local" / "bin"
+    local_bin.mkdir(parents=True)
+    grok = local_bin / "grok"
+    grok.write_text("#!/bin/sh\n")
+    grok.chmod(0o755)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", str(empty))
+    monkeypatch.delenv("SWARM_CLI_PATH_DIRS", raising=False)
+
+    payload = cli_catalog.cli_agents_catalog_payload({"cli_agents": {}})
+
+    # The discovered path is kept (not just truthiness) and is absolute.
+    assert payload["paths"].get("grok") == str(grok)
+    assert "pi" not in payload["paths"]
+    for resolved in payload["paths"].values():
+        assert os.path.isabs(resolved)
+        assert os.access(resolved, os.X_OK)
+    # No secrets / base URLs leak through the new key.
+    assert ":8001" not in str(payload["paths"])
+
+
+def test_pi_catalog_print_mode_is_a_stdin_prompt():
+    """pi is NOT a positional-prompt CLI — it cannot be one.
+
+    This entry used to be asserted as `pi … -- {prompt}`, which is exactly the
+    shape pi 0.74.2 rejects (`Error: Unknown options: --approve, --`; and
+    `Unknown option: --` once the bogus flag is removed). The binary's own
+    ``--help`` documents ``--print, -p  Non-interactive mode: process prompt and
+    exit`` and its docs merge piped stdin into that prompt, so the prompt is fed
+    on stdin. Pinned here so pi cannot drift back into the positional family.
+    """
     e = cli_catalog.catalog_entry("pi")
     assert e["cmd"][0] == "pi"
-    assert "-p" in e["cmd"]
-    assert "{prompt}" in e["cmd"]
-    assert e["cmd"].index("-p") < e["cmd"].index("{prompt}")
-    assert e["cmd"][-2:] == ["--", "{prompt}"]
+    assert e["cmd"][1] == "-p"
+    assert e["prompt_mode"] == "stdin"
+    # Not a positional-prompt CLI any more.
+    assert "{prompt}" not in e["cmd"]
+    assert "--" not in e["cmd"]
+    # pi 0.74.2 has no approval flag of any kind.
+    assert not any("approve" in part.lower() for part in e["cmd"])
+    # Every flag in the argv is one pi documents.
+    assert set(e["cmd"][2:]) <= {"--mode", "text", "--model", "litellm-fly/orchestration"}
     assert "--no-session" not in e["cmd"]
     CliAdapter.from_config("pi", e)
 
 
 def test_positional_catalog_prompts_sit_after_end_of_options():
+    # CLIs whose parser accepts a `--` terminator keep the positional form.
+    # pi and kilocode are deliberately absent: pi 0.74.2 rejects `--` outright,
+    # and kilo 1.0.0 has no `run` subcommand and takes a bare positional.
     opencode = cli_catalog.catalog_entry("opencode")["cmd"]
     assert opencode[-2:] == ["--", "{prompt}"]
     assert opencode.index("--model") < opencode.index("--")
@@ -228,6 +318,9 @@ def test_positional_catalog_prompts_sit_after_end_of_options():
     assert codex[-2:] == ["--", "{prompt}"]
     assert "--dangerously-bypass-approvals-and-sandbox" in codex
     assert codex.index("--dangerously-bypass-approvals-and-sandbox") < codex.index("--")
+    # Nothing in the catalog may smuggle a `--` into a CLI that rejects one.
+    assert "--" not in cli_catalog.catalog_entry("pi")["cmd"]
+    assert "--" not in cli_catalog.catalog_entry("kilocode")["cmd"]
 
 
 def test_build_starter_config_prefers_grok_for_single_agent_roles():
@@ -275,7 +368,7 @@ def test_suggest_installed_only_filters_by_path(monkeypatch):
     def fake_which(exe, path=None):
         return "/usr/bin/codex" if exe == "codex" else None
 
-    monkeypatch.setattr(cli_catalog.shutil, "which", fake_which)
+    monkeypatch.setattr(cli_catalog, "which_cli", fake_which)
     s = cli_catalog.suggest_unconfigured([], installed_only=True)
     assert set(s) == {"codex"}
     assert cli_catalog.discover_host_clis() == ["codex"]
@@ -292,7 +385,7 @@ def test_configured_names_ignore_blank_and_non_dict():
 
 
 def test_suggest_returns_deep_copies(monkeypatch):
-    monkeypatch.setattr(cli_catalog.shutil, "which", lambda exe, path=None: "/x")
+    monkeypatch.setattr(cli_catalog, "which_cli", lambda exe, path=None: "/x")
     s = cli_catalog.suggest_unconfigured([], installed_only=True)
     s["claude"]["cmd"].append("--mutated")
     assert "--mutated" not in cli_catalog.CATALOG["claude"]["cmd"]

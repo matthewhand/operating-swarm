@@ -92,6 +92,88 @@ def test_voice_bind_roundtrip_and_env_placeholders(tmp_path, monkeypatch):
     assert other["tts_voice_instruction"] == ""
 
 
+def test_command_allowlist_defaults_empty(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    settings = store.get_settings("worker")
+    assert settings["command_allowlist"] == {"allow": [], "deny": [], "ask": []}
+    assert store.get_command_allowlist("worker") == {"allow": [], "deny": [], "ask": []}
+
+
+def test_command_allowlist_roundtrip_and_isolation(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    store.set_command_allowlist(
+        "worker", {"allow": ["git status", "pytest"], "deny": ["rm", "curl"], "ask": ["git push"]}
+    )
+    store.reset_agent_settings_cache()
+    policy = store.get_command_allowlist("worker")
+    assert policy["allow"] == ["git status", "pytest"]
+    assert policy["deny"] == ["rm", "curl"]
+    assert policy["ask"] == ["git push"]
+    assert store.get_command_allowlist("other") == {"allow": [], "deny": [], "ask": []}
+
+
+def test_mcp_tool_grants_defaults_empty(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    settings = store.get_settings("worker")
+    assert settings["mcp_tool_grants"] == []
+    assert settings["mcp_tool_grants_set"] is False
+    assert store.get_mcp_tool_grants("worker") == []
+
+
+def test_mcp_tool_grants_roundtrip_and_isolation(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    store.set_mcp_tool_grants("worker", ["web_search", "web_fetch"])
+    store.reset_agent_settings_cache()
+    assert store.get_mcp_tool_grants("worker") == ["web_search", "web_fetch"]
+    assert store.get_settings("worker")["mcp_tool_grants_set"] is True
+    assert store.get_mcp_tool_grants("other") == []
+    assert store.get_settings("other")["mcp_tool_grants_set"] is False
+
+
+def test_mcp_tool_grants_set_is_not_client_writable(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    store.set_mcp_tool_grants("worker", [])
+    store.update_settings(
+        "worker",
+        {"mcp_tool_grants_set": False, "new_chat_per_task": True},
+    )
+    worker = store.get_settings("worker")
+    assert worker["mcp_tool_grants"] == []
+    assert worker["mcp_tool_grants_set"] is True
+    assert worker["new_chat_per_task"] is True
+
+    store.update_settings("other", {"mcp_tool_grants_set": True})
+    other = store.get_settings("other")
+    assert other["mcp_tool_grants"] == []
+    assert other["mcp_tool_grants_set"] is False
+
+
+def test_mcp_tool_grants_rejects_malformed(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    try:
+        store.update_settings("worker", {"mcp_tool_grants": {"web_search": True}})
+    except ValueError as exc:
+        assert "mcp_tool_grants" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_command_allowlist_rejects_malformed(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    try:
+        store.update_settings("worker", {"command_allowlist": {"block": ["rm"]}})
+    except ValueError as exc:
+        assert "command_allowlist" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+    try:
+        store.update_settings("worker", {"command_allowlist": "rm"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_voice_bind_rejects_live_token(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     try:

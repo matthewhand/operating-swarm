@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { blobSpecForAgent, type BlobShape } from '../lib/blobAvatar'
+import { blobSilhouettePath, blobSpecForAgent, type BlobShape } from '../lib/blobAvatar'
 
 export type BlobEyeState = 'idle' | 'active'
 
@@ -14,7 +14,23 @@ export interface BlobAvatarProps {
   style?: React.CSSProperties
 }
 
-function BlobShapePath({ shape, color }: { shape: BlobShape; color: string }) {
+function BlobShapePath({
+  shape,
+  color,
+  agentId,
+}: {
+  shape: BlobShape
+  color: string
+  agentId: string
+}) {
+  /* #1717: circle and pill are bendy closed loops instead of a <circle> and a
+     stadium <rect> — one side reads flatter, the rest leans a little. The loop
+     is fitted to the old primitive's bounding box, so the painted footprint is
+     unchanged and nothing grows into a neighbouring box. */
+  const organic = blobSilhouettePath(shape, agentId)
+  if (organic) {
+    return <path d={organic} fill={color} />
+  }
   switch (shape) {
     case 'hexagon':
       return (
@@ -26,8 +42,6 @@ function BlobShapePath({ shape, color }: { shape: BlobShape; color: string }) {
           strokeLinejoin="round"
         />
       )
-    case 'circle':
-      return <circle cx="20" cy="20" r="15.2" fill={color} />
     case 'teardrop':
       return (
         <path
@@ -42,8 +56,6 @@ function BlobShapePath({ shape, color }: { shape: BlobShape; color: string }) {
           fill={color}
         />
       )
-    case 'pill':
-      return <rect x="3.2" y="13.2" width="33.6" height="13.6" rx="6.8" fill={color} />
     case 'cloud':
       return (
         <g fill={color}>
@@ -65,6 +77,8 @@ function BlobShapePath({ shape, color }: { shape: BlobShape; color: string }) {
         />
       )
     default:
+      /* Unreachable for a typed `BlobShape`; kept as a runtime net so an
+         out-of-band value still paints something circle-sized. */
       return <circle cx="20" cy="20" r="15.2" fill={color} />
   }
 }
@@ -94,7 +108,7 @@ export default function BlobAvatar({
       style={style}
     >
       <g className="os-blob-body">
-        <BlobShapePath shape={spec.shape} color={spec.color} />
+        <BlobShapePath shape={spec.shape} color={spec.color} agentId={agentId} />
       </g>
       {waiting ? (
         /* #791: the three-dot typing indicator replaces the eyes while a

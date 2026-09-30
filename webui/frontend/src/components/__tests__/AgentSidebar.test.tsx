@@ -4,6 +4,7 @@ import { render, screen, waitFor, within, fireEvent, act } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useSearchParams } from 'react-router-dom'
 import AgentSidebar from '../AgentSidebar'
+import { declarations, rule } from '../../lib/__tests__/helpers/cssRules'
 import SearchPalette, { OPEN_SEARCH_EVENT, type SearchPaletteOptions } from '../SearchPalette'
 import { HIDDEN_AGENTS_STORAGE_KEY, loadHiddenAgentIds, unhideAgentId } from '../../lib/hiddenAgents'
 import { PINNED_AGENTS_STORAGE_KEY } from '../../lib/pinnedAgents'
@@ -19,6 +20,7 @@ import {
 } from '../../lib/settingsPrefs'
 import { RAIL_SECTIONS_STORAGE_KEY } from '../../lib/railSections'
 import { DELETED_RAIL_IDS_KEY } from '../../lib/deletedRailIds'
+import { ONE_COL_RAIL_WIDTH } from '../../lib/railResize'
 import { saveAgentSessions, type AgentSession } from '../../lib/scaleOutSessions'
 import { publishChatConnection, resetChatConnection } from '../../lib/chatConnection'
 import { notifyCliRunState, resetCliRunState } from '../../lib/cliRunState'
@@ -402,6 +404,23 @@ function railIds(list: HTMLElement): string[] {
   )
 }
 
+/** Rail ids inside one section block, in DOM order. */
+function sectionRailIds(list: HTMLElement, sectionId: string): string[] {
+  const section = list.querySelector(
+    `[data-testid="rail-section"][data-section-id="${sectionId}"]`,
+  )
+  if (!section) return []
+  return [...section.querySelectorAll('[data-rail-id]')].map(
+    (node) => node.getAttribute('data-rail-id') || '',
+  )
+}
+
+function sectionOrder(list: HTMLElement): string[] {
+  return [...list.querySelectorAll('[data-testid="rail-section"]')].map(
+    (node) => node.getAttribute('data-section-id') || '',
+  )
+}
+
 describe('AgentSidebar Grok rail', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -414,14 +433,15 @@ describe('AgentSidebar Grok rail', () => {
     localStorage.clear()
   })
 
-  it('lists Support first and does not filter the catalog from the rail Search field', async () => {
+  it('lists Support first in Unassigned and does not filter the catalog from the rail Search field', async () => {
     const onOpenSearch = vi.fn()
     renderSidebar('/chat', onOpenSearch)
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const support = await within(list).findByRole('link', { name: /Support/ })
-    const links = within(list).getAllByRole('link')
-    expect(links[0]).toBe(support)
+    // Kind sections (Remote/CLI/API) lead the rail; Support heads Unassigned.
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
+    expect(support).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Codey/ })).toBeInTheDocument()
     expect(within(list).getByRole('link', { name: /Stewie/ })).toBeInTheDocument()
     expect(within(list).queryByRole('link', { name: /Gate/ })).not.toBeInTheDocument()
@@ -444,7 +464,7 @@ describe('AgentSidebar Grok rail', () => {
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Waveshare OpenCode/ })
-    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode')
+    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode&cli=opencode')
     expect(row).not.toHaveAttribute('href', expect.stringContaining('/agents?agent='))
   })
 
@@ -454,7 +474,7 @@ describe('AgentSidebar Grok rail', () => {
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const row = await within(list).findByRole('link', { name: /Waveshare OpenCode/ })
     // Must stay on standard chat href
-    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode')
+    expect(row).toHaveAttribute('href', '/chat?blueprint=waveshare-opencode&cli=opencode')
     expect(row.getAttribute('href')).not.toMatch(/^\/agents\?/)
   })
 
@@ -532,21 +552,43 @@ describe('AgentSidebar Grok rail', () => {
     )
   })
 
-  it('lists cli_agent then api_agent after Support', async () => {
+  it('groups cli_agent into the CLI block and api_agent into the API block in Remote/CLI/API order', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     await within(list).findByRole('link', { name: /cli_agent/ })
     expect(within(list).getByRole('link', { name: /cli_agent/ })).toHaveAttribute(
       'href',
-      '/chat?blueprint=cli_agent',
+      '/chat?blueprint=cli_agent&cli=grok',
     )
     expect(within(list).getByRole('link', { name: /api_agent/ })).toHaveAttribute(
       'href',
       '/chat?blueprint=api_agent',
     )
-    const ids = railIds(list)
-    expect(ids.indexOf('support')).toBeLessThan(ids.indexOf('cli_agent'))
-    expect(ids.indexOf('cli_agent')).toBeLessThan(ids.indexOf('api_agent'))
+    // Kind membership: CLI holds cli-kind seats, API holds api-kind seats.
+    expect(sectionRailIds(list, 'cli')).toContain('cli_agent')
+    expect(sectionRailIds(list, 'api')).toEqual(['api_agent'])
+    expect(sectionRailIds(list, 'api')).not.toContain('cli_agent')
+    // A herdr seat is a remote-impl agent and lands in Remote, not Unassigned.
+    expect(sectionRailIds(list, 'remote')).toContain('herdr:w3:p1')
+    expect(sectionRailIds(list, 'cli')).not.toContain('herdr:w3:p1')
+    // Block order: Remote, CLI, API, then Unassigned last.
+    const order = sectionOrder(list)
+    expect(order.indexOf('remote')).toBeLessThan(order.indexOf('cli'))
+    expect(order.indexOf('cli')).toBeLessThan(order.indexOf('api'))
+    expect(order.indexOf('api')).toBeLessThan(order.indexOf('unassigned'))
+  })
+
+  it('groups every visible row into exactly one block and drops nothing', async () => {
+    renderSidebar()
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    await within(list).findByRole('link', { name: /Stewie/ })
+
+    const railOrder = railIds(list)
+    // No duplicate rows across sections.
+    expect(new Set(railOrder).size).toBe(railOrder.length)
+    // Every rendered [data-rail-id] lives inside a [data-section-id] block.
+    const insideBlocks = sectionOrder(list).flatMap((id) => sectionRailIds(list, id))
+    expect(insideBlocks.sort()).toEqual([...railOrder].sort())
   })
 
   it('offers Select session on a CLI rail row and on Codey (Django)', async () => {
@@ -616,7 +658,7 @@ describe('AgentSidebar Grok rail', () => {
 
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const support = await within(list).findByRole('link', { name: /Support/ })
-    expect(within(list).getAllByRole('link')[0]).toBe(support)
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
     expect(support.className).not.toMatch(/os-agent-row--support/)
     expect(support.className).not.toMatch(/os-agent-role-/)
     expect(support.querySelector('.os-agent-role-badge')).toHaveTextContent('Support')
@@ -761,7 +803,7 @@ describe('AgentSidebar Grok rail', () => {
     await screen.findByRole('navigation', { name: 'Agent list' })
     const teams = screen.getByTestId('os-teams-button')
     const plugins = screen.getByTestId('os-plugins-button')
-    expect(teams).toHaveAttribute('aria-label', 'Teams')
+    expect(teams).toHaveAttribute('aria-label', 'Group chats')
     expect(plugins).toHaveAttribute('aria-label', 'Plugins')
     // DOM order: Teams precedes Plugins within the footer stack.
     expect(teams.compareDocumentPosition(plugins) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -1139,11 +1181,11 @@ describe('AgentSidebar Grok rail', () => {
     const grid = screen.getByLabelText('Pinned agents')
     expect(within(grid).getByRole('link', { name: 'Codey' })).toBeInTheDocument()
 
-    expect(railIds(list)[0]).toBe('support')
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
     dragTo(stewie, support)
 
     await waitFor(() => {
-      expect(railIds(list)[0]).toBe('stewie')
+      expect(sectionRailIds(list, 'unassigned')[0]).toBe('stewie')
     })
     expect(storedRailOrder()[0]).toBe('stewie')
     expect(within(list).getByRole('link', { name: /Support/ })).toBeInTheDocument()
@@ -1165,7 +1207,7 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     await waitFor(() => {
-      expect(railIds(list)[0]).toBe('stewie')
+      expect(sectionRailIds(list, 'unassigned')[0]).toBe('stewie')
     })
     const grid = screen.getByLabelText('Pinned agents')
     expect(within(grid).getByRole('link', { name: 'Codey' })).toBeInTheDocument()
@@ -1177,12 +1219,12 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     await within(list).findByRole('link', { name: /Stewie/ })
-    expect(railIds(list)[0]).toBe('support')
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
 
     fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
 
     await waitFor(() => {
-      expect(railIds(list)[0]).toBe('stewie')
+      expect(sectionRailIds(list, 'unassigned')[0]).toBe('stewie')
     })
     expect(storedRailOrder()[0]).toBe('stewie')
   })
@@ -1241,7 +1283,7 @@ describe('AgentSidebar Grok rail', () => {
 
     fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
 
-    expect(railIds(list)[0]).toBe('support')
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
     expect(storedRailOrder()).toEqual([])
   })
 
@@ -1250,11 +1292,11 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     await within(list).findByRole('link', { name: /Stewie/ })
-    expect(railIds(list)[0]).toBe('support')
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
 
     fireEvent(window, new CustomEvent(GENERATION_COMPLETE_EVENT, { detail: { agentId: 'stewie' } }))
 
-    expect(railIds(list)[0]).toBe('support')
+    expect(sectionRailIds(list, 'unassigned')[0]).toBe('support')
     expect(storedRailOrder()).toEqual([])
   })
 
@@ -1320,19 +1362,24 @@ describe('AgentSidebar Grok rail', () => {
     expect(storedRailOrder()).not.toContain('codey')
   })
 
-  it('REQ-164 / REQ-109: displays + button beside Search input (not in favourites grid) and opens Add agent wizard', async () => {
+  it('REQ-164 / REQ-109: displays + button beside Search input (not in favourites grid) and routes into the Add agent wizard', async () => {
     renderSidebar()
     const addBtn = await screen.findByRole('button', { name: 'Add agent' })
     expect(addBtn).toBeInTheDocument()
-    expect(addBtn).toHaveAttribute('data-testid', 'add-agent-button')
+    expect(addBtn).toHaveAttribute('data-testid', 'add-bot-menu-trigger')
     expect(addBtn.closest('.os-rail-search-row')).toBeInTheDocument()
 
     // Favourites row/grid must not contain the add button
     const favGrid = screen.getByTestId('agent-fav-grid')
-    expect(within(favGrid).queryByTestId('add-agent-button')).toBeNull()
+    expect(within(favGrid).queryByTestId('add-bot-menu-trigger')).toBeNull()
 
-    // Click + button to open wizard
+    // #1674: the + is a menu now, so the wizard is one row deeper — the
+    // "Create new agent" action inside the Add-bot dropdown.
     fireEvent.click(addBtn)
+    const menu = await screen.findByTestId('os-add-bot-menu')
+    expect(within(menu).getByTestId('os-add-bot-menu-create-group')).toBeInTheDocument()
+    expect(screen.queryByTestId('add-agent-wizard')).toBeNull()
+    fireEvent.click(within(menu).getByTestId('os-add-bot-menu-create-bot'))
 
     expect(await screen.findByTestId('add-agent-wizard')).toBeInTheDocument()
     expect(screen.getByText('Add Agent')).toBeInTheDocument()
@@ -1463,7 +1510,7 @@ describe('AgentSidebar Grok rail', () => {
     renderSidebar()
     await screen.findByRole('navigation', { name: 'Agent list' })
     fireEvent.click(screen.getByRole('button', { name: /Plugins/i }))
-    const dialog = screen.getByRole('dialog', { name: 'Plugins' })
+    const dialog = await screen.findByRole('dialog', { name: 'Plugins' })
     expect(dialog).toHaveClass('os-search-palette')
     expect(within(dialog).getByRole('combobox', { name: 'Filter tools' })).toBeInTheDocument()
     expect(await within(dialog).findByRole('switch', { name: /Web Search Off/i })).toBeInTheDocument()
@@ -1735,16 +1782,16 @@ describe('AgentSidebar teams', () => {
     const team = await within(list).findByRole('link', { name: /Squad \(team\)/ })
     expect(team).toHaveAttribute('data-persona-count', '3')
     expect(team).toHaveAttribute('data-roster', 'declared')
-    const rosterEl = within(team).getByTestId('declared-roster')
-    expect(rosterEl).toHaveAttribute('data-persona-count', '3')
-    // #438: one face (the chat target) plus the remainder, not three fanned
-    // faces. `aria-label` also names the remainder, so it is not a bare glyph.
-    expect(rosterEl).toHaveAttribute('data-stack-count', '1')
-    expect(rosterEl).toHaveAttribute('data-remainder', '2')
-    expect(rosterEl).toHaveAttribute('aria-label', 'Squad declared members, +2')
-    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+2')
-    // The declared roster keeps every persona name reachable, just not drawn.
-    expect(rosterEl).toHaveTextContent('Researcher, Writer, Reviewer')
+    const rosterEl = within(team).getByTestId('os-group-avatar')
+    expect(rosterEl).toHaveAttribute('data-member-count', '3')
+    // #1362: a declared group chat draws its personas as circle faces — three
+    // fit the ring, so there is no remainder.
+    expect(team).toHaveAttribute('data-stack-count', '3')
+    expect(team).toHaveAttribute('data-remainder', '0')
+    expect(rosterEl).toHaveAttribute('data-count', '3')
+    expect(rosterEl).toHaveAttribute('aria-label', '3 members: Researcher, Writer, Reviewer')
+    expect(within(team).getAllByTestId('os-group-avatar-face')).toHaveLength(3)
+    expect(within(team).queryByTestId('os-group-avatar-remainder')).toBeNull()
   })
 
   it('#525: a team row renders no Team badge and no definition-pane button', async () => {
@@ -2375,30 +2422,34 @@ describe('AgentSidebar stacked avatars (REQ-68)', () => {
     localStorage.clear()
   })
 
-  it('#438: a 5-member team row shows one chat face and +4, not a fan of 3 faces', async () => {
+  it('#1362: a 5-member group chat row shows three circle faces and +2', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    // #438 supersedes REQ-891's sidepane stack: one face for the member you are
-    // talking to, plus a +N for the rest. The old assertion here pinned
-    // "at most 3 faces with no +N remainder" and three `.os-avatar-stack__face`
-    // nodes with staggered pulse delays — the fan this ticket removes.
-    expect(team).toHaveAttribute('data-stack-count', '1')
-    expect(team).toHaveAttribute('data-remainder', '4')
+    // #1362 supersedes #438: a team's rail avatar is its membership — the shared
+    // circle group avatar caps at three faces and reports the rest as +N.
+    expect(team).toHaveAttribute('data-stack-count', '3')
+    expect(team).toHaveAttribute('data-remainder', '2')
     expect(team.querySelector('.os-avatar-stack__face')).toBeNull()
     expect(within(team).getByTestId('team-chat-face')).toBeInTheDocument()
-    expect(within(team).getByTestId('team-remainder')).toHaveTextContent('+4')
+    expect(within(team).getByTestId('os-group-avatar-remainder')).toHaveTextContent('+2')
+    expect(within(team).getAllByTestId('os-group-avatar-face')).toHaveLength(3)
   })
 
-  it('#438: the team row face is the chat target, not an arbitrary first face', async () => {
+  it('#1362: the group avatar shows the most recently active members', async () => {
     renderSidebar()
     const list = await screen.findByRole('navigation', { name: 'Agent list' })
     const team = await within(list).findByRole('link', { name: /Scale Out \(team\)/ })
-    // `defaultSessionForTeam` owns "chief_of_staff_id, else CoS-role, else first"
-    // — the rail reads that rule rather than re-deriving a member to show.
+    // Recency ordering is unchanged; the circle now paints the three newest
+    // members rather than collapsing the roster to the chat target.
     const face = within(team).getByTestId('team-chat-face')
-    expect(face).toHaveAttribute('data-remainder', '4')
+    expect(face).toHaveAttribute('data-remainder', '2')
     expect(face.querySelector('[data-agent-avatar]')).toBeInTheDocument()
+    expect(
+      within(team)
+        .getAllByTestId('os-group-avatar-face')
+        .map((el) => el.getAttribute('data-face-id')),
+    ).toEqual(['dee', 'cyd', 'bea'])
   })
 
   it('keeps a single-agent remote as one normal avatar (no mini stack)', async () => {
@@ -2719,18 +2770,22 @@ describe('AgentSidebar REQ-116 — Resizable left rail', () => {
     expect(rail).toHaveClass('os-agent-sidebar--avatar-only')
   })
 
-  it('defaults to a compact (non-avatar-only) rail on laptop viewports (<= 1440px) when not configured (#1083, adjusted by #1098)', async () => {
+  it('defaults to a compact one-column rail on laptop viewports (<= 1440px) when not configured (#1083, #1098, one-column default)', async () => {
     // #1083 originally asserted avatar-only here, but that floor (68px) sits
     // below AVATAR_ONLY_THRESHOLD (96) — avatar-only CSS hides section
     // headers/labels, which made the #1094 Subagents section unreachable for
-    // real laptop users. The laptop default is now the threshold+1 compact
-    // rail: same narrow footprint, headers and labels intact.
+    // real laptop users. #1098 then floored it at threshold+1 (97px), but 97
+    // is narrower than the rail's own search row and footer labels, which
+    // overflowed into the chat pane. The laptop default is now the
+    // 1-column pinned-grid detent: compact, non-avatar-only (headers/labels
+    // intact), and wide enough for the horizontal chrome.
     renderSidebar('/chat?narrow=false', undefined, 1280)
     const rail = await screen.findByTestId('os-agent-rail')
     expect(rail).toHaveAttribute('data-avatar-only', 'false')
     expect(rail).not.toHaveClass('os-agent-sidebar--avatar-only')
-    // still compact: the width persisted below is the small laptop default
-    expect(Number(localStorage.getItem('swarm_rail_width'))).toBeLessThanOrEqual(1280 * 0.45)
+    // The default is not persisted, so pin the rendered width directly.
+    expect(rail.style.width).toBe(`${ONE_COL_RAIL_WIDTH}px`)
+    expect(ONE_COL_RAIL_WIDTH).toBeLessThanOrEqual(1280 * 0.45)
   })
 
   it('defaults to expanded mode on desktop viewports (> 1440px) when not configured in localStorage (#1083)', async () => {
@@ -2790,6 +2845,37 @@ describe('AgentSidebar #1088 — Alt+Up / Alt+Down sequential rail navigation', 
     })
     // preventDefault means the rail handled the navigation itself.
     expect(down.defaultPrevented).toBe(true)
+  })
+
+  it('Alt+ArrowDown targets the first pinned tile, not its unpinned row', async () => {
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([{ id: 'stewie', name: 'Stewie' }]),
+    )
+    renderSidebar()
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
+    })
+
+    // The pin lives in the favourite grid, never duplicated into the list.
+    const grid = screen.getByLabelText('Pinned agents')
+    const list = screen.getByRole('navigation', { name: 'Agent list' })
+    expect(within(grid).getByRole('link', { name: 'Stewie' })).toBeInTheDocument()
+    expect(within(list).queryByRole('link', { name: /Stewie/ })).not.toBeInTheDocument()
+
+    const down = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      window.dispatchEvent(down)
+    })
+    // The pinned position wins: the first target is the pin, not the row that
+    // would sit in Unassigned/section order.
+    expect(screen.getByTestId('os-test-search').textContent).toContain('blueprint=stewie')
   })
 })
 
@@ -2922,27 +3008,29 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(within(dialog).getByTestId('unhide-team:research')).toBeInTheDocument()
   })
 
-  it('#555 keeps the collapse control out of the pane header and on the divider pill', async () => {
+  it('#1246 moves collapse to the pane top-right and expand to the collapsed top', async () => {
     renderSidebar()
-    const pill = await screen.findByTestId('rail-divider-pill')
-    // The pill is the only collapse affordance now…
-    const conceal = within(pill).getByRole('button', { name: 'Collapse sidebar' })
-    expect(conceal).toHaveAttribute('data-testid', 'sidebar-conceal')
-    // …and it lives inside the resizer, which owns the divider.
-    const handle = screen.getByTestId('rail-resize-handle')
-    expect(handle.contains(pill)).toBe(true)
+    // The collapse control lives in the pane header (search row), not on the
+    // divider — and the resizer owns the divider without a floating pill.
+    const conceal = await screen.findByRole('button', { name: 'Collapse sidebar' })
+    const searchRow = screen.getByTestId('rail-search-trigger').parentElement!
+    expect(searchRow.contains(conceal)).toBe(true)
+    expect(screen.queryByTestId('rail-divider-pill')).not.toBeInTheDocument()
+    expect(screen.getByTestId('rail-resize-handle')).toBeInTheDocument()
 
-    // A drag starting on the pill must not reach the resizer, or clicking to
-    // collapse would also begin a resize.
-    fireEvent.pointerDown(pill, { clientX: 100 })
-    expect(handle.className).not.toContain('os-rail-resizer--active')
-    fireEvent.pointerDown(handle, { clientX: 100 })
-    expect(handle.className).toContain('os-rail-resizer--active')
-
-    // Collapsed state stays recoverable from the same divider.
+    // Collapsed (0px): the expand control sits at the top of the divider, on
+    // the content side, and is visible without hover.
     fireEvent.click(conceal)
-    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
-    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+    const rail = screen.getByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' })
+    expect(expand).toBeInTheDocument()
+    expect(rail.querySelector('.os-rail-collapsed-expand')?.contains(expand)).toBe(true)
+
+    // Expanding restores the header collapse control.
+    fireEvent.click(expand)
+    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 
   it('renders standard pane icons for collapse/expand (#417, #767)', async () => {
@@ -2956,8 +3044,10 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
 
     fireEvent.click(conceal)
-    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
-    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
+    // #1246: the click fully collapses to 0px (divider-only); the search-row
+    // collapse control folds away and the top-of-divider expand control shows.
+    const rail = screen.getByTestId('os-agent-rail')
+    expect(rail).toHaveAttribute('data-collapsed', 'true')
     const expand = screen.getByRole('button', { name: 'Expand sidebar' })
     expect(expand).toHaveAttribute('data-testid', 'sidebar-expand')
     expect(expand.querySelector('svg.lucide-panel-left-open')).toBeTruthy()
@@ -2974,7 +3064,7 @@ describe('AgentSidebar REQ-861 conceal', () => {
     expect(screen.getByTestId('rail-update-chrome')).toBeInTheDocument()
     expect(screen.getByLabelText('Hostname')).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
-    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-collapsed', 'true')
     expect(screen.getByTestId('os-calendar-button').querySelector('.os-calendar-label')).toBeTruthy()
     expect(screen.queryByTestId('rail-update-chrome')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument()
@@ -2983,17 +3073,16 @@ describe('AgentSidebar REQ-861 conceal', () => {
   it('restores the rail from the collapsed expand control (#417)', async () => {
     renderSidebar()
     fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
-    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'true')
+    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-collapsed', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
-    expect(screen.getByTestId('os-agent-rail')).toHaveAttribute('data-avatar-only', 'false')
+    expect(screen.getByTestId('os-agent-rail')).not.toHaveAttribute('data-collapsed', 'true')
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 
   it('conceals the mobile drawer via the close button and backdrop', async () => {
-    // #555: the narrow overlay's dismiss is the dedicated close button. The
-    // divider pill (and so the collapse/expand control) only exists on the
-    // desktop rail, because the drawer has no divider to ride — previously a
-    // second control did the same `onClose()` the close button already does.
+    // #555/#1246: the narrow overlay's dismiss is the dedicated close button.
+    // The desktop collapse control (search-row header button) has no divider
+    // to ride on the mobile drawer, so it is absent here.
     const onClose = vi.fn()
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -3005,7 +3094,7 @@ describe('AgentSidebar REQ-861 conceal', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    expect(screen.queryByTestId('rail-divider-pill')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rail-resize-handle')).not.toBeInTheDocument()
     // [0] is the backdrop, [1] is the drawer's own close button.
     const drawerClose = screen.getAllByRole('button', { name: 'Close agents sidebar' })[1]
     fireEvent.click(drawerClose)
@@ -3237,12 +3326,30 @@ describe('#783/#781/#784 — drag footer: zero shift, distinct drop zones, cente
   }
 
   it('#783: the recycle bin reserves the idle footer cluster height — no drag layout jump', async () => {
-    // jsdom has no layout engine, so the zero-shift contract is pinned at the
-    // source: the bin's min-height equals the idle cluster (Teams + Plugins +
-    // Routines + hostname row), and the bin replaces — never stacks with —
-    // the menu during a drag.
+    // jsdom has no layout engine, so the zero-shift contract is pinned as a
+    // PAIR: the stylesheet must take the reserve from the one custom property
+    // the component publishes, and the rendered bin must actually publish it.
+    //
+    // The old assertion was a needle — `\.os-recycle-bin\s*\{[^}]*min-height:\s*10rem`
+    // — which could not catch either half of what it was protecting. It passed
+    // on a rule that restated the number in the sheet, so editing the
+    // component's height would have left the sheet lying and the reserve
+    // silently stale; and `[^}]*` let a `min-height` belonging to an unrelated
+    // declaration satisfy it. Reading the rule through the brace-matched CSS
+    // helper binds the assertion to the actual `min-height` PROPERTY of
+    // `.os-recycle-bin`, and the DOM half below ties the token's two ends
+    // together.
     const sheet = await css()
-    expect(sheet).toMatch(/\.os-recycle-bin\s*\{[^}]*min-height:\s*10rem/)
+    const binRule = declarations(rule(sheet, '.os-recycle-bin'))
+    expect(binRule['min-height']).toBeDefined()
+    const reserved = binRule['min-height']
+    // The reserve is a var() over the shared token, not a second literal.
+    expect(reserved).toMatch(/var\(\s*--os-footer-cluster-h/)
+    // …with a guarded fallback: an unguarded var() resolves to nothing if the
+    // token is ever dropped, and the drag would jolt the rail — the exact
+    // regression the reserve exists to prevent.
+    expect(reserved).toMatch(/var\(\s*--os-footer-cluster-h\s*,\s*10rem\s*\)/)
+
     renderSidebar()
     await waitFor(() => {
       expect(screen.queryByText('Loading agents…')).not.toBeInTheDocument()
@@ -3252,6 +3359,14 @@ describe('#783/#781/#784 — drag footer: zero shift, distinct drop zones, cente
     })
     const bin = screen.getByTestId('os-recycle-bin')
     expect(bin).toBeInTheDocument()
+    // The token the rule consumes is the one this element carries, and its
+    // fallback agrees — so the sheet and the component cannot drift apart in
+    // one direction without this failing.
+    const published = bin.style.getPropertyValue('--os-footer-cluster-h').trim()
+    expect(published).not.toBe('')
+    expect(reserved).toContain(`--os-footer-cluster-h, ${published}`)
+    // …and the bin replaces — never stacks with — the menu cluster it reserves
+    // space for.
     expect(screen.queryByTestId('os-teams-button')).not.toBeInTheDocument()
     expect(screen.queryByTestId('os-plugins-button')).not.toBeInTheDocument()
   })
@@ -3287,18 +3402,18 @@ describe('#765 — drag the divider to the edge: full collapse to 0px and back',
     const handle = await screen.findByTestId('rail-resize-handle')
 
     fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1 })
-    // Drag left past COLLAPSE_SNAP_THRESHOLD (52) from a 256px start…
+    // Drag to a resting width exactly on the 2-col detent (210px):
+    // delta = 154 - 200 = -46 → 256 - 46 = 210. #1651 removed the 256
+    // DEFAULT stop, so releases park on whole-column widths only.
     act(() => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 120, pointerId: 1 }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 154, pointerId: 1 }))
     })
-    // …release: width 256 - 80 = 176 normally, but the snap contract sends
-    // the rail to 0px only below the threshold; 176 stays continuous.
     act(() => {
-      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 120, pointerId: 1 }))
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 154, pointerId: 1 }))
     })
-    expect(rail.style.width).toBe('176px')
+    expect(rail.style.width).toBe('210px')
 
-    // Now drag past the threshold: 256 - 230 = 26 < 52 → collapsed.
+    // Now drag past the threshold: 256 - 230 = 26 < 1-col → collapsed.
     fireEvent.pointerDown(handle, { clientX: 256, pointerId: 2 })
     act(() => {
       window.dispatchEvent(new PointerEvent('pointermove', { clientX: 26, pointerId: 2 }))
@@ -3343,7 +3458,7 @@ describe('#765 — drag the divider to the edge: full collapse to 0px and back',
   })
 })
 
-describe('#741 — the pill is a handle: drag from it resizes, click still toggles', () => {
+describe('#741 — the divider strip is the resize handle; the header button toggles', () => {
   beforeEach(() => {
     localStorage.clear()
     rememberEmptyFavourites()
@@ -3355,28 +3470,90 @@ describe('#741 — the pill is a handle: drag from it resizes, click still toggl
     localStorage.clear()
   })
 
-  it('dragging from the pill resizes the rail (no stopPropagation wall)', async () => {
+  it('dragging the divider strip resizes the rail', async () => {
+    // #1683: the detent the drag sticks to depends on whether the pinned grid
+    // is rendered. With the empty pin pool from `beforeEach` there is no grid,
+    // so 306 is not "one column short of the 3-col detent" — it is simply
+    // where the operator let go. The pinned half of the contract is asserted
+    // below; this one is the free-track half.
     renderSidebar()
     const rail = await screen.findByTestId('os-agent-rail')
-    const pill = await screen.findByTestId('rail-divider-pill')
+    const handle = await screen.findByTestId('rail-resize-handle')
 
-    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 7 })
+    fireEvent.pointerDown(handle, { clientX: 256, pointerId: 7 })
     act(() => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 336, pointerId: 7 }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 306, pointerId: 7 }))
     })
     act(() => {
-      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 336, pointerId: 7 }))
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 306, pointerId: 7 }))
     })
-    // 256 + 80 = 336 — the drag went through to the shared resize body.
-    expect(rail.style.width).toBe('336px')
-    expect(localStorage.getItem('swarm_rail_width')).toBe('336')
+    // 256 + 50 = 306 — free-tracked: no pinned grid to protect, so no
+    // quantisation (#1683). Persisted verbatim.
+    expect(rail.style.width).toBe('306px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('306')
   })
 
-  it('a plain click on the pill still toggles, and the next click is not swallowed', async () => {
+  it('#1683: the same drag sticks to the 3-col detent while 3 pins are rendered (#1262)', async () => {
+    // The #1262 wobble guard is conditional on the pinned grid, never removed —
+    // and it is now conditional on the pin COUNT too: 306 is inside the rigid
+    // region only when the topmost column detent is at or above it. Three pins
+    // earn the 3-column detent (302), so 306 (within ±14px) sticks.
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'support', name: 'Support' },
+        { id: 'sales', name: 'Sales' },
+        { id: 'ops', name: 'Ops' },
+      ]),
+    )
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.pointerDown(handle, { clientX: 256, pointerId: 7 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 306, pointerId: 7 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 306, pointerId: 7 }))
+    })
+    // 256 + 50 = 306 — within ±14px of the 3-col detent (302) → sticks.
+    expect(rail.style.width).toBe('302px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('302')
+  })
+
+  it('#1683: 306 free-tracks with 2 pins, because the 3-col detent is not a stop', async () => {
+    // Same gesture, one pin fewer. 2 pins top out at the 2-column detent (210),
+    // so 306 is above the rigid region and is where the operator let go. This is
+    // the operator's rule end to end: rigidity is a function of the pin count,
+    // and 306 is not a width 2 pins ever asked for.
+    localStorage.setItem(
+      PINNED_AGENTS_STORAGE_KEY,
+      JSON.stringify([
+        { id: 'support', name: 'Support' },
+        { id: 'sales', name: 'Sales' },
+      ]),
+    )
+    renderSidebar()
+    const rail = await screen.findByTestId('os-agent-rail')
+    const handle = await screen.findByTestId('rail-resize-handle')
+
+    fireEvent.pointerDown(handle, { clientX: 256, pointerId: 7 })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 306, pointerId: 7 }))
+    })
+    act(() => {
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 306, pointerId: 7 }))
+    })
+    expect(rail.style.width).toBe('306px')
+    expect(localStorage.getItem('swarm_rail_width')).toBe('306')
+  })
+
+  it('a header collapse click collapses the rail, and the next click is not swallowed', async () => {
     renderSidebar()
     const rail = await screen.findByTestId('os-agent-rail')
 
-    // Click collapse → collapses.
+    // Click collapse → collapses (0px).
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(rail).toHaveAttribute('data-collapsed', 'true')
 
@@ -3385,28 +3562,9 @@ describe('#741 — the pill is a handle: drag from it resizes, click still toggl
     expect(rail).not.toHaveAttribute('data-collapsed', 'true')
     expect(rail.style.width).toBe('256px')
 
-    // And collapse works again — intent gate fully reset.
+    // And collapse works again — the intent gate is fully reset.
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(rail).toHaveAttribute('data-collapsed', 'true')
-  })
-
-  it('a drag ended on the pill does not toggle on release', async () => {
-    renderSidebar()
-    const rail = await screen.findByTestId('os-agent-rail')
-    const pill = await screen.findByTestId('rail-divider-pill')
-
-    fireEvent.pointerDown(pill, { clientX: 256, pointerId: 8 })
-    act(() => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 296, pointerId: 8 }))
-    })
-    act(() => {
-      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 296, pointerId: 8 }))
-    })
-    // The synthetic click React would fire after the gesture:
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
-    // Width is the dragged value (296), not the toggle's 0px.
-    expect(rail.style.width).toBe('296px')
-    expect(rail).not.toHaveAttribute('data-collapsed', 'true')
   })
 })
 
@@ -3422,9 +3580,9 @@ describe('#747 — remote rows render their platform-themed face', () => {
     localStorage.clear()
   })
 
-  it('a Letta remote with no member faces shows the Letta face, not the generic Users mark', async () => {
+  it('an AnythingLLM remote with no member faces shows the themed face, not the generic Users mark', async () => {
     // Patch the remotes fixture for this test by re-stubbing fetch: the
-    // shared mockFetch serves omb; this test needs a letta row.
+    // shared mockFetch serves omb; this test needs an anythingllm row.
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (input: RequestInfo) => {
@@ -3436,7 +3594,7 @@ describe('#747 — remote rows render their platform-themed face', () => {
             json: async () => ({
               object: 'list',
               data: [
-                { id: 'letta-1', kind: 'letta', title: 'Letta Core', configured: true, agents: [] },
+                { id: 'anythingllm-1', kind: 'anythingllm', title: 'AnythingLLM Core', configured: true, agents: [] },
               ],
             }),
           } as Response
@@ -3447,7 +3605,7 @@ describe('#747 — remote rows render their platform-themed face', () => {
 
     renderSidebar()
     await waitFor(async () => {
-      const themed = document.querySelector("[data-remote-kind='letta']")
+      const themed = document.querySelector("[data-remote-kind='anythingllm']")
       expect(themed).not.toBeNull()
     })
     expect(document.querySelector('.os-remote-face')).not.toBeNull()
@@ -3528,5 +3686,32 @@ describe('AgentSidebar #1118 agent turns avatar animation', () => {
     })
 
     expect(tile.querySelector('[data-avatar-active="true"]')).toBeNull()
+  })
+
+  it('#1244: working avatar survives switching seats away and back', async () => {
+    // Stewie is focused; Codey owns the live turn.
+    const view = renderSidebar('/chat?blueprint=stewie')
+    const list = await screen.findByRole('navigation', { name: 'Agent list' })
+    const codey = await within(list).findByRole('link', { name: /Codey/ })
+
+    act(() => {
+      recordTurnFrame({ kind: 'turn_started', turnId: 'turn-codey-3', agentId: 'codey' })
+    })
+    expect(codey.querySelector('[data-avatar-active="true"]')).toBeInTheDocument()
+
+    // Switch away (unmount), then switch back (fresh mount). The animation is
+    // read from the shared turn registry, so a remount must still animate the
+    // agent that owns the live turn.
+    view.unmount()
+    const back = renderSidebar('/chat?blueprint=stewie')
+    const listBack = await screen.findByRole('navigation', { name: 'Agent list' })
+    const codeyBack = await within(listBack).findByRole('link', { name: /Codey/ })
+    expect(codeyBack.querySelector('[data-avatar-active="true"]')).toBeInTheDocument()
+
+    act(() => {
+      recordTurnFrame({ kind: 'turn_finished', turnId: 'turn-codey-3', agentId: 'codey' })
+    })
+    expect(codeyBack.querySelector('[data-avatar-active="true"]')).toBeNull()
+    back.unmount()
   })
 })

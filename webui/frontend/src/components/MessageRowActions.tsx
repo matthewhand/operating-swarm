@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Brain, Check, Copy, FoldVertical, Pencil, Reply, Terminal } from 'lucide-react'
+import { Brain, Check, Copy, FoldVertical, Pencil, Reply, Smile, Terminal } from 'lucide-react'
+import { REACTION_EMOJIS } from '../lib/messageReactions'
 import { ActionRowLabelsContext } from '../lib/actionRowLabelsContext'
 import { useToast } from './DaisyUI'
 import {
@@ -63,6 +64,14 @@ export interface MessageRowActionsProps {
   rawResponse?: string | null
   /** #850: Callback to view the unfiltered terminal response. */
   onShowRawResponse?: () => void
+  /** #1411: toggle an emoji reaction on this row. */
+  onAddReaction?: (emoji: string) => void
+  /** #1411: palette from the active bubble theme. */
+  reactionEmojis?: readonly string[]
+  /** #1411 proof: keep the palette open in normal flow. */
+  reactionPickerOpen?: boolean
+  /** #1411 proof: do not hide the row at the desktop breakpoint. */
+  forceVisible?: boolean
 }
 
 export default function MessageRowActions({
@@ -81,6 +90,10 @@ export default function MessageRowActions({
   thinkingOpen = false,
   isHerdr = false,
   onShowRawResponse,
+  onAddReaction,
+  reactionEmojis,
+  reactionPickerOpen = false,
+  forceVisible = false,
 }: MessageRowActionsProps) {
   const [copied, setCopied] = useState(false)
   const [labels, setLabels] = useState(() => loadActionRowLabels())
@@ -98,7 +111,7 @@ export default function MessageRowActions({
       window.removeEventListener('storage', sync)
     }
   }, [])
-  const alwaysVisible = override?.[tier] ?? tierAlwaysVisible
+  const alwaysVisible = forceVisible || (override?.[tier] ?? tierAlwaysVisible)
   const { error } = useToast()
   const canCopy = messageHasCopyableText(text)
   const startFromHere = contextStrategy === 'cull'
@@ -204,6 +217,44 @@ export default function MessageRowActions({
     </button>
   )
 
+  const reactionButton = onAddReaction ? (
+    <div
+      className={`dropdown dropdown-end ${reactionPickerOpen ? 'dropdown-open dropdown-bottom' : 'dropdown-top'}`}
+    >
+      <button
+        type="button"
+        tabIndex={0}
+        className={`${btnClass} os-add-reaction`}
+        aria-label="Add reaction"
+        title="Add reaction"
+        data-testid="message-add-reaction"
+      >
+        <Smile className="h-3 w-3" aria-hidden="true" />
+        {labels ? 'React' : null}
+      </button>
+      <ul
+        tabIndex={0}
+        className="dropdown-content z-20 menu menu-horizontal gap-0.5 rounded-box border border-base-300 bg-base-100 p-1 shadow"
+        role="listbox"
+        aria-label="Reaction emoji"
+        data-testid="message-reaction-picker"
+      >
+        {(reactionEmojis && reactionEmojis.length ? reactionEmojis : REACTION_EMOJIS).map((emoji) => (
+          <li key={emoji}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs min-w-8 px-1"
+              aria-label={`React with ${emoji}`}
+              onClick={() => onAddReaction(emoji)}
+            >
+              {emoji}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null
+
   const compressButton = canCompress && onCompressToHere ? (
     <button
       type="button"
@@ -218,13 +269,19 @@ export default function MessageRowActions({
     </button>
   ) : null
 
+  // #1241: an always-visible row stays dimmed at rest so it never overpowers
+  // the transcript; full brightness returns on hover / keyboard focus or when an
+  // action is activated (expanded Thinking, a just-copied control). CSS owns the
+  // opacity so reduced-motion and the group-hover path stay in one place.
+  const activated = thinkingOpen || copied
   const row = (
     <div
       data-testid="os-message-row-actions"
       data-always-visible={alwaysVisible ? 'true' : undefined}
-      className={`flex flex-row items-center gap-1 transition-opacity${
+      data-activated={activated ? 'true' : undefined}
+      className={`flex flex-row items-center gap-1 transition-opacity motion-reduce:transition-none${
         alwaysVisible
-          ? ' opacity-100 pointer-events-auto'
+          ? ' os-actions-always-visible pointer-events-auto'
           : ' opacity-100 pointer-events-auto md:opacity-0 md:pointer-events-none group-hover/osrow:md:opacity-100 group-hover/osrow:md:pointer-events-auto group-focus-within/osrow:md:opacity-100 group-focus-within/osrow:md:pointer-events-auto'
       }${overlay ? ' os-row-actions-overlay' : ''}${
         className ? ` ${className}` : ''
@@ -235,6 +292,7 @@ export default function MessageRowActions({
       {rawResponseButton}
       {thinkingButton}
       {copyButton}
+      {reactionButton}
       {compressButton}
       {children}
     </div>

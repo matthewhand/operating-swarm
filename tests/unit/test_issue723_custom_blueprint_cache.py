@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from swarm.models import Company
 from swarm.views import api_views
 from swarm.views.utils import (
     get_available_blueprints_sync,
@@ -36,6 +37,7 @@ def teardown_function(_fn):
 
 
 def test_create_custom_seat_visible_to_chat_without_restart(api_client):
+    Company.objects.create(name="Acme", slug="acme")
     # Prime the cache BEFORE the seat exists — the server's pre-creation map.
     before = get_available_blueprints_sync()
     assert isinstance(before, dict)
@@ -66,6 +68,7 @@ def test_create_custom_seat_visible_to_chat_without_restart(api_client):
 
 
 def test_delete_custom_seat_removed_from_chat_without_restart(api_client):
+    Company.objects.create(name="Acme", slug="acme")
     with patch(
         "swarm.views.api_views.save_user_blueprint_library", return_value=True
     ), patch(

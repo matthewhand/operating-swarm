@@ -16,12 +16,18 @@ from swarm.core.rail_seats import (
     CLI_COMMAND_REQUIRED_ERROR,
     UNSUPPORTED_ADD_AGENT_KIND_ERROR,
 )
+from swarm.models import Company
 from swarm.views import api_views
 
 
 @pytest.fixture(autouse=True)
 def _disable_api_auth(settings):
     settings.ENABLE_API_AUTH = False
+
+
+@pytest.fixture(autouse=True)
+def _acme_company(db):
+    return Company.objects.create(name="Acme", slug="acme")
 
 
 def _empty_library():
@@ -52,9 +58,11 @@ def test_create_cli_seat_persists_rail_and_command(
     assert body["kind"] == "cli"
     assert body["command"] == "grok -p"
     assert body["source"] == "add-agent"
+    assert body["company_slug"] == "acme"
     saved = mock_save.call_args[0][0]["custom"][0]
     assert saved["rail"] is True
     assert saved["command"] == "grok -p"
+    assert saved["company_slug"] == "acme"
 
 
 @patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
@@ -136,6 +144,87 @@ def test_create_api_seat_is_rail_visible(_mock_get, _mock_save, api_client):
     assert body["rail"] is True
     assert body["kind"] == "api"
     assert body["source"] == "add-agent"
+
+
+@patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
+@patch("swarm.views.api_views.get_user_blueprint_library", return_value=_empty_library())
+def test_create_without_any_company_is_required(_mock_get, _mock_save, api_client):
+    Company.objects.all().delete()
+    response = api_client.post(
+        "/v1/blueprints/custom/",
+        data={"name": "Orphan Bot", "kind": "api", "source": "add-agent"},
+        format="json",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["code"] == "company_required"
+
+
+@patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
+@patch("swarm.views.api_views.get_user_blueprint_library", return_value=_empty_library())
+def test_create_denied_model_is_refused(_mock_get, _mock_save, api_client, _acme_company):
+    _acme_company.model_policy = {
+        "mode": "allowlist",
+        "allowed_models": ["cli/agy"],
+        "denied_models": [],
+        "default_model": "cli/agy",
+    }
+    _acme_company.save()
+    response = api_client.post(
+        "/v1/blueprints/custom/",
+        data={
+            "name": "Denied Model Bot",
+            "kind": "api",
+            "source": "add-agent",
+            "model": "openai/gpt-4o",
+        },
+        format="json",
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["code"] == "model_denied"
+
+
+@patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)
+@patch("swarm.views.api_views.get_user_blueprint_library")
+def test_patch_model_must_pass_attached_company_policy(
+    mock_get, _mock_save, api_client, _acme_company
+):
+    _acme_company.model_policy = {
+        "mode": "allowlist",
+        "allowed_models": ["cli/agy"],
+        "denied_models": [],
+        "default_model": "cli/agy",
+    }
+    _acme_company.save()
+    lib = {
+        "installed": [],
+        "custom": [
+            {
+                "id": "desk_bot",
+                "name": "Desk Bot",
+                "kind": "api",
+                "rail": True,
+                "source": "add-agent",
+                "company_id": str(_acme_company.id),
+                "model": "cli/agy",
+            }
+        ],
+    }
+    mock_get.return_value = lib
+    denied = api_client.patch(
+        "/v1/blueprints/custom/desk_bot/",
+        data={"model": "openai/gpt-4o"},
+        format="json",
+    )
+    assert denied.status_code == status.HTTP_400_BAD_REQUEST
+    assert denied.json()["code"] == "model_denied"
+    assert lib["custom"][0]["model"] == "cli/agy"
+    allowed = api_client.patch(
+        "/v1/blueprints/custom/desk_bot/",
+        data={"model": "cli/agy"},
+        format="json",
+    )
+    assert allowed.status_code == status.HTTP_200_OK
+    assert allowed.json()["model"] == "cli/agy"
 
 
 @patch("swarm.views.api_views.save_user_blueprint_library", return_value=True)

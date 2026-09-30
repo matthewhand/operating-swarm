@@ -5,14 +5,20 @@ import os
 import sys
 from enum import Enum
 
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 
 from swarm.blueprints.common.operation_box_utils import display_operation_box
 from swarm.core.output_utils import setup_rotating_httpx_log
 
-load_dotenv(override=False)
+# NOTE: no module-scope load_dotenv() here. swarm/settings.py already calls
+# load_swarm_dotenv() at import, which reads BOTH the project-root .env and
+# the user-config .env and honours the documented precedence (process env
+# wins, never overwritten). Blueprint discovery imports every blueprint at
+# startup, so a per-blueprint load runs for every deployment -- and with
+# override=True it also stomps real shell/systemd env, which is how a
+# developer's user-config .env leaked API_AUTH_TOKEN into the test
+# suite (#1335).
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 

@@ -1,13 +1,14 @@
 /**
- * #795 — one provider-icon registry for the composer routing pill.
+ * #795 / #1249 — one provider-icon registry for the composer routing pill.
  *
- * The lookup is semantic, not brand-faithful: remote harness kinds and LLM
- * providers resolve to a compact Lucide glyph stamped with
+ * LLM providers resolve to brand-accurate mark components
+ * (`components/icons/ProviderIcons.tsx`) while remote harness kinds keep a
+ * compact Lucide glyph. Every rendered icon is stamped with
  * `data-provider-icon=<resolved key>` so tests and CSS can key off the
- * concrete provider without importing brand SVGs. Fallbacks are explicit:
- * kind icons (team/cli/api) and, last, the generic `api` glyph.
+ * concrete provider. Fallbacks are explicit: kind icons (team/cli/api) and,
+ * last, the generic `api` glyph.
  */
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import {
   Bot,
   Brain,
@@ -17,14 +18,27 @@ import {
   Hash,
   Layers,
   MessageSquare,
-  Network,
-  Sparkles,
   Terminal,
   TerminalSquare,
   Users,
   Workflow,
-  Zap,
 } from 'lucide-react'
+
+import {
+  AnthropicIcon,
+  DeepSeekIcon,
+  GoogleIcon,
+  GroqIcon,
+  LiteLLMIcon,
+  MetaIcon,
+  MistralIcon,
+  OllamaIcon,
+  OpenAIIcon,
+  OpenCodeIcon,
+  OpenRouterIcon,
+  XAIIcon,
+  type ProviderIconProps,
+} from '../components/icons/ProviderIcons'
 
 import type { RoutingSeatKind } from '../lib/routingPath'
 
@@ -37,10 +51,13 @@ export type ProviderIconKey =
   | 'mistral'
   | 'openrouter'
   | 'deepseek'
+  | 'xai'
+  | 'opencode'
+  | 'meta'
+  | 'litellm'
   | 'herdr'
   | 'omb'
   | 'hermes'
-  | 'letta'
   | 'openwebui'
   | 'flowise'
   | 'n8n'
@@ -67,13 +84,20 @@ const PROVIDER_KEYS: Record<string, ProviderIconKey> = {
   mistral: 'mistral',
   openrouter: 'openrouter',
   deepseek: 'deepseek',
+  xai: 'xai',
+  grok: 'xai',
+  opencode: 'opencode',
+  'opencode-go': 'opencode',
+  meta: 'meta',
+  llama: 'meta',
+  litellm: 'litellm',
+  'lite-llm': 'litellm',
   bedrock: 'api',
   localai: 'api',
 
   // Remote harness kinds (remote seats) — superset of REMOTE_KIND_LABELS
   hermes: 'hermes',
   anythingllm: 'anythingllm',
-  letta: 'letta',
   openwebui: 'openwebui',
   flowise: 'flowise',
   n8n: 'n8n',
@@ -130,25 +154,30 @@ export function providerIconKey({
     if (/llama/.test(model)) return 'ollama'
     if (/mistral|mixtral|codestral/.test(model)) return 'mistral'
     if (/deepseek/.test(model)) return 'deepseek'
+    if (/grok/.test(model)) return 'xai'
+    if (/opencode/.test(model)) return 'opencode'
     if (/groq/.test(model)) return 'groq'
   }
 
   return 'api'
 }
 
-const GLYPHS: Record<ProviderIconKey, typeof Bot> = {
-  anthropic: Sparkles,
-  openai: Zap,
-  google: Sparkles,
-  ollama: Boxes,
-  groq: Zap,
-  mistral: Sparkles,
-  openrouter: Network,
-  deepseek: Brain,
+const GLYPHS: Record<ProviderIconKey, ComponentType<ProviderIconProps>> = {
+  anthropic: AnthropicIcon,
+  openai: OpenAIIcon,
+  google: GoogleIcon,
+  ollama: OllamaIcon,
+  groq: GroqIcon,
+  mistral: MistralIcon,
+  openrouter: OpenRouterIcon,
+  deepseek: DeepSeekIcon,
+  xai: XAIIcon,
+  opencode: OpenCodeIcon,
+  meta: MetaIcon,
+  litellm: LiteLLMIcon,
   herdr: Terminal,
   omb: Bot,
   hermes: MessageSquare,
-  letta: Brain,
   openwebui: Globe,
   flowise: Workflow,
   n8n: Workflow,

@@ -1,6 +1,6 @@
 # Blueprint Test Mode & UX Standards
 
-This document describes the standards and patterns for test-mode output, spinner/box UX, and subprocess simulation in Open Swarm blueprints.
+This document describes the standards and patterns for test-mode output, spinner/box UX, and subprocess simulation in Operating Swarm blueprints.
 
 ## 1. Spinner/Box/UX Output in Test Mode
 

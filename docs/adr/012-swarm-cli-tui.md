@@ -7,7 +7,7 @@
 - **Supersedes:** none. Complements [ADR-001](../ADR-001-primary-ui.md) (SPA chrome) and ADR-003 (desktop is another client of the same API).
 - **Does not close the programme MVP.** Child Issues own Waves 1–N. This ADR + scaffold close **Wave 0 only**.
 
-**Decision:** Terminal users get the same **agent-centric chat product** as the SPA: a **left agent rail** and a **main chat pane**, driven by the existing Open Swarm HTTP REST (+ SSE) API. Do **not** reimplement the agent runtime inside the TUI process. Do **not** SSH into Herdr or embed Herdr’s own TUI.
+**Decision:** Terminal users get the same **agent-centric chat product** as the SPA: a **left agent rail** and a **main chat pane**, driven by the existing Operating Swarm HTTP REST (+ SSE) API. Do **not** reimplement the agent runtime inside the TUI process. Do **not** SSH into Herdr or embed Herdr’s own TUI.
 
 Wave 0 ships the ADR, a `swarm-cli tui` stub that lists rail seats via the live API and paints a placeholder chat pane, plus child Issues for implementer waves (max 2–3 per wave).
 
@@ -17,7 +17,7 @@ No secrets. No Neon. No live `:8001` / FF host.
 
 ## Issue quote (REQ-111)
 
-**Intent:** Terminal users get the same agent-centric chat product as the SPA, driven by the existing Open Swarm API, not a parallel blueprint-only mental model.
+**Intent:** Terminal users get the same agent-centric chat product as the SPA, driven by the existing Operating Swarm API, not a parallel blueprint-only mental model.
 
 **Success (programme — child Issues slice):**
 
@@ -30,7 +30,7 @@ No secrets. No Neon. No live `:8001` / FF host.
 
 **Constraints:** Do not replace `swarm-cli launch` overnight. Distinct from remote Herdr management (SSH-shaped). Stack choice in Phase 0. No secrets. No Neon.
 
-**Owner:** Open Swarm (CoS) coordinates Cursor team; engineer seats on child Issues; Matthew signs off MVP in terminal.
+**Owner:** Operating Swarm (CoS) coordinates Cursor team; engineer seats on child Issues; Matthew signs off MVP in terminal.
 
 ---
 
@@ -44,7 +44,7 @@ No secrets. No Neon. No live `:8001` / FF host.
 | Chat send (SPA) | Django Channels `ws://<host>/ws/ai-demo/<conversation_id>/` — **session cookie only**. Bearer does **not** auth WS ([AUTH.md](../AUTH.md); anonymous close **4401**). |
 | Chat hydrate (SPA) | `GET /chat/thread/` (JSON-first / DB backfill). |
 | Chat send (API clients) | `POST /v1/chat/completions` (+ SSE). Bearer or session. |
-| Herdr | Member `kind=herdr`. Local = this host’s `herdr` CLI; remote = **SSH-shaped** ([HERDR.md](../HERDR.md)). Open Swarm does **not** own Herdr’s TUI. |
+| Herdr | Member `kind=herdr`. Local = this host’s `herdr` CLI; remote = **SSH-shaped** ([HERDR.md](../HERDR.md)). Operating Swarm does **not** own Herdr’s TUI. |
 | Desktop | Another **pane of glass** over the same API ([ADR-003](./003-desktop-packaging.md)). Not this TUI. |
 
 Honesty: `swarm-cli launch <blueprint>` still runs a recipe **in-process**. That is a different door. The TUI must not become a second runtime.

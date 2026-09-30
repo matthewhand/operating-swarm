@@ -12,8 +12,12 @@ import {
   type LlmTaskClass,
 } from '../../../lib/api'
 import {
+  MODEL_TYPE_LABELS,
   TASK_CLASS_LABELS,
+  categorizerProfiles,
+  chatProfiles,
   missingProfileWarning,
+  profileModelType,
   uiStatusWarnings,
 } from '../../../lib/llmProfiles'
 import { OVERLAY_CHROME_CLASSES } from '../../../lib/chromeOverlay'
@@ -83,7 +87,12 @@ export function LlmProfilesPane({
   }, [remote])
 
   const profiles = remote?.profiles ?? []
-  const ids = profiles.map((profile) => profile.id)
+  // #1745 — the Default and every task-class select are *chat* surfaces, so a
+  // System1 gate is never one of their options. It has its own list below.
+  const chatRows = chatProfiles(profiles)
+  const system1Rows = categorizerProfiles(profiles)
+  const categorizerIds = new Set(system1Rows.map((profile) => profile.id))
+  const ids = chatRows.map((profile) => profile.id)
   const fallback = defaultId || remote?.default_llm_profile || 'default'
   const warnings = uiStatusWarnings(
     [
@@ -95,13 +104,17 @@ export function LlmProfilesPane({
     ].filter((text): text is string => Boolean(text)),
   )
 
+  // A stored default that is a gate would be unroutable; the backend refuses
+  // the write, so surface the state rather than silently rendering a pick.
+  const defaultIsCategorizer = categorizerIds.has(defaultId)
+
   const optionIds = Array.from(
     new Set(
       [
         ...ids,
         defaultId,
         ...Object.values(taskMap),
-      ].filter((id): id is string => Boolean(id)),
+      ].filter((id): id is string => Boolean(id) && !categorizerIds.has(id)),
     ),
   )
 
@@ -171,14 +184,64 @@ export function LlmProfilesPane({
             auto-assign a default from whatever you connect.
           </span>
         </Alert>
-      ) : (
+      ) : null}
+
+      {system1Rows.length > 0 ? (
+        <section
+          className="space-y-1"
+          data-testid="system1-categorizers"
+          aria-label="System1 categorizers"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <h5 className="text-sm font-semibold">System1 categorizers</h5>
+            <span className="text-xs text-base-content/60">
+              {system1Rows.length} gate model{system1Rows.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <p className="text-xs text-base-content/60">
+            System1 gates answer allow / deny for filter-in / filter-out seats.
+            They are never offered as a chat model, so they do not appear in
+            Default, in the per-task map, or in the composer picker.
+          </p>
+          <ul className="space-y-1 text-sm">
+            {system1Rows.map((profile) => (
+              <li
+                key={`system1:${profile.id}`}
+                className="os-system1-row flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+                data-testid="system1-profile-row"
+              >
+                <span className="font-mono">{profile.id}</span>
+                <span
+                  className="os-system1-badge badge badge-sm"
+                  data-testid="system1-profile-badge"
+                >
+                  {MODEL_TYPE_LABELS[profileModelType(profile)]}
+                </span>
+                <span className="text-xs text-base-content/60">
+                  {profile.model ? ` · ${profile.model}` : ''}
+                  {profile.base_url ? ` · ${profile.base_url}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {chatRows.length > 0 ? (
         <ul className="space-y-1 text-sm os-scrollable-picker-list" aria-label="Configured LLM profiles">
-          {profiles.map((profile) => (
+          {chatRows.map((profile) => (
             <li
               key={`${profile.source}:${profile.id}`}
               className="rounded-lg border border-base-300 bg-base-200/60 px-3 py-2"
+              data-testid="chat-profile-row"
             >
               <span className="font-mono">{profile.id}</span>
+              <span
+                className="badge badge-ghost badge-sm ml-2"
+                data-testid="chat-profile-badge"
+              >
+                {MODEL_TYPE_LABELS.chat}
+              </span>
               <span className="ml-2 text-xs text-base-content/60">
                 {profile.source}
                 {profile.owned_by ? ` · ${profile.owned_by}` : ''}
@@ -223,7 +286,7 @@ export function LlmProfilesPane({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
 
       <Select
         label="Default"
@@ -247,6 +310,12 @@ export function LlmProfilesPane({
         <p className="text-xs text-base-content/60">
           Auto-picked Default: <code>{remote.auto_picks.default}</code>. Chat
           uses this until you save another id.
+        </p>
+      ) : null}
+      {defaultIsCategorizer ? (
+        <p className="text-xs text-warning" data-testid="default-is-categorizer">
+          <code>{defaultId}</code> is a System1 categorizer, so it cannot be the
+          chat default. Pick a chat LLM profile above.
         </p>
       ) : null}
       <EnvOverrideBadge badge={defaultBadge} />

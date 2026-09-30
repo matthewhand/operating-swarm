@@ -1,6 +1,12 @@
 import { apiGet, apiPatch, apiPost } from './api'
 import { agentIdFromBlueprint } from './agentChat'
 import { parseVoiceBind, type AgentVoiceBind } from './agentVoiceBind'
+import { parseProfileFromUnknown, rememberProfile, type AgentProfile } from './agentProfile'
+import {
+  hydrateEnabledPluginToolIds,
+  loadEnabledPluginToolIds,
+  persistEnabledPluginToolIds,
+} from './chatPluginTools'
 
 /** DaisyUI tooltip copy — keep in sync with Issue #393 / REQ-65. */
 export const NEW_CHAT_PER_TASK_LABEL = 'New chat per task'
@@ -23,6 +29,40 @@ export type AgentDropdownField = (typeof AGENT_DROPDOWN_FIELDS)[number]
 export type AgentDropdownChoice = Partial<Record<AgentDropdownField, string>>
 export type AgentDropdowns = Record<string, AgentDropdownChoice>
 
+/** #1312: per-bot exact command allowlist. Empty lists = inactive (allow all). */
+export interface CommandAllowlist {
+  allow: string[]
+  deny: string[]
+  ask: string[]
+}
+
+export const EMPTY_COMMAND_ALLOWLIST: CommandAllowlist = { allow: [], deny: [], ask: [] }
+
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const trimmed = item.trim()
+    if (trimmed) out.push(trimmed)
+  }
+  return out
+}
+
+export function parseCommandAllowlist(value: unknown): CommandAllowlist {
+  const rec = asRecord(value)
+  if (!rec) return { ...EMPTY_COMMAND_ALLOWLIST }
+  return {
+    allow: asStringList(rec.allow),
+    deny: asStringList(rec.deny),
+    ask: asStringList(rec.ask),
+  }
+}
+
+export function isCommandAllowlistActive(value: CommandAllowlist): boolean {
+  return value.allow.length > 0 || value.deny.length > 0 || value.ask.length > 0
+}
+
 export interface AgentSettings extends AgentVoiceBind {
   agent_id: string
   new_chat_per_task: boolean
@@ -30,11 +70,32 @@ export interface AgentSettings extends AgentVoiceBind {
   cli_session_id?: string | null
   remote_session_id?: string | null
   folder?: string | null
+  command_allowlist: CommandAllowlist
+  /** #1313: persisted per-bot MCP / connector tool grants. */
+  mcp_tool_grants: string[]
+  /**
+   * True once the operator has saved a grant list, including an explicit empty
+   * list (every connector tool Off). False means the server has no policy yet.
+   */
+  mcp_tool_grants_set: boolean
   active_sessions?: string[]
+  /** #1388/#1389 storefront identity — present on settings GET. */
+  display_name?: string
+  description?: string
+  title?: string
+  role?: string
+  avatar_shape?: string
+  avatar_color?: string
+  avatar_path?: string | null
+  profile?: AgentProfile
 }
 
 export type AgentSettingsPatch = Partial<
-  Pick<AgentSettings, 'new_chat_per_task' | 'use_suggestions' | 'folder'> & AgentVoiceBind
+  Pick<
+    AgentSettings,
+    'new_chat_per_task' | 'use_suggestions' | 'folder' | 'command_allowlist' | 'mcp_tool_grants'
+  > &
+    AgentVoiceBind
 >
 
 export interface OpenAgentEditorDetail {
@@ -291,6 +352,9 @@ function asSettings(
     cli_session_id: data?.cli_session_id ?? null,
     remote_session_id: data?.remote_session_id ?? null,
     folder: typeof data?.folder === 'string' && data.folder.trim() ? data.folder.trim() : null,
+    command_allowlist: parseCommandAllowlist(data?.command_allowlist),
+    mcp_tool_grants: asStringList(data?.mcp_tool_grants),
+    mcp_tool_grants_set: data?.mcp_tool_grants_set === true,
     active_sessions: Array.isArray(data?.active_sessions) ? data.active_sessions : [],
     ...bind,
   }
@@ -304,16 +368,22 @@ export async function fetchAgentSettings(agentId: string): Promise<AgentSettings
     const data = await apiGet<AgentSettings>(
       `/v1/agents/${encodeURIComponent(agent)}/settings/`,
     )
+    rememberProfile(agent, parseProfileFromUnknown(data))
     const on = data?.new_chat_per_task === true
     const suggest = data?.use_suggestions === true
     saveLocalNewChatPerTask(agent, on)
     saveLocalUseSuggestions(agent, suggest)
-    return asSettings(agent, data, { new_chat_per_task: on, use_suggestions: suggest })
+    const settings = asSettings(agent, data, { new_chat_per_task: on, use_suggestions: suggest })
+    applyFetchedMcpToolGrants(agent, settings.mcp_tool_grants, settings.mcp_tool_grants_set)
+    return settings
   } catch {
     return {
       agent_id: agent,
       new_chat_per_task: localNew,
       use_suggestions: localSuggest,
+      command_allowlist: parseCommandAllowlist(readLocalSettings(agent).command_allowlist),
+      mcp_tool_grants: loadEnabledPluginToolIds(agent),
+      mcp_tool_grants_set: false,
       active_sessions: [],
       ...parseVoiceBind(readLocalSettings(agent)),
     }
@@ -337,19 +407,50 @@ export async function saveAgentSettings(
       `/v1/agents/${encodeURIComponent(agent)}/settings/`,
       patch,
     )
-    return asSettings(agent, data, {
+    rememberProfile(agent, parseProfileFromUnknown(data))
+    const settings = asSettings(agent, data, {
       new_chat_per_task: patch.new_chat_per_task === true || loadLocalNewChatPerTask(agent),
       use_suggestions: patch.use_suggestions === true || loadLocalUseSuggestions(agent),
     })
+    if (patch.mcp_tool_grants !== undefined) {
+      hydrateEnabledPluginToolIds(agent, settings.mcp_tool_grants)
+    }
+    return settings
   } catch {
     return {
       agent_id: agent,
       new_chat_per_task: patch.new_chat_per_task ?? loadLocalNewChatPerTask(agent),
       use_suggestions: patch.use_suggestions ?? loadLocalUseSuggestions(agent),
+      command_allowlist: parseCommandAllowlist(
+        patch.command_allowlist ?? readLocalSettings(agent).command_allowlist,
+      ),
+      mcp_tool_grants: patch.mcp_tool_grants ?? loadEnabledPluginToolIds(agent),
+      mcp_tool_grants_set: patch.mcp_tool_grants !== undefined,
       active_sessions: [],
       ...parseVoiceBind({ ...readLocalSettings(agent), ...patch }),
     }
   }
+}
+
+/**
+ * #1313: a saved server policy wins, including an explicit empty list.
+ * Migrate the local #516 cache up only while the server has never stored one.
+ */
+export function applyFetchedMcpToolGrants(
+  agentId: string,
+  grants: readonly string[],
+  configured = false,
+): string[] {
+  const agent = agentIdFromBlueprint(agentId)
+  const server = asStringList(grants)
+  if (configured || server.length > 0) {
+    return hydrateEnabledPluginToolIds(agent, server)
+  }
+  const local = loadEnabledPluginToolIds(agent)
+  if (local.length > 0) {
+    void persistEnabledPluginToolIds(agent, local)
+  }
+  return local
 }
 
 export interface AllocatedTaskSession {

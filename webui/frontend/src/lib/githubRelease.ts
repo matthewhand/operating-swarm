@@ -1,10 +1,11 @@
 /**
- * Public GitHub call-home for a newer open-swarm release (REQ-78).
+ * Public GitHub call-home for a newer release (REQ-78; #1229 rebrand — the
+ * authoritative public repo is operating-swarm).
  * Unauthenticated only. Failure → no upstream signal. No tokens.
  */
 
 export const GITHUB_REPO =
-  import.meta.env.VITE_SWARM_GITHUB_REPO || 'matthewhand/open-swarm'
+  import.meta.env.VITE_SWARM_GITHUB_REPO || 'matthewhand/operating-swarm'
 export const GITHUB_ISSUES_URL = `https://github.com/${GITHUB_REPO}/issues`
 export const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 export const GITHUB_API_LATEST = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`

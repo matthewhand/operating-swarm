@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { fireEvent, render } from '@testing-library/react'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -310,4 +310,26 @@ describe('AgentAvatar', () => {
     const img = container.querySelector('img')
     expect(img).not.toHaveStyle({ width: '100%', height: '100%' })
   })
+
+  // D5: `shell` gathers its children as a rest-array, so React treated them
+  // as a list and warned "Each child in a list should have a unique key" for
+  // every avatar (BlobAvatar especially, at the factory-default theme).
+  it.each(['blobs', 'bland', 'bee', 'robot3d'] as const)(
+    'D5: renders %s without a missing-key dev warning',
+    (theme) => {
+      saveAvatarTheme(theme)
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        // Bland's active state passes two children through `shell`'s rest
+        // array (face + waiting dots). Idle themes pass one. Both must be keyed.
+        render(<AgentAvatar agentId="codey" active={theme === 'bland'} />)
+        const warns = consoleError.mock.calls
+          .map((call) => call.map(String).join(' '))
+          .join('\n')
+        expect(warns).not.toMatch(/unique "key"|Each child in a list/)
+      } finally {
+        consoleError.mockRestore()
+      }
+    },
+  )
 })

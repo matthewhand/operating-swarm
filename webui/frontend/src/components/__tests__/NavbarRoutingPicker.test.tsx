@@ -195,59 +195,32 @@ describe('NavbarRoutingPicker (universal palette, #504 + #629)', () => {
   })
 })
 
-describe('#770 / #1110 — pill resize grip', () => {
-  it('reveals a double-slit grip handle on the leading edge with col-resize cursor', () => {
+describe('#1231 — pill label truncation, no resize grip', () => {
+  it('renders no resize grip (retired by #1231)', () => {
     renderPicker()
-    const grip = screen.getByTestId('routing-pill-grip')
+    expect(screen.queryByTestId('routing-pill-grip')).not.toBeInTheDocument()
     const pill = screen.getByTestId('routing-pill-agent')
-    expect(grip).toBeInTheDocument()
-    // Grip is on the leading edge (first child) facing the composer input
-    expect(pill.firstElementChild).toBe(grip)
-    // Hover-reveal + col-resize cursor live in the CSS block keyed
-    // on this class; jsdom does not apply stylesheets, so assert the hook.
-    expect(grip.className).toContain('os-routing-pill__grip')
+    expect(pill.style.width).toBe('')
+    expect(pill).not.toHaveAttribute('data-pill-resized')
   })
 
-  it('dragging the grip left widens the pill and persists the width', () => {
-    localStorage.setItem('swarm_composer_pill_width', '90')
-    renderPicker()
-    const grip = screen.getByTestId('routing-pill-grip')
+  it('keeps the full path on the tooltip and data-value while the label truncates', () => {
+    renderPicker({
+      selectedAgent: 'a-very-long-agent-name-exceeding-thirty-two-chars',
+      selectedModel: 'a-very-long-model-name-also-exceeding-thirty-two',
+    } as never)
     const pill = screen.getByTestId('routing-pill-agent')
-    expect(pill.style.width).toBe('90px')
-
-    // Drag left by 30px (clientX: 100 -> 70, deltaX = -30) expands pill by +30px
-    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 70, pointerId: 1 })
-    fireEvent.pointerUp(grip, { clientX: 70, pointerId: 1 })
-
-    expect(pill).toHaveAttribute('data-pill-resized', 'true')
-    expect(pill.style.width).toBe('120px')
-    expect(localStorage.getItem('swarm_composer_pill_width')).toBe('120')
-    localStorage.removeItem('swarm_composer_pill_width')
+    const label = pill.querySelector('.os-routing-pill__label') as HTMLElement
+    // jsdom has no layout: assert the text content budget (32 chars incl. …).
+    expect((label.textContent || '').length).toBeLessThanOrEqual(32)
+    // Full unclipped path stays on tooltip + data-value.
+    expect(pill.getAttribute('title')).toBeTruthy()
+    expect(pill.getAttribute('data-value')).toBeTruthy()
   })
 
-  it('dragging the grip right narrows the pill and persists the width', () => {
-    localStorage.setItem('swarm_composer_pill_width', '120')
+  it('grip removal does not change pill click behaviour', () => {
     renderPicker()
-    const grip = screen.getByTestId('routing-pill-grip')
-    const pill = screen.getByTestId('routing-pill-agent')
-    expect(pill.style.width).toBe('120px')
-
-    // Drag right by 40px (clientX: 100 -> 140, deltaX = +40) narrows pill by -40px
-    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1, button: 0 })
-    fireEvent.pointerMove(grip, { clientX: 140, pointerId: 1 })
-    fireEvent.pointerUp(grip, { clientX: 140, pointerId: 1 })
-
-    expect(pill).toHaveAttribute('data-pill-resized', 'true')
-    expect(pill.style.width).toBe('80px')
-    expect(localStorage.getItem('swarm_composer_pill_width')).toBe('80')
-    localStorage.removeItem('swarm_composer_pill_width')
-  })
-
-  it('grip clicks never open the selection dialog', () => {
-    renderPicker()
-    const grip = screen.getByTestId('routing-pill-grip')
-    fireEvent.click(grip)
-    expect(screen.queryByTestId('os-model-search-palette')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('routing-pill-agent'))
+    expect(screen.getByTestId('os-model-search-palette')).toBeInTheDocument()
   })
 })

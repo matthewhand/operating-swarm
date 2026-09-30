@@ -8,7 +8,7 @@ session id. But omp *persists every session* it runs:
 
 (docs/session.md in can1357/oh-my-pi). The same provider-store contract the
 catalog already exploits for qwen/agy. So after a successful production turn
-(non-smoke), Open Swarm stamps the newest session file stem as the thread's
+(non-smoke), Operating Swarm stamps the newest session file stem as the thread's
 omp session id — turn N+1 passes ``--resume <id>`` and the notice becomes
 truthful ("Resumed omp session.").
 """

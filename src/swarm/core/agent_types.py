@@ -32,7 +32,6 @@ KIND_TO_TYPE: dict[str, str] = {
     "herdr": "remote",
     "hermes": "remote",
     "anythingllm": "remote",
-    "letta": "remote",
     "omb": "remote",
     "rakazo": "remote",
     "open-swarm": "remote",

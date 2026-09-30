@@ -65,6 +65,29 @@ function mockFetch() {
         }),
       } as Response
     }
+    if (url.includes('/v1/companies')) {
+      return {
+        ok: true,
+        json: async () => ({
+          object: 'list',
+          data: [
+            {
+              object: 'company',
+              id: 'acme-id',
+              name: 'Acme',
+              slug: 'acme',
+              model_policy: {
+                mode: 'allow_all',
+                allowed_models: [],
+                denied_models: [],
+                default_model: '',
+              },
+              default_model: '',
+            },
+          ],
+        }),
+      } as Response
+    }
     if (url.includes('/v1/remotes') || url.includes('remotes_catalog')) {
       return {
         ok: true,
@@ -344,7 +367,12 @@ describe('REQ-209 sidepane agent sections', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Move up' })).toBeDisabled()
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Move down' }))
     await waitFor(() => {
-      const ids = screen.getAllByTestId('rail-section').map((node) => node.getAttribute('data-section-id'))
+      // Kind blocks (Remote/CLI/API) lead the rail; custom sections keep their
+      // own persisted order beneath them.
+      const ids = screen
+        .getAllByTestId('rail-section')
+        .filter((node) => node.getAttribute('data-section-custom') === 'true')
+        .map((node) => node.getAttribute('data-section-id'))
       expect(ids.slice(0, 2)).toEqual(['sec_b', 'sec_a'])
     })
     fireEvent.contextMenu(within(sectionById('sec_a')!).getByTestId('rail-section-header'))
@@ -383,7 +411,7 @@ describe('REQ-209 sidepane agent sections', () => {
     // Right-click header to isolate members
     fireEvent.contextMenu(within(stuff).getByTestId('rail-section-header'))
     const menu1 = await screen.findByRole('menu', { name: 'Actions for stuff' })
-    fireEvent.click(within(menu1).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+    fireEvent.click(within(menu1).getByRole('menuitem', { name: 'Isolate members' }))
 
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
@@ -412,7 +440,7 @@ describe('REQ-209 sidepane agent sections', () => {
     // Isolate via context menu
     fireEvent.contextMenu(within(sectionById('sec_stuff')!).getByTestId('rail-section-header'))
     const menu2 = await screen.findByRole('menu', { name: 'Actions for stuff' })
-    fireEvent.click(within(menu2).getByRole('menuitem', { name: 'Isolate members (no peer awareness)' }))
+    fireEvent.click(within(menu2).getByRole('menuitem', { name: 'Isolate members' }))
     await waitFor(() => {
       expect(sectionById('sec_stuff')).toHaveAttribute('data-internal-only', 'true')
     })

@@ -60,7 +60,7 @@ class ExampleCliProviderOmpBlueprint(CliKindBase):
             "copying it."
         ),
         "version": "1.0.0",
-        "author": "Open Swarm Team",
+        "author": "Operating Swarm Team",
         "tags": ["example", "teaching", "cli", "provider", "omp"],
         "required_mcp_servers": [],
         "env_vars": [],

@@ -31,7 +31,7 @@ class _FakeConsumer:
         self.sent.append(text_data)
 
 
-def _decision(remaining: float, key: str = "remote:letta-demo") -> WaitDecision:
+def _decision(remaining: float, key: str = "remote:openwebui-demo") -> WaitDecision:
     return WaitDecision(
         provider_key=key, rule="requests_per_minute",
         remaining_seconds=remaining, limit=1, wait_until=0.0,
@@ -59,7 +59,7 @@ def test_wait_start_is_emitted_and_decision_flows(monkeypatch):
 
     async def scenario():
         return await helpers._gate_provider_rate_limit(
-            consumer, params={"remote": "letta-demo"}, blueprint_id="remote_harness",
+            consumer, params={"remote": "openwebui-demo"}, blueprint_id="remote_harness",
         )
 
     decision = asyncio.run(scenario())
@@ -75,12 +75,12 @@ def test_wait_is_capped_and_raises_for_the_responder(monkeypatch):
 
     async def scenario():
         return await helpers._gate_provider_rate_limit(
-            consumer, params={"remote": "letta-demo"}, blueprint_id="remote_harness",
+            consumer, params={"remote": "openwebui-demo"}, blueprint_id="remote_harness",
         )
 
     with pytest.raises(helpers.ProviderGateTimeout) as excinfo:
         asyncio.run(scenario())
-    assert "letta-demo" in str(excinfo.value) or "throttl" in str(excinfo.value).lower()
+    assert "openwebui-demo" in str(excinfo.value) or "throttl" in str(excinfo.value).lower()
     assert consumer.sent, "the cap must still leave visible copy on the wire"
 
 
@@ -91,7 +91,7 @@ def test_immediate_capacity_is_silent(monkeypatch):
 
     async def scenario():
         return await helpers._gate_provider_rate_limit(
-            consumer, params={"remote": "letta-demo"}, blueprint_id="remote_harness",
+            consumer, params={"remote": "openwebui-demo"}, blueprint_id="remote_harness",
         )
 
     assert asyncio.run(scenario()) is None
@@ -108,7 +108,7 @@ def test_gate_crash_still_proceeds(monkeypatch):
 
     async def scenario():
         return await helpers._gate_provider_rate_limit(
-            consumer, params={"remote": "letta-demo"}, blueprint_id="remote_harness",
+            consumer, params={"remote": "openwebui-demo"}, blueprint_id="remote_harness",
         )
 
     assert asyncio.run(scenario()) is None

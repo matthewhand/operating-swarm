@@ -1,3 +1,4 @@
+import { StrictMode, useLayoutEffect, useRef } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ConfirmModal, Modal } from '../Modal';
@@ -38,6 +39,68 @@ describe('Modal Accessibility and Focus Restoration', () => {
     await waitFor(() => {
       // eslint-disable-next-line testing-library/no-node-access
       expect(document.activeElement).toBe(triggerBtn);
+    });
+  });
+
+  it('restores a trigger that was hidden and blurred in the same open commit', async () => {
+    function Harness({ open }: { open: boolean }) {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      // Browsers blur a focused node when it becomes hidden, and they do it
+      // before useEffect. jsdom does not, so this layout effect stands in.
+      useLayoutEffect(() => {
+        if (open) triggerRef.current?.blur();
+      }, [open]);
+      return (
+        <div>
+          <button ref={triggerRef} type="button" hidden={open ? true : undefined}>
+            Open Modal
+          </button>
+          <Modal isOpen={open} onClose={() => {}} title="Hidden trigger">
+            <p>Body</p>
+          </Modal>
+        </div>
+      );
+    }
+
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByRole('button', { name: 'Open Modal' });
+    trigger.focus();
+    rerender(<Harness open={true} />);
+    rerender(<Harness open={false} />);
+    await waitFor(() => {
+      // eslint-disable-next-line testing-library/no-node-access
+      expect(document.activeElement).toBe(trigger);
+    });
+  });
+
+  it('restores the hidden trigger under StrictMode double-invoke', async () => {
+    function Harness({ open }: { open: boolean }) {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      useLayoutEffect(() => {
+        if (open) triggerRef.current?.blur();
+      }, [open]);
+      return (
+        <StrictMode>
+          <div>
+            <button ref={triggerRef} type="button" hidden={open ? true : undefined}>
+              Open Modal
+            </button>
+            <Modal isOpen={open} onClose={() => {}} title="Strict hidden trigger">
+              <p>Body</p>
+            </Modal>
+          </div>
+        </StrictMode>
+      );
+    }
+
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByRole('button', { name: 'Open Modal' });
+    trigger.focus();
+    rerender(<Harness open={true} />);
+    rerender(<Harness open={false} />);
+    await waitFor(() => {
+      // eslint-disable-next-line testing-library/no-node-access
+      expect(document.activeElement).toBe(trigger);
     });
   });
 

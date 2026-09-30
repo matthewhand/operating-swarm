@@ -300,7 +300,7 @@
         text.appendChild(desc);
       }
 
-      link.appendChild(mark);
+      link.appendChild(dot);
       link.appendChild(text);
       link.addEventListener("contextmenu", function (event) {
         if (isSupport(agent)) return;
@@ -403,6 +403,7 @@
         return;
       }
       statusEl.hidden = true;
+      statusEl.textContent = "";
 
       if (!visible.length && !visibleTeams.length) {
         var empty = document.createElement("p");

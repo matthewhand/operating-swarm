@@ -700,7 +700,7 @@ describe('AgentRouterPage integration', () => {
 
     const input = getChatInput()
     expect(input).toHaveValue(
-      'Explain Operating Swarm: what it is, how agents, teams, and blueprints fit together, and how I talk to them here.',
+      'Explain Operating Swarm: what it is, how agents, rigs, and blueprints fit together, and how I talk to them here.',
     )
   })
 
@@ -803,7 +803,7 @@ describe('AgentRouterPage integration', () => {
 
     // Team selection is no longer in top navbar header
     const header = screen.getByRole('banner')
-    expect(within(header).queryByRole('combobox', { name: 'Team' })).toBeNull()
+    expect(within(header).queryByRole('combobox', { name: 'Group chat' })).toBeNull()
 
     // #984: the Teams overlay is a registry (redesigned by #763) — browsing
     // registered teams and creating new ones. The save-current-selection
@@ -811,14 +811,14 @@ describe('AgentRouterPage integration', () => {
     fireEvent(window, new Event(OPEN_TEAMS_EVENT))
     const dialog = await screen.findByRole('dialog')
 
-    expect(within(dialog).getByRole('button', { name: '+ New Team' })).toBeInTheDocument()
-    fireEvent.click(within(dialog).getByRole('button', { name: '+ New Team' }))
+    expect(within(dialog).getByRole('button', { name: '+ New Group chat' })).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: '+ New Group chat' }))
 
-    const form = await within(dialog).findByRole('form', { name: 'Create team' })
-    fireEvent.change(within(form).getByRole('textbox', { name: 'Team name' }), {
+    const form = await within(dialog).findByRole('form', { name: 'Create group chat' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Group chat name' }), {
       target: { value: 'Night shift' },
     })
-    fireEvent.submit(within(form).getByRole('button', { name: 'Create team' }))
+    fireEvent.submit(within(form).getByRole('button', { name: 'Create Group chat' }))
 
     await waitFor(() => {
       expect(createTeam).toHaveBeenCalledWith(

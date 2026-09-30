@@ -89,8 +89,11 @@ import {
   BlueprintEditorPane,
   RemotesCatalogPane,
   BackendAuditPane,
+  SeatDoctorPane,
+  OperatorActivityPane,
   RetentionPane,
   HostnamePane,
+  AboutMePane,
   ViewportActionsVisibilityControl,
   AestheticsPane,
   DemoSectionProfileControl,
@@ -98,6 +101,7 @@ import {
   RailPane,
   SystemPane,
   LlmProfilesPane,
+  ExperimentalPane,
 } from './settings/panes'
 import { customToCatalogBlueprint, titleCase, ModuleLink, EMPTY_BLUEPRINTS } from './settings/shared'
 import {
@@ -108,12 +112,13 @@ import {
   isSettingsSection,
   settingsDetailFromQuery,
 } from './settings/kernel'
+import { OPEN_GENERATIONS_EVENT } from './settings/generationsEntry'
 import type {
   SettingsSection,
   OpenSettingsDetail,
   SettingsSheetProps,
 } from './settings/kernel'
-export { BlueprintsListPane, BlueprintEditorPane, RemotesCatalogPane, BackendAuditPane, RetentionPane, HostnamePane, ViewportActionsVisibilityControl, AestheticsPane, DemoSectionProfileControl, GeneralPane, RailPane, SystemPane, LlmProfilesPane }
+export { BlueprintsListPane, BlueprintEditorPane, RemotesCatalogPane, BackendAuditPane, SeatDoctorPane, OperatorActivityPane, RetentionPane, HostnamePane, AboutMePane, ViewportActionsVisibilityControl, AestheticsPane, DemoSectionProfileControl, GeneralPane, RailPane, SystemPane, LlmProfilesPane, ExperimentalPane }
 export { customToCatalogBlueprint, titleCase, ModuleLink, EMPTY_BLUEPRINTS }
 export { OPEN_SETTINGS_EVENT, openSettingsSheet, SETTINGS_SECTIONS, SETTINGS_SEARCH_CONTENT, isSettingsSection, settingsDetailFromQuery }
 export type { SettingsSection, OpenSettingsDetail, SettingsSheetProps }
@@ -145,6 +150,7 @@ export default function SettingsSheet({
   initialProviderId = null,
   focusRateLimits = false,
   initialRemoteId = null,
+  initialAddCliName = null,
 }: SettingsSheetProps) {
   const { success, error: toastError } = useToast()
   const [section, setSection] = useState<SettingsSection>('retention')
@@ -221,6 +227,10 @@ export default function SettingsSheet({
       // also handed — the `else if (blueprintId)` branch below is otherwise
       // unreachable for callers like AgentEditor's "Edit blueprint…".
       if (blueprintId) setSelectedBlueprintId(blueprintId)
+    } else if (initialAddCliName) {
+      // #1703: the host-CLI tip hands a detected name; the add form is the
+      // only thing that consumes it, so it wins over the provider-id branch.
+      setSection('cli-agents')
     } else if (initialProviderId) {
       const kind = initialProviderId.split(':')[0]
       if (kind === 'cli') setSection('cli-agents')
@@ -240,7 +250,7 @@ export default function SettingsSheet({
     return () => {
       cancelled = true
     }
-  }, [isOpen, blueprintId, initialSection, initialProviderId, initialRemoteId])
+  }, [isOpen, blueprintId, initialSection, initialProviderId, initialRemoteId, initialAddCliName])
 
   useEffect(() => {
     const onHostnameChanged = (event: Event) => {
@@ -255,6 +265,15 @@ export default function SettingsSheet({
     window.addEventListener(HOSTNAME_CHANGED_EVENT, onHostnameChanged)
     return () => window.removeEventListener(HOSTNAME_CHANGED_EVENT, onHostnameChanged)
   }, [])
+
+  // #1354: the generations diagnostics entry lives in this sheet; when it
+  // fires, close the sheet so the panel is not hidden behind the modal.
+  useEffect(() => {
+    if (!isOpen) return
+    const onOpenGenerations = () => onClose()
+    window.addEventListener(OPEN_GENERATIONS_EVENT, onOpenGenerations)
+    return () => window.removeEventListener(OPEN_GENERATIONS_EVENT, onOpenGenerations)
+  }, [isOpen, onClose])
 
   const handleSaveHostname = async (event: FormEvent) => {
     event.preventDefault()
@@ -320,8 +339,9 @@ export default function SettingsSheet({
             <ul className="menu menu-md w-full rounded-none p-2 space-y-0.5">
               {/* Category 1: General & Appearance */}
               {(matchSearch('general', 'General', ['theme', 'dark', 'light', 'streaming']) ||
-                matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance']) ||
+                matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance', 'mobile', 'tablet', 'desktop', 'viewport', 'responsive']) ||
                 matchSearch('hostname', 'Hostname', ['network', 'ip', 'domain', 'host', 'override']) ||
+                matchSearch('about-me', 'About me', ['about me', 'about', 'operator', 'profile', 'name', 'timezone', 'notes']) ||
                 matchSearch('rail', 'Rail', ['avatar', 'order', 'bump'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-1">
@@ -339,7 +359,7 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
-                  {matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance']) ? (
+                  {matchSearch('aesthetics', 'Aesthetics', ['bubble', 'theme', 'bubbles', 'labels', 'buttons', 'visuals', 'style', 'appearance', 'mobile', 'tablet', 'desktop', 'viewport', 'responsive']) ? (
                     <li>
                       <button
                         type="button"
@@ -363,6 +383,18 @@ export default function SettingsSheet({
                       </button>
                     </li>
                   ) : null}
+                  {matchSearch('about-me', 'About me', ['about me', 'about', 'operator', 'profile', 'name', 'timezone', 'notes']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'about-me' ? 'menu-active' : undefined}
+                        aria-current={section === 'about-me' ? 'page' : undefined}
+                        onClick={() => setSection('about-me')}
+                      >
+                        About me
+                      </button>
+                    </li>
+                  ) : null}
                   {matchSearch('rail', 'Rail', ['avatar', 'order', 'bump']) ? (
                     <li>
                       <button
@@ -383,7 +415,10 @@ export default function SettingsSheet({
                 matchSearch('cli-agents', 'CLI agents', ['cli', 'claude', 'grok', 'gemini', 'codex', 'agy', 'custom', 'wrapper']) ||
                 matchSearch('llm-profiles', 'Show LLM profiles', ['llm', 'models', 'litellm', 'profiles', 'default', 'task']) ||
                 matchSearch('remotes', 'Remotes', ['remote', 'hermes', 'omb', 'rakazo', 'herdr', 'trueforge', 'ssh']) ||
-                matchSearch('sandboxes', 'Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal'])) ? (
+                matchSearch('sandboxes', 'Sandboxes', ['sandbox', 'docker', 'daytona', 'bare metal']) ||
+                matchSearch('backend-audit', 'Backend audit', ['audit', 'backend', 'activity', 'log', 'diagnostics']) ||
+                matchSearch('seat-doctor', 'Seat doctor', ['doctor', 'diagnose', 'diagnosis', 'broken', 'unverified', 'quota', 'remediation', 'fix']) ||
+                matchSearch('operator-activity', 'Operator activity', ['activity', 'audit', 'operator', 'visibility', 'log'])) ? (
                 <>
                   <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
                     Models & Runtimes
@@ -457,6 +492,30 @@ export default function SettingsSheet({
                         onClick={() => setSection('backend-audit')}
                       >
                         Backend audit
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('seat-doctor', 'Seat doctor', ['doctor', 'diagnose', 'diagnosis', 'broken', 'unverified', 'quota', 'remediation', 'fix']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'seat-doctor' ? 'menu-active' : undefined}
+                        aria-current={section === 'seat-doctor' ? 'page' : undefined}
+                        onClick={() => setSection('seat-doctor')}
+                      >
+                        Seat doctor
+                      </button>
+                    </li>
+                  ) : null}
+                  {matchSearch('operator-activity', 'Operator activity', ['activity', 'audit', 'operator', 'visibility', 'log']) ? (
+                    <li>
+                      <button
+                        type="button"
+                        className={section === 'operator-activity' ? 'menu-active' : undefined}
+                        aria-current={section === 'operator-activity' ? 'page' : undefined}
+                        onClick={() => setSection('operator-activity')}
+                      >
+                        Operator activity
                       </button>
                     </li>
                   ) : null}
@@ -603,6 +662,29 @@ export default function SettingsSheet({
                   ) : null}
                 </>
               ) : null}
+
+              {/* Category 6: Experimental */}
+              {matchSearch('experimental', 'Experimental', [
+                'experimental', 'flags', 'toggles', 'mvp', 'bleeding edge',
+                'openai-agents', 'openmousbot', 'daytona', 'robot3d',
+                'computer_routines', 'prompt_rewrite', 'command_palette',
+              ]) ? (
+                <>
+                  <li className="menu-title text-[11px] font-semibold uppercase tracking-wider text-base-content/60 px-2 pt-3">
+                    Experimental
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className={section === 'experimental' ? 'menu-active' : undefined}
+                      aria-current={section === 'experimental' ? 'page' : undefined}
+                      onClick={() => setSection('experimental')}
+                    >
+                      Experimental
+                    </button>
+                  </li>
+                </>
+              ) : null}
             </ul>
           </div>
         </nav>
@@ -639,7 +721,6 @@ export default function SettingsSheet({
           )}
           {section === 'providers' && <ProvidersPane />}
           {section === 'aesthetics' && <AestheticsPane />}
-          {section === 'providers' && <ProvidersPane />}
           {section === 'definition' && (
             <DefinitionPane
               kind={resolvedKind}
@@ -670,16 +751,22 @@ export default function SettingsSheet({
               onSave={handleSaveHostname}
             />
           )}
+          {section === 'about-me' && <AboutMePane />}
           {section === 'llm-profiles' && (
             <LlmProfilesPane focusProviderId={focusRateLimits ? initialProviderId : null} />
           )}
           {section === 'mcp' && <McpServersPane />}
           {section === 'cli-agents' && (
-            <CliAgentsSettingsPane focusProviderId={focusRateLimits ? initialProviderId : null} />
+            <CliAgentsSettingsPane
+              focusProviderId={focusRateLimits ? initialProviderId : null}
+              prefillCliName={initialAddCliName}
+            />
           )}
           {section === 'roles' && <RolesSettingsPane />}
           {section === 'sandboxes' && <SandboxesSettingsPane />}
           {section === 'backend-audit' && <BackendAuditPane />}
+          {section === 'seat-doctor' && <SeatDoctorPane />}
+          {section === 'operator-activity' && <OperatorActivityPane />}
           {section === 'rail' && (
             <RailPane
               bumpCompleted={bumpCompleted}
@@ -696,6 +783,7 @@ export default function SettingsSheet({
           {section === 'speech' && <SpeechPane />}
           {section === 'system' && <SystemPane />}
           {section === 'plugins' && <PluginsServersPane />}
+          {section === 'experimental' && <ExperimentalPane />}
         </div>
       </div>
 

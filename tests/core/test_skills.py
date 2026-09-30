@@ -166,6 +166,7 @@ def test_bundled_skills_are_discoverable_and_standard_compliant():
         "writing-changelog",
         "support-session-ownership",
         "self-update-pr",
+        "orca-cli",
     ):
         assert name in found, f"missing bundled skill: {name}"
         skill = found[name]

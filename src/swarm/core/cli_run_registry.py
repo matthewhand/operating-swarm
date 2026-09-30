@@ -1,7 +1,8 @@
 """In-memory registry of swarm-spawned CLI chat subprocesses (REQ-114).
 
-``CliAdapter.stream_run`` registers the child after ``start_new_session=True``
-so a rail **Terminate** can kill that process *group* (SIGTERM, then SIGKILL)
+``CliAdapter.stream_run`` registers the child after
+:func:`swarm.core.proc.spawn_kwargs` so a rail **Terminate** can kill that
+process tree (POSIX SIGTERM then SIGKILL, Windows ``taskkill /T /F``)
 without deleting the agent, wiping the session id, or clearing the transcript.
 
 Only pids/pgids this process registered are signalled — never pid/pgid <= 1
@@ -13,7 +14,6 @@ from __future__ import annotations
 import contextvars
 import logging
 import os
-import signal
 import threading
 import time
 import uuid
@@ -21,6 +21,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from swarm.core.cli_adapter import TERM_GRACE
+from swarm.core.proc import (
+    PROCESS_GROUP_ERRORS,
+    group_id as get_pgid,
+    kill_tree as kill_pg,
+    termination_signals as terminate_signals,
+)
+from swarm.core.process_group import nt_pid_alive
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +99,8 @@ def register_cli_run(
     if not pid or pid <= 1:
         return None
     try:
-        resolved = os.getpgid(pid) if pgid is None else int(pgid)
-    except (ProcessLookupError, OSError, TypeError, ValueError):
+        resolved = get_pgid(pid) if pgid is None else int(pgid)
+    except (*PROCESS_GROUP_ERRORS, TypeError, ValueError):
         return None
     if resolved <= 1:
         return None
@@ -131,6 +138,11 @@ def was_user_terminated(token: str | None) -> bool:
 def _process_alive(pid: int) -> bool:
     if not pid or pid <= 1:
         return False
+    # Windows waitpid ignores WNOHANG and blocks. os.kill(pid, 0) is
+    # CTRL_C_EVENT, so a status poll would either hang or hide the run
+    # before rail Terminate could signal it (#1438).
+    if os.name == "nt":
+        return nt_pid_alive(pid)
     # Reap our own zombies so kill(pid, 0) is not a false positive.
     try:
         waited, _status = os.waitpid(pid, os.WNOHANG)
@@ -149,8 +161,8 @@ def _process_alive(pid: int) -> bool:
 
 def _pgid_still_ours(run: CliRun) -> bool:
     try:
-        return os.getpgid(run.pid) == run.pgid
-    except (ProcessLookupError, OSError):
+        return get_pgid(run.pid) == run.pgid
+    except PROCESS_GROUP_ERRORS:
         return False
 
 
@@ -194,24 +206,26 @@ def is_cli_run_running(
 
 
 def terminate_process_group(pid: int, pgid: int) -> bool:
-    """SIGTERM then SIGKILL a registered process group. Never signals <= 1.
+    """Kill a registered process tree. Never signals pid/pgid <= 1.
 
-    Escalation: ``os.killpg(pgid, SIGTERM)``, wait up to ``TERM_GRACE`` (5s)
-    for the leader to exit, then ``SIGKILL`` if it is still alive.
+    POSIX: SIGTERM, wait up to ``TERM_GRACE`` (5s), then SIGKILL.
+    Windows: ``taskkill /T /F`` on the spawn pid (children included).
     """
     if not pid or pid <= 1 or not pgid or pgid <= 1:
         return False
     try:
-        if os.getpgid(pid) != pgid:
+        if get_pgid(pid) != pgid:
             return False
-    except (ProcessLookupError, OSError):
+    except PROCESS_GROUP_ERRORS:
         return False
     sent = False
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    for sig in terminate_signals():
         try:
-            os.killpg(pgid, sig)
+            # kill_tree takes the spawn pid and resolves the group itself.
+            # The check above already proved this pid still owns `pgid`.
+            kill_pg(pid, sig)
             sent = True
-        except (ProcessLookupError, OSError):
+        except PROCESS_GROUP_ERRORS:
             return sent
         deadline = time.monotonic() + TERM_GRACE
         while time.monotonic() < deadline:

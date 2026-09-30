@@ -25,6 +25,7 @@ import {
   type ComposerStage2Row,
 } from '../lib/composerPicker'
 import type { ModelSearchOption } from '../lib/modelSearch'
+import { providerBrandFor, providerIconFor } from './icons/ProviderIcons'
 
 export interface ComposerPickerDialogProps {
   open: boolean
@@ -84,17 +85,24 @@ export default function ComposerPickerDialog({
   const rows: Array<{ key: string; testId: string; content: React.ReactNode; active: boolean }> =
     useMemo(() => {
       if (state.stage === 'providers') {
-        return providerRows.map((p, i) => ({
-          key: p.id,
-          testId: 'composer-picker-row',
-          content: (
-            <>
-              <span className="font-medium">{p.label}</span>
-              <span className="ml-auto text-xs uppercase tracking-wide opacity-60">{p.kind}</span>
-            </>
-          ),
-          active: i === activeIdx,
-        }))
+        return providerRows.map((p, i) => {
+          const Icon = providerIconFor(p.id)
+          return {
+            key: p.id,
+            testId: 'composer-picker-row',
+            content: (
+              <>
+                <Icon
+                  className="h-4 w-4 shrink-0 text-base-content/70"
+                  data-provider-icon={providerBrandFor(p.id)}
+                />
+                <span className="font-medium">{p.label}</span>
+                <span className="ml-auto text-xs uppercase tracking-wide opacity-60">{p.kind}</span>
+              </>
+            ),
+            active: i === activeIdx,
+          }
+        })
       }
       return optionRows.map((r, i) => ({
         key: `${r.row}:${r.id}`,
@@ -193,9 +201,14 @@ export default function ComposerPickerDialog({
 
   if (!open) return null
 
+  // #718 follow-up: the picker's trigger sits at the composer's right end, so
+  // anchoring the popup's LEFT edge there pushed it past the viewport
+  // (measured: right 1346 > 1280 at 1280px). Right-anchor it to the trigger
+  // instead — `!` beats the `.os-composer .os-composer-picker` rule in
+  // index.css, which pins inset-inline-start (owned by another agent).
   return (
     <div
-      className="os-composer-picker absolute bottom-full left-0 z-50 mb-2 min-w-72 max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
+      className="os-composer-picker absolute bottom-full !left-auto !right-0 z-50 mb-2 min-w-72 max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-xl"
       data-testid="composer-picker"
     >
       {/* #837: stage 1 has no header — "Providers" is redundant with the

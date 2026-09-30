@@ -9,8 +9,10 @@ import {
 } from './rows'
 import { fetchCliRunStatus } from '../../lib/api/settings'
 import { isRailMenuKey, type RailMenuKind } from '../../lib/railContextMenu'
+// #1726: a chat row's rail id names the seat it belongs to.
+import { parseRailChatRowId } from '../../lib/railChatRows'
 import type { ContextMenuState, SectionMenuState } from './rows'
-import { openSettingsSheet } from '../../components/SettingsSheet'
+import { openSettingsSheet } from '../../components/settings/kernel'
 import { openAgentEditor } from '../../lib/agentSettings'
 import {
   RAIL_LONG_PRESS_MS,
@@ -22,6 +24,36 @@ import type {
 } from 'react'
 import type { MemberSession } from '../../lib/sessionPicker'
 import type { Dispatch, SetStateAction } from 'react'
+
+/**
+ * #1726 — the rail's ONE row-id → menu-kind classifier.
+ *
+ * Every surface that needs "what kind of seat is this rail row" reads this, so
+ * a second answer cannot appear. It is deliberately a function of the row id
+ * and the catalog ONLY: the catalog row's own `kind` field is a *wire* value
+ * that the rail groups by (`'design'`, `'subagent'`) and that is not one of
+ * the seat kinds any capability is declared against — letting it answer here
+ * is what made Select/New session disappear from a designed rail seat.
+ */
+export function railMenuKindForRow(
+  rowId: string,
+  agents: ReadonlyArray<SidebarAgent>,
+): RailMenuKind {
+  // A chat row is a session, not a seat. Its id names the seat it belongs to,
+  // so the seat's OWN kind is the answer — otherwise a chat row classifies as
+  // 'api' by accident and is offered actions its agent cannot perform.
+  const chat = parseRailChatRowId(rowId)
+  if (chat) return railMenuKindForRow(chat.agentId, agents)
+  if (rowId.startsWith('team:')) return 'team'
+  if (rowId.startsWith('remote:')) return 'remote'
+  const agent = agents.find((row) => row.id === rowId)
+  if (agent && isCliRailAgent(agent)) return 'cli'
+  // #543: herdr rows get their own menu kind — no Edit/Duplicate (no
+  // swarm-owned profile), no swarm conversation id, matching 'remote'.
+  if (agent && isHerdrAgent(agent)) return 'herdr'
+  if (agent?.kind === 'blueprint') return 'blueprint'
+  return 'api'
+}
 
 export interface RailMenuOpenerOptions {
   agents: SidebarAgent[]
@@ -50,15 +82,7 @@ export function useRailMenuOpeners(opts: RailMenuOpenerOptions) {
 
   const resolveMenuKind = (hideId: string, hinted?: RailMenuKind): RailMenuKind => {
     if (hinted) return hinted
-    if (hideId.startsWith('team:')) return 'team'
-    if (hideId.startsWith('remote:')) return 'remote'
-    const agent = agents.find((row) => row.id === hideId)
-    if (agent && isCliRailAgent(agent)) return 'cli'
-    // #543: herdr rows get their own menu kind — no Edit/Duplicate (no
-    // swarm-owned profile), no swarm conversation id, matching 'remote'.
-    if (agent && isHerdrAgent(agent)) return 'herdr'
-    if ((agent as unknown as { kind?: string })?.kind === 'blueprint') return 'blueprint'
-    return 'api'
+    return railMenuKindForRow(hideId, agents)
   }
 
   const openMenuAt = (

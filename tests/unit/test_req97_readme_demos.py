@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from swarm.core.handoff_graph import repo_root
+from helpers.private_net import assert_no_private_ip
 
 STEMS = ("cli-agents", "api-agents", "remote-agents", "combined-team")
 GIF_STEMS = ("cli-agent", "api-agent", "remote-agent", "combined-team")
@@ -17,15 +18,15 @@ README = repo_root() / "README.md"
 RECORDING = ASSETS / "RECORDING.md"
 REGISTRY = repo_root() / "docs" / "SCREENSHOTS.md"
 
+# The IP half of this rule used to be the bare needles "10.0.0.", "192.168."
+# and "172.16." -- one /24 out of 10/8 (#1712). Private addresses are matched by
+# helpers/private_net.py now, so the rule has one definition.
 FORBIDDEN = (
     "sk-",
     "sk_live",
     "github_pat_",
     "ghp_",
     "BEGIN PRIVATE",
-    "10.0.0.",
-    "192.168.",
-    "172.16.",
 )
 
 
@@ -131,6 +132,7 @@ def test_media_and_docs_have_no_secrets_or_lan():
             continue
         blob = path.read_text(encoding="utf-8")
         lowered = blob.lower()
+        rel = path.relative_to(repo_root())
         for needle in FORBIDDEN:
             if needle not in blob and needle not in lowered:
                 continue
@@ -138,7 +140,11 @@ def test_media_and_docs_have_no_secrets_or_lan():
                 continue
             if needle == "sk-" and "${VAR}" in blob:
                 continue
-            raise AssertionError(f"{path.relative_to(repo_root())} contains {needle!r}")
+            raise AssertionError(f"{rel} contains {needle!r}")
+        if path not in allow_ban_mentions:
+            # The checklist files are allowed to NAME the ban; everything else
+            # has to be free of it. Same split as the credential loop above.
+            assert_no_private_ip(blob, where=str(rel))
 
 
 def test_svg_posters_label_kinds_and_openmousbot():
@@ -156,8 +162,7 @@ def test_svg_posters_label_kinds_and_openmousbot():
     assert "handoff" in team
     assert "Demo Bridge" in team
     for text in (cli, api, remote, team):
-        assert "10.0.0." not in text
-        assert "192.168." not in text
+        assert_no_private_ip(text)
         assert "sk-" not in text.lower()
 
 

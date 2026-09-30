@@ -19,7 +19,7 @@ The current [`README.md`](../../README.md) reflects mid-flight evolution notes a
 The revised `README.md` must lead with a concise, punchy blurb followed by clear feature pillars:
 
 ### 2.1 Lead Vision Blurb
-- **Swarm Bot** *(working name for Open Swarm)*: **A Single Bot to Control All Your Swarms.**
+- **Swarm Bot** *(working name for Operating Swarm)*: **A Single Bot to Control All Your Swarms.**
 - Unifies disparate agent frameworks into one responsive, Grok-inspired WebUI, terminal client (`swarm-cli tui`), and OpenAI-compatible API.
 
 ### 2.2 Core Capabilities
