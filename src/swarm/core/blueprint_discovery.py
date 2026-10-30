@@ -26,10 +26,13 @@ except ImportError:
 class BlueprintMetadata(TypedDict, total=False):
     """Structure for metadata extracted from a blueprint."""
     name: str
+    title: str | None
     version: str | None
     description: str | None
     author: str | None
     abbreviation: str | None
+    category: str | None
+    tags: list[str] | None
     # Optional extended fields commonly used by blueprints
     required_mcp_servers: list[str] | None
     env_vars: list[str] | None
@@ -39,6 +42,47 @@ class BlueprintMetadata(TypedDict, total=False):
     role: str | None
     navbar_items: list[dict[str, Any]] | None
     # Add other common metadata fields here if needed for typing
+
+
+def validate_blueprint_metadata(
+    metadata: dict[str, Any], blueprint_key: str | None = None
+) -> list[str]:
+    """Validate a blueprint metadata dictionary against the expected schema.
+
+    Returns a list of issue descriptions (empty when completely valid).
+    Checks that:
+    - name is present and matches the lowercase slug/model-id format
+    - description is present and non-empty
+    - category is a string if present
+    - version is a string if present
+    """
+    issues: list[str] = []
+    if not isinstance(metadata, dict):
+        return ["Blueprint metadata must be a dictionary"]
+
+    name = metadata.get("name")
+    if not name:
+        issues.append(f"Blueprint '{blueprint_key or 'unknown'}' missing required 'name' in metadata")
+    elif not isinstance(name, str):
+        issues.append(f"Blueprint metadata 'name' must be a string, got {type(name).__name__}")
+    elif not _MODEL_ID_RE.match(name):
+        issues.append(
+            f"Blueprint metadata name '{name}' does not match model-id format (should be lowercase slug)"
+        )
+
+    desc = metadata.get("description")
+    if not desc or not isinstance(desc, str) or not desc.strip():
+        issues.append(f"Blueprint '{blueprint_key or name or 'unknown'}' missing valid 'description' in metadata")
+
+    cat = metadata.get("category")
+    if cat is not None and (not isinstance(cat, str) or not cat.strip()):
+        issues.append(f"Blueprint '{blueprint_key or name}' category must be a non-empty string if provided")
+
+    ver = metadata.get("version")
+    if ver is not None and not isinstance(ver, str):
+        issues.append(f"Blueprint '{blueprint_key or name}' version must be a string if provided")
+
+    return issues
 
 class DiscoveredBlueprintInfo(TypedDict):
     """Structure for the information returned by discover_blueprints for each blueprint."""
@@ -354,10 +398,13 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                         # Narrow to a TypedDict view for return typing, but keep extra keys
                         current_blueprint_metadata: BlueprintMetadata = {
                             'name': full_meta.get('name'),
+                            'title': full_meta.get('title'),
                             'version': full_meta.get('version'),
                             'description': full_meta.get('description'),
                             'author': full_meta.get('author'),
                             'abbreviation': full_meta.get('abbreviation'),
+                            'category': full_meta.get('category'),
+                            'tags': full_meta.get('tags'),
                             'required_mcp_servers': full_meta.get('required_mcp_servers'),
                             'env_vars': full_meta.get('env_vars'),
                             'tool_requirements': full_meta.get('tool_requirements'),
@@ -366,6 +413,17 @@ def discover_blueprints(blueprint_dir: str, namespace: str | None = None, *, san
                             'role': full_meta.get('role'),
                             'navbar_items': full_meta.get('navbar_items'),
                         }
+
+                        # Discovery-time metadata validation
+                        validation_issues = validate_blueprint_metadata(
+                            full_meta, blueprint_key=blueprint_key_name
+                        )
+                        if validation_issues:
+                            logger.debug(
+                                "Metadata validation notices for '%s': %s",
+                                blueprint_key_name,
+                                "; ".join(validation_issues),
+                            )
 
                         found_bp_class_details = DiscoveredBlueprintInfo(
                             class_type=member_obj,

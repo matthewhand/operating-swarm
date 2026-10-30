@@ -309,10 +309,12 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
   and `tests/blueprints/test_codey_basic.py`).
 - [x] **`ansi_box` duplication** — `utils/ansi_box.py` is a DeprecationWarning
   shim re-exporting `ux/ansi_box` (callers moved to `ux` / `output_utils`).
-- [ ] **Blueprint metadata inconsistent** — `name`≠dirname in 9 blueprints;
-  3 declaration styles (`ClassVar`, bare, `@property`); absent in `gawd`/`geese`/
-  `zeus`; no machine-readable `category`. Define a schema + discovery-time
-  validator (CI-enforced). (`whinge_surf` husk removed.)
+- [x] **Blueprint metadata inconsistent** — reconciled `name` to lowercase slug in
+  9 blueprints (`poets`, `stewie`, `suggestion`, `jeeves`, `whiskeytango_foxtrot`,
+  `chucks_angels`, `rue_code`); added metadata to `gawd`/`geese`/`zeus`; defined
+  machine-readable `category` on `BlueprintMetadata`; added discovery-time schema
+  validator (`validate_blueprint_metadata`) in `blueprint_discovery.py` verified by
+  `tests/core/test_blueprint_metadata_validator.py`. (`whinge_surf` husk removed.)
 - [ ] **`urls.py` REST inconsistency** — hand-duplicated slash/no-slash route
   pairs, mixed CBV/FBV, 4 auth styles. Adopt a DRF router for `v1/*` resources.
 - [ ] **9 `cli_*` deliberation blueprints overlap** — a strategy family as 9

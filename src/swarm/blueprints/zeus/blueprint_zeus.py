@@ -5,6 +5,7 @@ A general-purpose coordinator agent using other gods as tools.
 
 import os
 import time
+from typing import Any
 
 from swarm.blueprints.common.operation_box_utils import display_operation_box
 from swarm.core.blueprint_base import BlueprintBase
@@ -44,6 +45,13 @@ class ZeusCoordinatorBlueprint(BlueprintBase):
     CLI_NAME = "zeus"
     DESCRIPTION = "Zeus: The coordinator agent for Operating Swarm, using all other gods as tools."
     VERSION = "1.0.0"
+    metadata: dict[str, Any] = {
+        "name": "zeus",
+        "title": "Zeus Coordinator",
+        "description": "Zeus: The coordinator agent for Operating Swarm, using all other gods as tools.",
+        "version": "1.0.0",
+        "category": "orchestration",
+    }
     # Add more Zeus features here as needed
 
     @classmethod

@@ -174,8 +174,9 @@ class JeevesBlueprint(BlueprintBase):
 
     """Blueprint for private web search and home automation using a team of digital butlers (Jeeves, Mycroft, Gutenberg)."""
     metadata: ClassVar[dict[str, Any]] = {
-            "name": "JeevesBlueprint",
+            "name": "jeeves",
             "title": "Jeeves",
+            "category": "automation",
             "description": "Provides private web search (DuckDuckGo) and home automation (Home Assistant) via specialized agents (Jeeves, Mycroft, Gutenberg).",
             "version": "1.1.0", # Version updated
             "author": "Operating Swarm Team (Refactored)",

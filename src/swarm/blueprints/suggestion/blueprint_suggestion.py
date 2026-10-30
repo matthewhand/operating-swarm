@@ -164,8 +164,9 @@ class SuggestionBlueprint(BlueprintBase):
     """A blueprint defining an agent that generates structured JSON suggestions using output_type."""
 
     metadata: ClassVar[dict[str, Any]] = {
-        "name": "SuggestionBlueprint",
+        "name": "suggestion",
         "title": "Suggestion Blueprint (Structured Output)",
+        "category": "structured_output",
         "description": "An agent that provides structured suggestions using Agent(output_type=...).",
         "version": "1.2.0", # Version bump for refactor
         "author": "Operating Swarm Team (Refactored)",
