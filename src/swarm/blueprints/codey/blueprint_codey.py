@@ -29,30 +29,8 @@ from swarm.core.output_utils import (
 from swarm.core.output_utils import (
     print_search_progress_box as _print_search_progress_box,
 )
-
-
-class CodeySpinner:
-    SPINNER_STATES = ["Generating.", "Generating..", "Generating...", "Running..."]
-    LONG_WAIT_MSG = "Generating... Taking longer than expected"
-
-    def __init__(self):
-        self._idx = 0
-        self._start_time = None
-        self._last_frame = self.SPINNER_STATES[0]
-
-    def start(self):
-        self._idx = 0
-        self._last_frame = self.SPINNER_STATES[0]
-        self._start_time = time.time()
-
-    def _spin(self):
-        self._idx = (self._idx + 1) % len(self.SPINNER_STATES)
-        self._last_frame = self.SPINNER_STATES[self._idx]
-
-    def current_spinner_state(self):
-        if self._start_time and (time.time() - self._start_time) > 10:
-            return self.LONG_WAIT_MSG
-        return self._last_frame
+from swarm.blueprints.common.tool_utils import DummyTool
+from swarm.core.spinner import CodeySpinner
 
 
 if TYPE_CHECKING:
@@ -74,17 +52,6 @@ sammy_instructions = "You are SammyScript, a testing and automation expert. Hand
 
 
 # Dummy tool objects for agent construction in test mode
-class DummyTool:
-    def __init__(self, name):
-        self.name = name
-
-    def __call__(self, *_args, **_kwargs):
-        return f"[DummyTool: {self.name} called]"
-
-    def __repr__(self):
-        return f"<DummyTool {self.name}>"
-
-
 git_status_tool = DummyTool("git_status")
 git_diff_tool = DummyTool("git_diff")
 git_add_tool = DummyTool("git_add")
