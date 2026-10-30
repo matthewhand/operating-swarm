@@ -220,6 +220,19 @@ class BlueprintBase(ABC):
     approval_required: bool = False
     console = Console()
     session_logger = None
+    metadata: dict[str, Any] = {
+        "title": "Blueprint",
+        "description": "",
+        "abbreviation": None,
+    }
+
+    @property
+    def abbreviation(self) -> str | None:
+        """Short identifier or abbreviation for this blueprint, if declared in metadata."""
+        md = getattr(self, "metadata", None)
+        if isinstance(md, dict):
+            return md.get("abbreviation")
+        return getattr(self, "_abbreviation", None)
 
     def __init__(self, blueprint_id: str, config=None, config_path=None, **kwargs):
         self.blueprint_id = blueprint_id

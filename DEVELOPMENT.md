@@ -140,7 +140,7 @@ Operating Swarm combines a command-line interface (`os-cli`) for local managemen
 *   **Core Logic:** Implement the `run` method (often async) for agent orchestration using `openai-agents` SDK.
 *   **Configuration:** Access loaded configuration via `self.config`, LLM profiles via `self.get_llm_profile("profile_name")`.
 *   **MCP Servers:** Define requirements in metadata; access running instances via `self.mcp_servers["server_name"]`.
-*   **Metadata:** Define `blueprint_name`, `description`, `required_env_vars`, `required_mcp_servers`.
+*   **Metadata:** Defined via a class dictionary `metadata = {"name": ..., "abbreviation": ..., "description": ...}` or class attributes. If `description` is omitted from `metadata`, discovery falls back to the class docstring. `abbreviation` provides a short slug for CLI and UI display. Required fields include `name`/`title`, `description`, optional `abbreviation`, `required_env_vars`, and `required_mcp_servers`.
 *   **CLI Integration:** Define custom arguments in the blueprint's `main` method; they apply when running the blueprint executable or its module entry point directly (`os-cli launch` itself only forwards `--message`).
 
 ---

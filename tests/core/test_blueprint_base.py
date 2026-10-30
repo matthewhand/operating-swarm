@@ -237,6 +237,35 @@ class TestBlueprintBase(TestCase):
         splash = blueprint.splash
         assert 'Blueprint' in splash
 
+    def test_default_metadata_and_abbreviation(self):
+        """Test default BlueprintBase metadata dictionary and abbreviation property."""
+        class BareBlueprint(BlueprintBase):
+            async def run(self, messages, **kwargs):
+                yield {}
+
+        bp = BareBlueprint("bare_bp")
+        assert isinstance(bp.metadata, dict)
+        assert bp.metadata.get("title") == "Blueprint"
+        assert bp.metadata.get("description") == ""
+        assert bp.metadata.get("abbreviation") is None
+        assert bp.abbreviation is None
+
+    def test_custom_metadata_abbreviation(self):
+        """Test abbreviation property extracts abbreviation from metadata."""
+        class AbbrBlueprint(BlueprintBase):
+            metadata = {
+                "name": "Abbreviation Test",
+                "abbreviation": "abbr",
+                "description": "Blueprint with custom abbreviation",
+            }
+
+            async def run(self, messages, **kwargs):
+                yield {}
+
+        bp = AbbrBlueprint("abbr_bp")
+        assert bp.abbreviation == "abbr"
+        assert bp.metadata["abbreviation"] == "abbr"
+
     @patch('swarm.core.blueprint_base.logger')
     def test_config_error_handling(self, mock_logger):
         """Test configuration error handling"""
