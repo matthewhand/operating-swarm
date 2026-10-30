@@ -13,7 +13,9 @@ class ChucksAngelsBlueprint(TeamKindBase): # Inherit from BlueprintBase
     """
     # --- Metadata for 'swarm-cli list' output ---
     metadata = {
-        "name": "Chuck's Angels", # Or simply "chucks_angels" if you prefer programmatic names
+        "name": "chucks_angels",
+        "title": "Chuck's Angels",
+        "category": "team",
         "abbreviation": "angels", # Or "chuck" or "cna" - choose a short, memorable one
         "version": "0.1.1", # Incremented version
         "description": "A blueprint for coordinating angelic tasks, Chuck Norris style.",

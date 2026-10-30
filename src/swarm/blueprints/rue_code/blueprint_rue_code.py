@@ -310,7 +310,8 @@ class RueCodeBlueprint(BlueprintBase):
     """
     metadata = {
         **unavailable.placeholder_metadata(),
-        "name": "RueCode",
+        "name": "rue_code",
+        "category": "tools",
         "title": "Rue Code (tool seat — not wired to a model)",
         "description": (
             "Fileops / shell / cost tools, not yet attached to an agent. This "

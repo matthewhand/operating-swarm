@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from enum import Enum
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -129,6 +130,14 @@ def edit_story(full_story: str, edit_instructions: str) -> str:
 
 
 class GeeseBlueprint(BlueprintBase):
+    metadata: dict[str, Any] = {
+        "name": "geese",
+        "title": "Geese (Flock Storyteller)",
+        "description": "Multi-agent collaborative writing team (Planner, Writer, Editor) working in flock formation.",
+        "version": "1.0.0",
+        "category": "writing",
+    }
+
     def __init__(self, blueprint_id: str, config: dict = None, **kwargs):
         # Handle MCP servers and CLI assignments
         mcp_servers_config = kwargs.pop("mcp_servers", {})

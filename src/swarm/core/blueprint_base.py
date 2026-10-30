@@ -228,7 +228,9 @@ class BlueprintBase(ApprovalMixin, MemoryMixin, ConfigResolver, ABC):
     Abstract base class for all Swarm blueprints.
 
     Defines the core interface for blueprint initialization and execution.
-    Composed of ApprovalMixin, MemoryMixin, and ConfigResolver.
+    Composed of ApprovalMixin, MemoryMixin, and ConfigResolver (which delegates
+    configuration loading using get_swarm_config_file() and model validation
+    using model_valid_for_provider()).
     """
     enable_terminal_commands: bool = False  # By default, terminal command execution is disabled
     approval_required: bool = False

@@ -260,10 +260,17 @@ class ApiKindBase(KindBase):
             from swarm.core.operator_profile import apply_operator_profile_to_agent
 
             apply_operator_profile_to_agent(agent, messages)
+            blueprint_config = getattr(self, "_config", None)
+            if blueprint_config is None:
+                try:
+                    blueprint_config = getattr(self, "config", None)
+                except (AttributeError, RuntimeError):
+                    blueprint_config = None
+
             try:
                 from swarm.core.sandbox import attach_sandbox_tools_to_agent
 
-                attach_sandbox_tools_to_agent(agent, config=getattr(self, "config", None))
+                attach_sandbox_tools_to_agent(agent, config=blueprint_config)
             except Exception:
                 logger.debug("Sandbox tool attachment skipped", exc_info=True)
             # #1684: emit the turn-phase `tool_status` frames the SPA already
@@ -276,7 +283,7 @@ class ApiKindBase(KindBase):
             attach_turn_phase_hooks(agent)
             from swarm.core.agent_run_timeout import agent_run_timeout
 
-            timeout = agent_run_timeout(getattr(self, "config", None))
+            timeout = agent_run_timeout(blueprint_config)
 
             try:
                 # Preserve the conversation supplied by the caller. Sending only

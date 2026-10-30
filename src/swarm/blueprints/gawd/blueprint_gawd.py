@@ -14,6 +14,15 @@ class GAWDBlueprint(BlueprintBase):
     """
     A blueprint for divine code inspiration. Demonstrates unified UX: spinner, ANSI/emoji output, and progress updates.
     """
+    metadata: dict[str, Any] = {
+        "name": "gawd",
+        "title": "GAWD",
+        "description": "A blueprint for divine code inspiration. Demonstrates unified UX: spinner, ANSI/emoji output, and progress updates.",
+        "version": "1.0.0",
+        "category": "code",
+        "deprecated": True,
+        "status": "deprecated",
+    }
     coordinator = None  # Dummy attribute for test compliance
     progress = ProgressRenderer()
     diff_formatter = DiffFormatter()

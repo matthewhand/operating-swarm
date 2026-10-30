@@ -236,6 +236,7 @@ def test_no_blueprint_pins_cli_model_without_validator():
         "src/swarm/chat/stubs_mixin.py",
         "src/swarm/views/utils.py",
         "src/swarm/core/blueprint_base.py",
+        "src/swarm/core/config_resolver.py",
     ],
 )
 def test_user_facing_apply_sites_route_through_validator(rel: str):

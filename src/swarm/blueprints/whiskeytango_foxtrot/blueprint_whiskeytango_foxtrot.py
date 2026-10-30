@@ -123,8 +123,9 @@ Available MCP Tools: mcp-doc-forge.
 class WhiskeyTangoFoxtrotBlueprint(BlueprintBase):
     """Tracks free online services with a hierarchical spy-inspired agent team using SQLite and web search."""
     metadata: ClassVar[dict[str, Any]] = {
-        "name": "WhiskeyTangoFoxtrotBlueprint",
+        "name": "whiskeytango_foxtrot",
         "title": "WhiskeyTangoFoxtrot Service Tracker",
+        "category": "recon",
         "description": "Tracks free online services with SQLite and web search using a multi-tiered agent hierarchy.",
         "version": "1.2.0", # Refactored version
         "author": "Open Swarm Team (Refactored)",

@@ -88,8 +88,9 @@ class StewieBlueprint(BlueprintBase):
             self._config = {}
 
     metadata: ClassVar[dict[str, Any]] = {
-        "name": "StewieBlueprint", # Standardized name
+        "name": "stewie", # Standardized name
         "title": "Stewie / ChaosCrew WP Manager",
+        "category": "cms",
         "description": "Manages WordPress content using Stewie (main agent) and other helpers as tools.",
         "version": "2.0.0", # Incremented version
         "author": "Operating Swarm Team (Refactored)",

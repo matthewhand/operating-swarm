@@ -282,8 +282,9 @@ class PoetsBlueprint(TeamKindBase):
 
     """A literary blueprint defining a swarm of poet agents using SQLite instructions and agent-as-tool handoffs."""
     metadata: ClassVar[dict[str, Any]] = {
-        "name": "PoetsBlueprint",
+        "name": "poets",
         "title": "Poets: A Swarm of Literary Geniuses (SQLite)",
+        "category": "creative",
         "description": (
             "A swarm of agents embodying legendary poets, using SQLite for instructions, "
             "agent-as-tool for collaboration, and MCPs for creative augmentation."

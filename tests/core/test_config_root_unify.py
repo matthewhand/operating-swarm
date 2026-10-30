@@ -263,12 +263,17 @@ def test_discovery_and_writers_delegate_to_paths_helper():
     blueprint_base = (repo / "src" / "swarm" / "core" / "blueprint_base.py").read_text(
         encoding="utf-8"
     )
+    config_resolver = (repo / "src" / "swarm" / "core" / "config_resolver.py").read_text(
+        encoding="utf-8"
+    )
     assert "return get_swarm_config_file(DEFAULT_CONFIG_FILENAME)" in loader
     assert 'Path.home() / ".config"' not in remotes
     assert "get_user_config_dir_for_swarm()" in dotenv
     assert 'base / "swarm" / ".env"' not in dotenv
     assert "get_swarm_config_file()" in blueprint_base
     assert "Path.home() / '.config/swarm/swarm_config.json'" not in blueprint_base
+    assert "get_swarm_config_file()" in config_resolver
+    assert "Path.home() / '.config/swarm/swarm_config.json'" not in config_resolver
 
 
 def test_blueprint_profile_fallback_honors_xdg_config_home(tmp_path, monkeypatch):
