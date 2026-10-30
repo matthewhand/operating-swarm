@@ -350,3 +350,46 @@ async def test_seat_chat_sends_to_os_peer(monkeypatch):
             text = msgs[0].get("content") or text
     assert calls == [("swarm", "send", "ping the child")]
     assert text == "hello from OS-peer"
+
+
+def test_two_process_os_peer_live_child_smoke(http_router):
+    """Two-process style smoke: parent checks health/list/send against a live child HTTP server."""
+    host, port, router = http_router
+    router.routes = {
+        ("GET", "/health"): (
+            200,
+            {"status": "ok", "app": "operating-swarm", "version": "0.6.0", "peer": "OS-peer"},
+        ),
+        ("GET", "/v1/blueprints/"): (
+            200,
+            {"object": "list", "data": [{"id": "child-agent", "name": "Child Agent"}]},
+        ),
+        ("GET", "/api/sessions/"): (200, {"sessions": [{"id": "sess-child-1"}]}),
+        ("GET", "/v1/agent-team/"): (200, {"object": "agent_team", "members": ["child"]}),
+        (
+            "POST",
+            "/v1/chat/completions/",
+        ): (
+            200,
+            {
+                "id": "chatcmpl-child",
+                "object": "chat.completion",
+                "choices": [{"message": {"role": "assistant", "content": "live child response"}}],
+            },
+        ),
+    }
+    cfg = _cfg(host, port, instance="swarm-child")
+    health = remotes_core.check_health("swarm-child", config=cfg, timeout=2.0)
+    assert health.ok is True
+    assert health.state == "UP"
+    listed = remotes_core.operate("swarm-child", "list", config=cfg)
+    assert listed.ok is True
+    assert listed.data["agents"][0]["id"] == "child-agent"
+    assert listed.data["sessions"][0]["id"] == "sess-child-1"
+    assert listed.data["teams"] == ["child"]
+    sent = remotes_core.operate(
+        "swarm-child", "send", prompt="hello child", target="child-agent", config=cfg
+    )
+    assert sent.ok is True
+    assert sent.data["text"] == "live child response"
+    assert sent.remote == "swarm-child"
