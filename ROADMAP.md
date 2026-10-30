@@ -301,10 +301,12 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
 - [x] **`stewie` ships a broken nested Django app** — deleted dead `settings`/`views`/`serializers`/`models`/`urls`/`apps` (nonexistent `blueprints.chc`); kept `blueprint_stewie.py`
 
 ### 4.5 Structure
-- [ ] **God-modules:** `blueprints/codey/blueprint_codey.py` (1021 lines),
-  `core/blueprint_base.py` (919 lines, 35 methods — memory/approval/config all
-  inlined). Extract `MemoryMixin`/`ApprovalMixin`/`ConfigResolver`; pull
-  `CodeySpinner`/`DummyTool` into shared infra.
+- [x] **God-modules:** decomposed `core/blueprint_base.py` into modular `MemoryMixin`,
+  `ApprovalMixin`, and `ConfigResolver` mixins (`core/memory_mixin.py`,
+  `core/approval_mixin.py`, `core/config_resolver.py`), reducing `blueprint_base.py`
+  from 1089 to 463 lines; pulled `CodeySpinner` into `core/spinner.py` and `DummyTool`
+  into `blueprints/common/tool_utils.py` (verified by `tests/core/test_blueprint_mixins.py`
+  and `tests/blueprints/test_codey_basic.py`).
 - [x] **`ansi_box` duplication** — `utils/ansi_box.py` is a DeprecationWarning
   shim re-exporting `ux/ansi_box` (callers moved to `ux` / `output_utils`).
 - [ ] **Blueprint metadata inconsistent** — `name`≠dirname in 9 blueprints;
@@ -319,8 +321,8 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
 ### 4.6 UX / SPA (medium)
 - [x] **Toast a11y** — DaisyUI `ToastItem` now `role="status"` + `aria-live`
   (assertive for error/warning). Orphan Builder panels / AuthContext deleted.
-- [ ] **Modal triple focus/dismiss** — native `<dialog>` + `focus-trap-react` +
-  manual backdrop math (`Modal.tsx:84-105`); pick one.
+- [x] **Modal triple focus/dismiss** — native `<dialog>` traps focus cleanly;
+  `focus-trap-react` race removed (#313); backdrop clicks routed through `.modal-box` bounds.
 - [ ] **ChatPage gaps** — single-line composer remains; markdown bubbles +
   auto-reconnect/backoff (skip 4401) landed.
 - [x] **BuilderPage / AgentCreatorPage / Teams / Blueprints / Settings SPA** —
