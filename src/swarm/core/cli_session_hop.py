@@ -524,6 +524,15 @@ def hop_backend(
     export_warning = None
     import_source = "swarm"
     imported: list[dict[str, Any]] | None = None
+    db_user = user
+    if db_user is None:
+        try:
+            from swarm.core.chat_db import user_from_key
+
+            db_user = user_from_key(user_key)
+        except Exception:
+            db_user = None
+
     if imported_messages:
         imported = parse_exported_messages(json.dumps(imported_messages))
         if not imported:
@@ -539,14 +548,14 @@ def hop_backend(
         )
         if imported:
             import_source = "transcript"
-    elif not (record.get("messages") or []) and user is not None:
+    elif not (record.get("messages") or []) and db_user is not None:
         # #901: no native export requested and the JSON thread is empty —
         # fall back to the Django mirror (kept fresh by turn completion and
         # switch-away flushes). Instant, local, zero subprocess/remote calls.
         try:
             from swarm.core.thread_load import messages_from_db
 
-            db_rows = messages_from_db(user, cid)
+            db_rows = messages_from_db(db_user, cid)
             if db_rows:
                 imported = turns_for_injection(db_rows)
                 import_source = "db_mirror"
@@ -609,7 +618,7 @@ def hop_backend(
 
     from swarm.core.transcript_roles import append_event
 
-    turns = list(record.get("messages") or [])
+    turns = list(source_messages)
     events = list(record.get("ui_events") or [])
     # #1694: the notice alone says *that* context was carried, never *what*.
     # Until now the body lived only in the pending ``cli_hop`` record, which
@@ -650,6 +659,19 @@ def hop_backend(
         active_cli=target,
         base_dir=base_dir,
     )
+    if db_user is not None:
+        try:
+            from swarm.core.agent_sessions import mirror_thread_to_db
+
+            mirror_thread_to_db(
+                db_user,
+                cid,
+                turns,
+                agent_id=agent,
+                ui_events=events,
+            )
+        except Exception:
+            logger.debug("mirror_thread_to_db failed after hop for %s", cid, exc_info=True)
     clear_cli_session(
         user_key,
         agent,

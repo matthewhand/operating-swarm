@@ -115,6 +115,8 @@ class CliSessionHopAPIView(APIView):
         from_agent = from_agent.strip() if isinstance(from_agent, str) else None
         to_agent = body.get("to_agent")
         to_agent = to_agent.strip() if isinstance(to_agent, str) else None
+        req_user = getattr(request, "user", None)
+        authenticated_user = req_user if (req_user is not None and getattr(req_user, "is_authenticated", False)) else None
         try:
             payload = hop_backend(
                 _user_key(request),
@@ -132,6 +134,7 @@ class CliSessionHopAPIView(APIView):
                 from_label=from_label,
                 from_agent=from_agent or to_agent,
                 config=_swarm_config(),
+                user=authenticated_user,
             )
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
