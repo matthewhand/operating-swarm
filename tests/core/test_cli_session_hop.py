@@ -353,6 +353,41 @@ def test_hop_empty_json_uses_db_mirror_without_export(tmp_path):
     assert result["export_warning"] is None  # no export attempted at all
     assert "Mirrored question" in result["injection"]["text"]
     assert "Mirrored answer" in result["injection"]["text"]
+    # #901: hop also mirrored the resulting thread and context-carried status to Django DB
+    from swarm.core.agent_sessions import get_or_create_session
+    chat = get_or_create_session(user, "thread-mirror", agent_id="cli_agent")
+    msg_contents = [m.content or "" for m in chat.chat_messages.all()]
+    assert "Mirrored question" in msg_contents
+    assert "Mirrored answer" in msg_contents
+    events = chat.ui_events or []
+    assert any("Started a new agy session" in (e.get("content") or "") for e in events)
+
+
+@pytest.mark.django_db
+def test_hop_mirrors_turns_to_django_db_for_cross_kind(tmp_path):
+    """#901: cross-kind hop flushes context and boundary status events to Django DB."""
+    from django.contrib.auth import get_user_model as _gum
+    from swarm.core.agent_sessions import get_or_create_session
+
+    user = _gum().objects.create_user(username="hop-cross-kind-user", password="pw")
+    uk = chat_store.user_key_for(user)
+    chat_store.save(uk, "cli_agent", FIXTURE, conversation_id="thread-ck-1", base_dir=tmp_path)
+    result = hop_backend(
+        uk,
+        "cli_agent",
+        from_cli="grok",
+        to_cli="auxiliary",
+        to_kind="api",
+        conversation_id="thread-ck-1",
+        base_dir=tmp_path,
+        user=user,
+    )
+    assert result["kind"] == "api"
+    chat = get_or_create_session(user, "thread-ck-1", agent_id="cli_agent")
+    msg_contents = [m.content or "" for m in chat.chat_messages.all()]
+    assert any("token bucket" in t.lower() for t in msg_contents)
+    events = chat.ui_events or []
+    assert any("Started a new auxiliary session" in (e.get("content") or "") for e in events)
 
 
 # ---------------------------------------------------------------------------
