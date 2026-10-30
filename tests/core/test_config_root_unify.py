@@ -612,4 +612,9 @@ def test_health_url_reports_resolved_config_root(tmp_path, monkeypatch):
     for path in ("/health", "/health/"):
         response = client.get(path)
         assert response.status_code == 200
-        assert response.data == {"status": "ok", "config_root": str(root)}
+        assert response.data["status"] == "ok"
+        assert response.data["config_root"] == str(root)
+        # OS-peer handshake: the same body advertises app + version so a
+        # parent can flag an incompatible child.
+        assert response.data["app"] == "operating-swarm"
+        assert response.data["version"]

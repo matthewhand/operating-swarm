@@ -357,7 +357,7 @@ export function RemotesCatalogPane({
                   />
                   {kind === 'swarm' ? (
                     <p className="text-sm text-base-content/70">
-                      Nested open-swarm is another process (own DB). Do not add this
+                      OS-peer is another Operating Swarm process (own DB). Do not add this
                       instance as its own remote.
                     </p>
                   ) : null}

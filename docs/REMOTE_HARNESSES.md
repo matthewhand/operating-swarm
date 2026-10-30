@@ -1,4 +1,4 @@
-# Remote harnesses — Hermes, OpenMausBot, Rakazo, Herdr, nested swarm
+# Remote harnesses — Hermes, OpenMausBot, Rakazo, Herdr, OS-peer
 
 **Remote** is one user-facing kind. Concrete remotes **implement**
 [`RemoteHarness`](./adr/011-remote-harness.md) (REQ-203 / #680). Herdr is a
@@ -11,7 +11,7 @@ Remote implementation, not a fifth kind.
 | **Rakazo** | `rakazo` | HTTP | health, list, send | yes — stub until ADR-007 Phase 3 |
 | **Herdr** | `herdr` | CLI local / SSH remote | health, list, send, interrogate | no |
 | **Slack (NemoHermes)** | `slack` | Slack Web API | health, list, send | no |
-| **Nested open-swarm** | `swarm` (`open-swarm`) | HTTP | health, list, send | no |
+| **OS-peer (Operating Swarm)** | `swarm` (`open-swarm`, `os-peer`, `operating-swarm`) | HTTP | health, list, send | no |
 | **TrueForge** | `trueforge` | HTTP | health, list, send, routines | no |
 | **Tencent Octop** | `octop` (`tencent-octop`) | HTTP + WebSocket | health, list, send | no — experts and AgentTeams stay inside Octop |
 | **Open WebUI** | `openwebui` (`open-webui`) | HTTP | health, list, send | no — **external** Open WebUI, not OS WebUI |
@@ -30,7 +30,7 @@ they are up, and send work through **their** APIs. This is not a concurrent
 Grok / OMB / Rakazo seat clone, and **Grok-Bot chrome is not claimed live**.
 
 **Team vocabulary (REQ-11 / REQ-57):** a Team is how you wire API agents, CLI
-agents, and **remote** agents (Hermes / OMB / Rakazo / nested open-swarm) so
+agents, and **remote** agents (Hermes / OMB / Rakazo / OS-peer) so
 they can see and talk to each other via openai-agents **handoff / as_tool**.
 Those remotes are Team *members* (`consult_hermes`, `consult_omb`,
 `consult_rakazo`, `consult_swarm`). **Herdr** is also a remotes kind, but it
@@ -78,7 +78,7 @@ Kind defaults (override when adding). Unused kinds are not pre-seeded cards:
 | **hermes** | dev-worker-gpu | `http://198.51.100.36:8642` (UI `:9119`) | `HERMES_API_KEY` (Hermes `API_SERVER_KEY`) |
 | **omb** | Windows2 | `http://198.51.100.32:8802` | `OMB_API_KEY` (optional Bearer) |
 | **rakazo** | Windows2 | API `http://198.51.100.32:3100`, UI `:5173`, tree `C:\rakazo` | `RAKAZO_API_KEY` and/or `RAKAZO_SESSION_COOKIE` |
-| **swarm** | another open-swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
+| **swarm** (OS-peer) | another Operating Swarm process | stub `http://127.0.0.1:9` (not this listen URL) | `SWARM_REMOTE_API_KEY` (Bearer; env var name only) |
 | **trueforge** | local/remote | `http://127.0.0.1:8791` (IPv4; `localhost` rewrites to this — TrueForge binds v4 only) | `TRUEFORGE_API_KEY` (optional Bearer) |
 | **openwebui** | your Open WebUI | `http://127.0.0.1:8080` | `OPENWEBUI_API_KEY` (Bearer; env var name only). External Open WebUI — not OS WebUI. |
 
@@ -87,6 +87,8 @@ swarm-cli remotes set hermes --base-url http://198.51.100.36:8642 --api-key-env 
 swarm-cli remotes set omb --base-url http://198.51.100.32:8802 --api-key-env OMB_API_KEY
 swarm-cli remotes set rakazo --base-url http://198.51.100.32:3100 --ui-url http://198.51.100.32:5173 --api-key-env RAKAZO_API_KEY --session-cookie-env RAKAZO_SESSION_COOKIE
 swarm-cli remotes set swarm --base-url http://127.0.0.1:9 --api-key-env SWARM_REMOTE_API_KEY
+swarm-cli remotes set swarm-2 --base-url http://127.0.0.1:8001 --api-key-env SWARM_2_API_KEY
+swarm-cli remotes set swarm_gpu --base-url http://gpu-host:8000 --api-key-env SWARM_GPU_API_KEY
 swarm-cli remotes set trueforge --base-url http://127.0.0.1:8791 --api-key-env TRUEFORGE_API_KEY
 ```
 
@@ -94,6 +96,26 @@ Nested swarm is a **normal deploy** (own process, own local DB). Point
 `--base-url` at that child's listen URL. v1 refuses a swarm URL that matches
 this server's listen URL (`PORT` / `SWARM_LISTEN_URL`). A child is not
 required to nest the parent. Tests use `http://127.0.0.1:9` and `CHANGE_ME`.
+
+Named instances (`swarm-2`, `swarm_gpu`, or `POST /v1/remotes/` with
+`{"kind":"swarm","id":"lab-swarm"}`) share the OS-peer impl and get
+per-instance env slugs (`SWARM_2_BASE_URL` / `SWARM_2_API_KEY`).
+
+### Child instance (OS-peer) setup
+
+1. Run a second Operating Swarm on another port (own `SWARM_CONFIG_PATH` / data dir).
+2. On the **child**, set `API_AUTH_TOKEN` (or `SWARM_API_KEY`) — never enable
+   `SWARM_ALLOW_ANONYMOUS`. See [AUTH.md](./AUTH.md).
+3. On the **parent**, `swarm-cli remotes set swarm --base-url http://<child>:<port> --api-key-env SWARM_REMOTE_API_KEY`
+   and export that env var to the child's token. Persist the env *name* only.
+4. `swarm-cli remotes health swarm` then `operate swarm --op list` / `--op send`.
+   The child's `GET /health` advertises `version` + `app`, so a major-version
+   mismatch shows up as an advisory warning (the probe still reports UP).
+5. Do not point the child back at the parent unless you intend a two-way mesh;
+   a child is not required to nest the parent. Do not nest this process as itself.
+
+Sandboxing: the child has its own workdir, DB, and tools. Treat it as a
+separate host — the parent only speaks HTTP `/v1` + `/health`.
 
 Rakazo RPC auth is env/secret-store only: export `RAKAZO_SESSION_COOKIE`
 and/or `RAKAZO_API_KEY`. Config stores names / `${RAKAZO_SESSION_COOKIE}` /
@@ -105,7 +127,7 @@ Equivalent persist:
 * `swarm-cli config add --section remotes --name hermes --json '{...}'`
 * Edit `~/.config/swarm/swarm_config.json` → `"remotes"` (or `SWARM_CONFIG_PATH`)
 
-Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL`, `TRUEFORGE_BASE_URL`, `ANYTHINGLLM_BASE_URL`, `OPENWEBUI_BASE_URL`.
+Env overrides win over the file: `HERMES_BASE_URL`, `OMB_BASE_URL`, `RAKAZO_BASE_URL`, `SWARM_REMOTE_BASE_URL` (named OS-peers: `SWARM_2_BASE_URL`, `SWARM_GPU_BASE_URL`, …), `TRUEFORGE_BASE_URL`, `ANYTHINGLLM_BASE_URL`, `OPENWEBUI_BASE_URL`.
 
 Settings → **Remotes** lists only added remotes (secrets redacted). Missing
 catalog is empty, not a default Hermes card. `swarm-cli remotes get hermes`
@@ -127,7 +149,7 @@ report, not an exception. Auth-gated 401/403 on a live port counts as **UP**
 | Hermes | `GET /health` → `{"status":"ok"}`; version via `GET /v1/models` |
 | OMB | `GET /api/health` → `{"app":"openmausbot",...}` |
 | Rakazo | `GET /health` → `{"ok":true,"runtime":"pi",...}` |
-| Nested swarm | `GET /health` → `{"status":"ok"}`; version via `GET /v1/models` |
+| Nested swarm (OS-peer) | `GET /health` → `{"status":"ok","app":"operating-swarm","version":…}`; version also via `GET /v1/models` |
 | TrueForge | `GET /healthz` → `{"status":"ok","version":"..."}` |
 | Tencent Octop | `GET /api/health` → `{"ok":true,...}` (no auth) |
 | **Herdr** | **Not HTTP.** Local: `herdr workspace list`. Remote: `ssh user@host -- herdr workspace list` (stub SSH in tests). |

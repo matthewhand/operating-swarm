@@ -1,10 +1,10 @@
-"""remote_harness — Operating Swarm as a harness *for* Hermes / OMB / Rakazo / nested swarm.
+"""remote_harness — Operating Swarm as a harness *for* Hermes / OMB / Rakazo / OS-peer.
 
 This is not a concurrent Grok / OpenMausBot / Rakazo seat clone. Specialists
 are openai-agents agent-as-tool wrappers around each remote's real HTTP API
 (``swarm.core.remotes``). The coordinator hands off; it does not impersonate
-those products. Nested ``swarm`` is another open-swarm process over HTTP —
-not in-process recursion.
+those products. Nested ``swarm`` (OS-peer) is another Operating Swarm process
+over HTTP — not in-process recursion.
 
 Deterministic grammar (no LLM required — same idea as ``harness_fleet``):
 
@@ -510,6 +510,19 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                         )
                         tool_name = f"consult_{slug}"
                         tool_desc = f"Hand off to the TrueForge ({rid}) remote operator (health/list/send)."
+                    elif k in specialist_specs:
+                        # Named instance of a catalog kind (``swarm-2`` /
+                        # ``swarm_gpu``): reuse its kind's specialist, but scope
+                        # the tool name to this instance so two peers of one
+                        # kind stay two distinguishable seats.
+                        instructions = specialist_specs[k][1]
+                        slug = rid.replace("-", "_").replace(".", "_")
+                        label = remotes_core.kind_label(k)
+                        agent_name = f"{''.join(p.capitalize() for p in slug.split('_'))}Remote"
+                        tool_name = f"consult_{slug}"
+                        tool_desc = (
+                            f"Hand off to the {label} ({rid}) remote operator (health/list/send)."
+                        )
                     else:
                         continue
                 agent = _agent(agent_name, instructions, shared)
@@ -545,9 +558,35 @@ class RemoteHarnessBlueprint(RemoteKindBase):
                 return str(m["content"]).strip()
         return support.render_prompt(messages).strip()
 
+    @staticmethod
+    def _seat_remote_id(params: dict[str, Any]) -> str:
+        """Remote id a nested seat frame names via ``remote_id`` / ``agent``.
+
+        A seat rendered from the rail carries the blueprint id
+        (``remote_harness`` / ``remote``) in ``name`` and the actual remote in
+        ``remote_id``. Returning "" keeps the id-based grammar unchanged.
+        """
+        for key in ("remote_id", "agent", "agent_id"):
+            raw = str(params.get(key) or "").strip()
+            if not raw:
+                continue
+            lowered = raw.lower()
+            if lowered in {"remote", "remote_harness", "remote-harness"}:
+                continue
+            if lowered.startswith("remote:"):
+                raw = raw.split(":", 1)[1]
+            elif lowered.startswith("remote-"):
+                raw = raw[len("remote-") :]
+            if raw.strip():
+                return raw.strip()
+        return ""
+
     def _parse(self, messages: list[dict[str, Any]]) -> tuple[str, str, str, str]:
         params = dict(self._params)
         name = str(params.get("name") or params.get("remote") or "").strip()
+        seat = self._seat_remote_id(params)
+        if seat and name.lower() in {"", "remote", "remote_harness", "remote-harness"}:
+            name = seat
         op = str(params.get("op") or "").strip().lower()
         target = str(
             params.get("target")
@@ -586,9 +625,11 @@ class RemoteHarnessBlueprint(RemoteKindBase):
         params = dict(self._params)
         text = self._last_user_text(messages)
         test_mode = os.environ.get("SWARM_TEST_MODE", "").lower() in ("1", "true", "yes")
+        seat_send = op == "send" and bool(name.strip()) and bool(self._seat_remote_id(params))
         deterministic = op in ("health", "list", "send") and (
             test_mode
             or self._params.get("op")
+            or seat_send
             or (text.split()[:1] and text.split()[0].lower().rstrip(":") in (
                 "health", "status", "check", "probe", "list", "ls", "config",
                 "send", "start", "job", "run",

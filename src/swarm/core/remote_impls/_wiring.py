@@ -151,9 +151,9 @@ def _swarm_send_bound(
     *,
     timeout: float,
     config: dict[str, Any] | None = None,  # noqa: ARG001
-    session_id: str | None = None,  # noqa: ARG001
+    session_id: str | None = None,
 ) -> R.OperateResult:
-    return R._swarm_send(spec, prompt, target, timeout)
+    return R._swarm_send(spec, prompt, target, timeout, session_id=session_id)
 
 
 def _trueforge_send_bound(

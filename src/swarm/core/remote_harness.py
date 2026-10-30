@@ -46,6 +46,11 @@ REMOTE_IMPL_CLASSIFIER_IDS: frozenset[str] = frozenset(
         "open-swarm",
         "openswarm",
         "open_swarm",
+        "operating-swarm",
+        "operating_swarm",
+        "os-peer",
+        "ospeer",
+        "os_peer",
         "trueforge",
         "true_forge",
         "true-forge",
@@ -67,6 +72,11 @@ _IMPL_ALIASES: dict[str, str] = {
     "open-swarm": "swarm",
     "openswarm": "swarm",
     "open_swarm": "swarm",
+    "operating-swarm": "swarm",
+    "operating_swarm": "swarm",
+    "os-peer": "swarm",
+    "ospeer": "swarm",
+    "os_peer": "swarm",
     "true_forge": "trueforge",
     "true-forge": "trueforge",
     "tencent-octop": "octop",
@@ -91,7 +101,7 @@ REMOTE_IMPL_LABELS: dict[str, str] = {
     "omb": "OpenMousBot",
     "rakazo": "Rakazo",
     "herdr": "Herdr",
-    "swarm": "Swarm",
+    "swarm": "Operating Swarm",
     "trueforge": "TrueForge",
     "octop": "Tencent Octop",
     "openmuse": "OpenMuse",
@@ -486,6 +496,11 @@ def is_remote_impl_id(raw: str | None) -> bool:
     for sep in ("_", "-"):
         if sep in key:
             prefix = _IMPL_ALIASES.get(key.split(sep, 1)[0], key.split(sep, 1)[0])
+            # ``swarm-<slug>`` is designer id space (slugify produces hyphens),
+            # but ``swarm_<slug>`` cannot be a design id — it stays a named
+            # instance, same as ``trueforge_prod``.
+            if prefix == "swarm" and sep == "_":
+                return True
             if prefix in REMOTE_IMPL_CLASSIFIER_IDS and prefix != "swarm":
                 return True
     return False

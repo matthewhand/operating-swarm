@@ -1,7 +1,7 @@
 """REQ-84: teammate task cards with Open-in-{remote} chrome.
 
 When a team tasks a configured remote worker (Hermes, OpenMousBot, Rakazo,
-Herdr, nested open-swarm), the chat shows a title + Running/Done card with
+Herdr, OS-peer), the chat shows a title + Running/Done card with
 an Open-in-{Kind} action. The href is the remote's persisted ``ui_url`` or
 ``base_url`` — never a guessed host, never a live LAN inventory, never
 ``OMB`` in user-facing copy.
@@ -33,6 +33,11 @@ _KIND_ALIASES: dict[str, str] = {
     "open-swarm": "swarm",
     "openswarm": "swarm",
     "open_swarm": "swarm",
+    "operating-swarm": "swarm",
+    "operating_swarm": "swarm",
+    "os-peer": "swarm",
+    "ospeer": "swarm",
+    "os_peer": "swarm",
 }
 
 TEAMMATE_TASK_TYPE = "teammate_task"
@@ -55,12 +60,18 @@ _SENSITIVE_QUERY = frozenset(
 
 
 def normalize_remote_kind(value: str) -> str:
-    """Canonical remote id (``omb``, ``swarm``, …) or empty."""
+    """Canonical remote *kind* (``omb``, ``swarm``, …) or empty."""
     rid = (value or "").strip().lower()
     rid = _KIND_ALIASES.get(rid, rid)
     if rid in REMOTE_IDS:
         return rid
-    return ""
+    try:
+        from swarm.core.remotes import kind_of_instance
+
+        named = kind_of_instance(value)
+    except RemoteError:
+        return ""
+    return named if named in REMOTE_IDS else ""
 
 
 def open_in_kind_label(kind_id: str) -> str:

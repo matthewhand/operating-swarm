@@ -24,4 +24,4 @@ class SwarmAdapter(RemoteAdapter):
     ) -> OperateResult:
         from swarm.core import remotes
 
-        return remotes._swarm_send(self.spec, prompt, target, timeout)
+        return remotes._swarm_send(self.spec, prompt, target, timeout, session_id=session_id)
