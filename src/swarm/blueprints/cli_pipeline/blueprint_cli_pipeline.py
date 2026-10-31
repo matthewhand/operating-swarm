@@ -22,7 +22,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
+from swarm.blueprints.common.cli_deliberation_base import CliDeliberationBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ The current draft (produced by an earlier stage) is:
 """
 
 
-class CliPipelineBlueprint(CliKindBase):
+class CliPipelineBlueprint(CliDeliberationBase):
     """Run a prompt through an ordered chain of CLIs, each refining the last."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -68,10 +68,6 @@ class CliPipelineBlueprint(CliKindBase):
 
     def __init__(self, blueprint_id: str = "cli_pipeline", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
-        self._params: dict[str, Any] = {}
-
-    def set_params(self, params: dict[str, Any] | None) -> None:
-        self._params = dict(params or {})
 
     def _resolve_stages(
         self, params: dict[str, Any], registry: CliAdapterRegistry
@@ -81,15 +77,14 @@ class CliPipelineBlueprint(CliKindBase):
         A stage may be a bare cli name or ``{"cli": name, "instruction": str}``.
         Unknown CLIs are dropped. Falls back to a ``cli_fusion`` preset panel.
         """
-        pc = (self._config or {}).get("cli_pipeline") or {}
-        fusion = (self._config or {}).get("cli_fusion") or {}
+        pc = self.get_strategy_config("cli_pipeline")
 
         raw = params.get("stages") or pc.get("stages")
         if not raw:
-            preset = (fusion.get("presets") or {}).get(fusion.get("default_preset")) or {}
+            preset = self.get_fusion_preset()
             # Prefer an explicit panel / default_cli over "every CLI in series"
             # (which routinely exceeds chat prove budgets on multi-CLI hosts).
-            default_cli = fusion.get("default_cli")
+            default_cli = self.get_default_cli()
             available = registry.available() or registry.names()
             if preset.get("panel"):
                 raw = preset.get("panel")
@@ -113,14 +108,12 @@ class CliPipelineBlueprint(CliKindBase):
         return stages[:MAX_STAGES]
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
-        params = dict(self._params)
-
-        prompt = support.render_prompt(messages)
-        if not prompt:
-            yield support.message_chunk("No prompt provided.", final=True)
+        prompt, registry, workdir, err = self.prepare_deliberation(messages)
+        if err:
+            yield err
             return
 
-        registry = support.apply_overrides(support.build_registry(self._config), params)
+        params = dict(self._params)
         stages = self._resolve_stages(params, registry)
         if not stages:
             yield support.message_chunk(
@@ -129,13 +122,6 @@ class CliPipelineBlueprint(CliKindBase):
             )
             return
 
-        from swarm.core.workdir import WorkdirEscapeError
-
-        try:
-            workdir = support.resolve_workdir(params)
-        except WorkdirEscapeError as e:
-            yield support.message_chunk(str(e), final=True)
-            return
         names = ", ".join(n for n, _ in stages)
         yield support.progress_chunk(f"_Pipeline of {len(stages)} stage(s): {names}…_")
 

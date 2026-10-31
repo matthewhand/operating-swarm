@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
+from swarm.blueprints.common.cli_deliberation_base import CliDeliberationBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -95,7 +95,7 @@ class _Budget:
         self._remaining -= n
 
 
-class CliRecurseBlueprint(CliKindBase):
+class CliRecurseBlueprint(CliDeliberationBase):
     """Recursively break a problem down to any depth, then synthesize back up."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -115,18 +115,14 @@ class CliRecurseBlueprint(CliKindBase):
 
     def __init__(self, blueprint_id: str = "cli_recurse", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
-        self._params: dict[str, Any] = {}
-
-    def set_params(self, params: dict[str, Any] | None) -> None:
-        self._params = dict(params or {})
 
     # --- config resolution --------------------------------------------- #
 
     def _pick(self, role: str, params: dict[str, Any], registry: CliAdapterRegistry) -> str | None:
         """Resolve a single CLI for a role, falling back to cli_fusion's default."""
-        cfg = (self._config or {}).get("cli_recurse") or {}
-        fusion = (self._config or {}).get("cli_fusion") or {}
-        name = params.get(role) or cfg.get(role) or fusion.get("default_cli")
+        cfg = self.get_strategy_config("cli_recurse")
+        default_cli = self.get_default_cli()
+        name = params.get(role) or cfg.get(role) or default_cli
         known = set(registry.names())
         if name and name in known:
             return name
@@ -136,12 +132,7 @@ class CliRecurseBlueprint(CliKindBase):
         return None
 
     def _int(self, key: str, params: dict[str, Any], default: int, hard_cap: int) -> int:
-        cfg = (self._config or {}).get("cli_recurse") or {}
-        raw = params.get(key, cfg.get(key, default))
-        try:
-            return max(1, min(int(raw), hard_cap))
-        except (TypeError, ValueError):
-            return default
+        return self.bounded_int(params, key, default=default, max_val=hard_cap)
 
     # --- recursion ------------------------------------------------------ #
 
@@ -203,13 +194,12 @@ class CliRecurseBlueprint(CliKindBase):
     # --- entrypoint ----------------------------------------------------- #
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
-        params = dict(self._params)
-        prompt = support.render_prompt(messages)
-        if not prompt:
-            yield support.message_chunk("No prompt provided.", final=True)
+        prompt, registry, workdir, err = self.prepare_deliberation(messages)
+        if err:
+            yield err
             return
 
-        registry = support.apply_overrides(support.build_registry(self._config), params)
+        params = dict(self._params)
         decomposer = self._pick("decomposer", params, registry)
         solver = self._pick("solver", params, registry)
         synthesizer = self._pick("synthesizer", params, registry)
@@ -218,14 +208,6 @@ class CliRecurseBlueprint(CliKindBase):
                 support.unconfigured_cli_message("No CLI is configured for cli_recurse"),
                 final=True,
             )
-            return
-
-        from swarm.core.workdir import WorkdirEscapeError
-
-        try:
-            workdir = support.resolve_workdir(params)
-        except WorkdirEscapeError as e:
-            yield support.message_chunk(str(e), final=True)
             return
 
         ctx = SimpleNamespace(
