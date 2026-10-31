@@ -160,8 +160,8 @@ remount them; SPA↔Django parity is **rejected** as a v1 goal.
 - [ ] Functional MCP server hosting blueprints as tools
   - [x] URL routing behind the flag
   - [x] `provider.py` executes blueprints with passing tests (stale TODO docstring corrected)
-  - [ ] Declare the `django-mcp-server` dependency (imports as `mcp_server`; not in `pyproject.toml` — the mount is dead on a clean install; see `docs/mcp_server_mode.md`)
-  - [ ] Auth story for MCP clients (token-based)
+  - [x] Declare the `django-mcp-server` dependency (declared as `[mcp]` extra in `pyproject.toml`, locked in `uv.lock`; see `docs/mcp_server_mode.md`)
+  - [x] Auth story for MCP clients (token-based via `API_AUTH_TOKEN` / Bearer header, documented in `docs/mcp_server_mode.md` and `docs/AUTH.md`)
 
 ### 3.4 Marketplace/Wagtail (`ENABLE_WAGTAIL`) and SAML IdP (`ENABLE_SAML_IDP`) — REMOVED
 

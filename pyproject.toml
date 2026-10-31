@@ -189,11 +189,11 @@ memory = [
     # "langmem>=0.1.0",
     # "papr>=0.1.0",
 ]
-# NOTE: MCP server mode (ENABLE_MCP_SERVER) needs the `django-mcp-server`
-# distribution (module `mcp_server`). It is NOT declared as an extra here because
-# its transitive `mcp` SDK dependency only resolves with pre-releases enabled,
-# which would break `uv lock --check`. Install it manually when you need MCP
-# server mode: `pip install django-mcp-server` (see docs/mcp_server_mode.md).
+mcp = [
+    # MCP server mode (ENABLE_MCP_SERVER) exposes an MCP endpoint backed by
+    # django-mcp-server (module `mcp_server`). See docs/mcp_server_mode.md.
+    "django-mcp-server>=0.5.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-django>=4.7.0",
