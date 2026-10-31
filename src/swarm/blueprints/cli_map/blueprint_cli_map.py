@@ -19,7 +19,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
+from swarm.blueprints.common.cli_deliberation_base import CliDeliberationBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -51,7 +51,7 @@ overlap or contradiction. Return only the combined answer.
 """
 
 
-class CliMapBlueprint(CliKindBase):
+class CliMapBlueprint(CliDeliberationBase):
     """Plan → map across workers → reduce."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -71,27 +71,23 @@ class CliMapBlueprint(CliKindBase):
 
     def __init__(self, blueprint_id: str = "cli_map", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
-        self._params: dict[str, Any] = {}
-
-    def set_params(self, params: dict[str, Any] | None) -> None:
-        self._params = dict(params or {})
 
     def _resolve(
         self, params: dict[str, Any], registry: CliAdapterRegistry
     ) -> tuple[str | None, list[str], str | None]:
         """Resolve (planner, workers, reducer), falling back to cli_fusion config."""
-        mc = (self._config or {}).get("cli_map") or {}
-        fusion = (self._config or {}).get("cli_fusion") or {}
+        mc = self.get_strategy_config("cli_map")
+        default_cli = self.get_default_cli()
 
-        planner = params.get("planner") or mc.get("planner") or fusion.get("default_cli")
-        reducer = params.get("reducer") or mc.get("reducer") or fusion.get("default_cli")
+        planner = params.get("planner") or mc.get("planner") or default_cli
+        reducer = params.get("reducer") or mc.get("reducer") or default_cli
         workers = params.get("workers") or mc.get("workers")
         if not workers:
             single = params.get("worker") or mc.get("worker")
             if single:
                 workers = [single]
             else:
-                preset = (fusion.get("presets") or {}).get(fusion.get("default_preset")) or {}
+                preset = self.get_fusion_preset()
                 workers = preset.get("panel") or registry.available() or registry.names()
 
         known = set(registry.names())
@@ -103,21 +99,15 @@ class CliMapBlueprint(CliKindBase):
         return planner, workers, reducer
 
     def _max_items(self, params: dict[str, Any]) -> int:
-        raw = params.get("max_items", ((self._config or {}).get("cli_map") or {}).get("max_items", DEFAULT_MAX_ITEMS))
-        try:
-            return max(1, min(int(raw), 20))
-        except (TypeError, ValueError):
-            return DEFAULT_MAX_ITEMS
+        return self.bounded_int(params, "max_items", default=DEFAULT_MAX_ITEMS, max_val=20)
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
-        params = dict(self._params)
-
-        prompt = support.render_prompt(messages)
-        if not prompt:
-            yield support.message_chunk("No prompt provided.", final=True)
+        prompt, registry, workdir, err = self.prepare_deliberation(messages)
+        if err:
+            yield err
             return
 
-        registry = support.apply_overrides(support.build_registry(self._config), params)
+        params = dict(self._params)
         planner, workers, reducer = self._resolve(params, registry)
         if not workers:
             yield support.message_chunk(
@@ -126,13 +116,6 @@ class CliMapBlueprint(CliKindBase):
             )
             return
 
-        from swarm.core.workdir import WorkdirEscapeError
-
-        try:
-            workdir = support.resolve_workdir(params)
-        except WorkdirEscapeError as e:
-            yield support.message_chunk(str(e), final=True)
-            return
         max_items = self._max_items(params)
 
         # 1. Decompose — explicit items, else the planner.

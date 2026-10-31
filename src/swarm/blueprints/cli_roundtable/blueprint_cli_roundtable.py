@@ -19,7 +19,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
+from swarm.blueprints.common.cli_deliberation_base import CliDeliberationBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -54,7 +54,7 @@ Decide whether the panel has converged enough to conclude. Return ONLY a JSON ob
 """
 
 
-class CliRoundtableBlueprint(CliKindBase):
+class CliRoundtableBlueprint(CliDeliberationBase):
     """Run a bounded multi-CLI debate moderated to a synthesized conclusion."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -74,24 +74,19 @@ class CliRoundtableBlueprint(CliKindBase):
 
     def __init__(self, blueprint_id: str = "cli_roundtable", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
-        self._params: dict[str, Any] = {}
-
-    def set_params(self, params: dict[str, Any] | None) -> None:
-        self._params = dict(params or {})
 
     def _resolve(
         self, params: dict[str, Any], registry: CliAdapterRegistry
     ) -> tuple[list[str], str | None]:
         """Resolve (debaters, moderator), falling back to a cli_fusion preset."""
-        rc = (self._config or {}).get("cli_roundtable") or {}
-        fusion = (self._config or {}).get("cli_fusion") or {}
-        preset = (fusion.get("presets") or {}).get(fusion.get("default_preset")) or {}
+        rc = self.get_strategy_config("cli_roundtable")
+        preset = self.get_fusion_preset()
+        default_cli = self.get_default_cli()
 
         debaters = params.get("debaters") or rc.get("debaters") or preset.get("panel")
         if not debaters:
             # Avoid spawning every configured CLI (chat prove / short turns).
             # Prefer an explicit fusion default, else a single available CLI.
-            default_cli = fusion.get("default_cli")
             available = registry.available() or registry.names()
             if default_cli and default_cli in set(registry.names()):
                 debaters = [default_cli]
@@ -103,7 +98,7 @@ class CliRoundtableBlueprint(CliKindBase):
             params.get("moderator")
             or rc.get("moderator")
             or preset.get("judge")
-            or fusion.get("default_cli")
+            or default_cli
         )
 
         known = set(registry.names())
@@ -113,21 +108,15 @@ class CliRoundtableBlueprint(CliKindBase):
         return debaters, moderator
 
     def _rounds(self, params: dict[str, Any]) -> int:
-        raw = params.get("rounds", ((self._config or {}).get("cli_roundtable") or {}).get("rounds", DEFAULT_ROUNDS))
-        try:
-            return max(1, min(int(raw), MAX_ROUNDS))
-        except (TypeError, ValueError):
-            return DEFAULT_ROUNDS
+        return self.bounded_int(params, "rounds", default=DEFAULT_ROUNDS, max_val=MAX_ROUNDS)
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
-        params = dict(self._params)
-
-        question = support.render_prompt(messages)
-        if not question:
-            yield support.message_chunk("No prompt provided.", final=True)
+        question, registry, workdir, err = self.prepare_deliberation(messages)
+        if err:
+            yield err
             return
 
-        registry = support.apply_overrides(support.build_registry(self._config), params)
+        params = dict(self._params)
         debaters, moderator = self._resolve(params, registry)
         if not debaters:
             yield support.message_chunk(
@@ -137,12 +126,6 @@ class CliRoundtableBlueprint(CliKindBase):
                 final=True,
             )
             return
-
-        from swarm.core.workdir import WorkdirEscapeError
-
-        try:
-            workdir = support.resolve_workdir(params)
-        except WorkdirEscapeError as e:
             yield support.message_chunk(str(e), final=True)
             return
         rounds = self._rounds(params)

@@ -21,7 +21,7 @@ import logging
 from typing import Any, ClassVar
 
 from swarm.blueprints.common import cli_fusion_support as support
-from swarm.core.kind_bases import CliKindBase
+from swarm.blueprints.common.cli_deliberation_base import CliDeliberationBase
 from swarm.core.cli_adapter import CliAdapterRegistry
 from swarm.core.consensus import safe_json
 
@@ -65,7 +65,7 @@ Write the final answer to the goal, integrating the results. Return only the ans
 """
 
 
-class CliPlannerBlueprint(CliKindBase):
+class CliPlannerBlueprint(CliDeliberationBase):
     """Plan, delegate, review, re-plan on stall, then synthesize."""
 
     metadata: ClassVar[dict[str, Any]] = {
@@ -85,21 +85,17 @@ class CliPlannerBlueprint(CliKindBase):
 
     def __init__(self, blueprint_id: str = "cli_planner", config=None, config_path=None, **kwargs):
         super().__init__(blueprint_id, config=config, config_path=config_path, **kwargs)
-        self._params: dict[str, Any] = {}
-
-    def set_params(self, params: dict[str, Any] | None) -> None:
-        self._params = dict(params or {})
 
     def _resolve(
         self, params: dict[str, Any], registry: CliAdapterRegistry
     ) -> tuple[str | None, list[str]]:
         """Resolve (planner, workers), falling back to cli_map / cli_fusion config."""
-        pc = (self._config or {}).get("cli_planner") or {}
-        mc = (self._config or {}).get("cli_map") or {}
-        fusion = (self._config or {}).get("cli_fusion") or {}
-        preset = (fusion.get("presets") or {}).get(fusion.get("default_preset")) or {}
+        pc = self.get_strategy_config("cli_planner")
+        mc = self.get_strategy_config("cli_map")
+        default_cli = self.get_default_cli()
+        preset = self.get_fusion_preset()
 
-        planner = params.get("planner") or pc.get("planner") or mc.get("planner") or fusion.get("default_cli")
+        planner = params.get("planner") or pc.get("planner") or mc.get("planner") or default_cli
         workers = params.get("workers") or pc.get("workers") or mc.get("workers")
         if not workers:
             single = params.get("worker") or pc.get("worker") or mc.get("worker")
@@ -112,11 +108,7 @@ class CliPlannerBlueprint(CliKindBase):
         return planner, workers
 
     def _max_rounds(self, params: dict[str, Any]) -> int:
-        raw = params.get("max_rounds", ((self._config or {}).get("cli_planner") or {}).get("max_rounds", DEFAULT_MAX_ROUNDS))
-        try:
-            return max(1, min(int(raw), MAX_ROUNDS_CEILING))
-        except (TypeError, ValueError):
-            return DEFAULT_MAX_ROUNDS
+        return self.bounded_int(params, "max_rounds", default=DEFAULT_MAX_ROUNDS, max_val=MAX_ROUNDS_CEILING)
 
     @staticmethod
     def _completed_block(completed: list[tuple[str, str, str]]) -> str:
@@ -125,14 +117,12 @@ class CliPlannerBlueprint(CliKindBase):
         return "\n\n".join(f"### {sub}\n_(by {w})_\n{text}" for sub, w, text in completed)
 
     async def run(self, messages: list[dict[str, Any]], **kwargs) -> Any:
-        params = dict(self._params)
-
-        goal = support.render_prompt(messages)
-        if not goal:
-            yield support.message_chunk("No prompt provided.", final=True)
+        goal, registry, workdir, err = self.prepare_deliberation(messages)
+        if err:
+            yield err
             return
 
-        registry = support.apply_overrides(support.build_registry(self._config), params)
+        params = dict(self._params)
         planner, workers = self._resolve(params, registry)
         if not planner:
             yield support.message_chunk(
@@ -151,13 +141,6 @@ class CliPlannerBlueprint(CliKindBase):
             )
             return
 
-        from swarm.core.workdir import WorkdirEscapeError
-
-        try:
-            workdir = support.resolve_workdir(params)
-        except WorkdirEscapeError as e:
-            yield support.message_chunk(str(e), final=True)
-            return
         max_rounds = self._max_rounds(params)
 
         # 1. Initial plan → the ledger of open subtasks.

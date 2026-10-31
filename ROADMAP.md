@@ -317,8 +317,13 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
   `tests/core/test_blueprint_metadata_validator.py`. (`whinge_surf` husk removed.)
 - [ ] **`urls.py` REST inconsistency** — hand-duplicated slash/no-slash route
   pairs, mixed CBV/FBV, 4 auth styles. Adopt a DRF router for `v1/*` resources.
-- [ ] **9 `cli_*` deliberation blueprints overlap** — a strategy family as 9
-  top-level blueprints. Consider one blueprint + `strategy` param, or a shared base.
+- [x] **9 `cli_*` deliberation blueprints overlap** — extracted `CliDeliberationBase`
+  (`blueprints/common/cli_deliberation_base.py`) providing unified parameter management,
+  configuration fallbacks (`get_fusion_config`, `get_strategy_config`, `get_fusion_preset`,
+  `get_default_cli`), `bounded_int` parsing, and `prepare_deliberation` lifecycle across the
+  deliberation strategy family (`cli_map`, `cli_orchestrator`, `cli_pipeline`, `cli_planner`,
+  `cli_recurse`, `cli_roundtable`; `cli_fusion`/`cli_ensemble` aliased to MoA), verified by
+  `tests/blueprints/test_cli_deliberation_base.py` and all 107 blueprint tests.
 
 ### 4.6 UX / SPA (medium)
 - [x] **Toast a11y** — DaisyUI `ToastItem` now `role="status"` + `aria-live`
