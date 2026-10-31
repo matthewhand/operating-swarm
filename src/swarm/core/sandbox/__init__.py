@@ -8,6 +8,8 @@ from .base import (
 )
 from .daytona_sandbox import DaytonaSandbox
 from .disabled_sandbox import DisabledSandbox
+from .docker_sandbox import DockerSandbox
+from .e2b_sandbox import E2BSandbox
 from .langchain_sandbox import LangChainSandboxHarness
 from .local_sandbox import LocalSubprocessSandbox
 from .manager import (
@@ -26,6 +28,8 @@ __all__ = [
     "DEFAULT_SANDBOX_PROVIDER",
     "DaytonaSandbox",
     "DisabledSandbox",
+    "DockerSandbox",
+    "E2BSandbox",
     "LangChainSandboxHarness",
     "LocalSubprocessSandbox",
     "MockSandbox",

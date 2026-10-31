@@ -11,6 +11,8 @@ from typing import Any
 from .base import SandboxBackend, SandboxConfig, SandboxExecutionResult
 from .daytona_sandbox import DaytonaSandbox
 from .disabled_sandbox import DisabledSandbox
+from .docker_sandbox import DockerSandbox
+from .e2b_sandbox import E2BSandbox
 from .langchain_sandbox import LangChainSandboxHarness
 from .local_sandbox import LocalSubprocessSandbox
 from .mock_sandbox import MockSandbox
@@ -25,6 +27,8 @@ SANDBOX_PROVIDER_ALIASES: dict[str, str] = {
     "bare_metal": "local",
     "local": "local",
     "daytona": "daytona",
+    "docker": "docker",
+    "e2b": "e2b",
     "mock": "mock",
 }
 
@@ -194,12 +198,10 @@ class SandboxManager:
             return LangChainSandboxHarness(cfg)
         elif cfg.backend_type == "daytona":
             return DaytonaSandbox(cfg)
-        elif cfg.backend_type in ("docker", "e2b"):
-            logger.warning(
-                "Container backend '%s' selected; falling back to local bare-metal execution",
-                cfg.backend_type,
-            )
-            return LocalSubprocessSandbox(cfg)
+        elif cfg.backend_type == "docker":
+            return DockerSandbox(cfg)
+        elif cfg.backend_type == "e2b":
+            return E2BSandbox(cfg)
         else:
             return LocalSubprocessSandbox(cfg)
 
