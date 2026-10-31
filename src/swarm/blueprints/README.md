@@ -45,6 +45,23 @@ See **[docs/SWARM_WORKFLOWS.md](../../../docs/SWARM_WORKFLOWS.md)**.
 Legacy name **CLI Fusion** still appears as blueprint/alias ids (`cli_fusion`,
 `cli_ensemble`, …); prefer **MoA** for read-only consensus ([GLOSSARY](../../../docs/GLOSSARY.md)).
 
+## Flagship Blueprints
+
+Operating Swarm curates a core set of **flagship blueprints** that serve as primary production examples and verified capabilities:
+
+| Blueprint | Domain | Capabilities & Interface | Test Suite |
+|---|---|---|---|
+| `codey` | Coding workflow | Linux/git automation, coordinator agent, interactive spinner | `tests/blueprints/test_codey_basic.py` |
+| `geese` | Multi-agent research & writing | Parallel researcher flock, synthesis, operation box | `tests/blueprints/test_geese_spinner_and_box.py` |
+| `jeeves` | MCP-enabled digital butler | Model Context Protocol integration, task routing | `tests/blueprints/test_jeeves_spinner_and_box.py` |
+| `zeus` | Large software dev coordination | Multi-seat engineering swarm, architect, code review | `tests/blueprints/test_zeus_spinner_and_box.py` |
+| `suggestion` | Structured JSON recommendation | JSON schema-constrained prompt refinement | `tests/blueprints/test_suggestion.py` |
+| `rue_code` | Multi-agent code review | Static analysis, security inspection, patch drafting | `tests/blueprints/test_rue_code_spinner_and_box.py` |
+| `poets` | Creative swarm | Collaborative literary composition backed by SQLite | `tests/blueprints/test_poets.py` |
+| `stewie` | WordPress / publishing demo | Content curation, MCP publishing bridge | `tests/blueprints/test_stewie.py` |
+
+All flagship blueprints are covered by hermetic tests in `tests/blueprints/` and verified across streaming and non-streaming API surfaces in `tests/api/test_blueprint_api_smoke.py`.
+
 ## Discoverable packages (2026-08-18)
 
 Canonical directory names (each has `blueprint_<name>.py`). Discovery also

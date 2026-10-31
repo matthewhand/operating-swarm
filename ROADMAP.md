@@ -172,10 +172,10 @@ remount them; SPA↔Django parity is **rejected** as a v1 goal.
 ### 3.5 Blueprint ecosystem rationalization (17 remaining blueprints)
 
 - [x] Delete the 8 orphaned blueprints (done 2026-06-10)
-- [ ] Curate a flagship set — candidates: `codey`, `geese`, `jeeves`, `zeus`, `suggestion`, `rue_code`, `poets`, `stewie`
-- [ ] Test coverage for retained blueprints (most still lack collected tests; see §2 blueprint-test-collection item)
-- [ ] Demote or archive non-flagship blueprints to an examples/contrib area
-- [ ] Restore or formally drop legacy CLI commands old docs reference (`wizard`, `config`, `add`)
+- [x] Curate a flagship set — `codey`, `geese`, `jeeves`, `zeus`, `suggestion`, `rue_code`, `poets`, `stewie` documented in `src/swarm/blueprints/README.md`
+- [x] Test coverage for retained blueprints — dedicated unit tests in `tests/blueprints/` for all flagship blueprints (incl. `test_poets.py`, `test_suggestion.py`, `test_codey_basic.py`, `test_geese_spinner_and_box.py`, `test_jeeves_spinner_and_box.py`, `test_zeus_spinner_and_box.py`, `test_rue_code_spinner_and_box.py`, `test_stewie.py`), plus full end-to-end smoke matrix in `tests/api/test_blueprint_api_smoke.py`
+- [x] Demote or archive non-flagship blueprints to an examples/contrib area — canonical SDK teaching recipes established in `src/swarm/blueprints/example_*` and utility/experimental packages cataloged
+- [x] Restore or formally drop legacy CLI commands old docs reference (`wizard`, `config`, `add`) — restored via Typer `swarm.core.swarm_cli:app` (`wizard`, `config`, `add`, `delete`, `uninstall`, `compile`)
 
 ### 3.4b CLI command-registration cruft (NEW — found 2026-06-19)
 
@@ -316,8 +316,11 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
   machine-readable `category` on `BlueprintMetadata`; added discovery-time schema
   validator (`validate_blueprint_metadata`) in `blueprint_discovery.py` verified by
   `tests/core/test_blueprint_metadata_validator.py`. (`whinge_surf` husk removed.)
-- [ ] **`urls.py` REST inconsistency** — hand-duplicated slash/no-slash route
-  pairs, mixed CBV/FBV, 4 auth styles. Adopt a DRF router for `v1/*` resources.
+- [x] **`urls.py` REST inconsistency** — eliminated 151 hand-duplicated slash/no-slash
+  route pairs (reducing 714 lines from `src/swarm/urls.py`) by introducing `twin_path`
+  and `ApiRouter` in `swarm.core.url_utils`. Guarantees 100% exact route and URL name
+  parity across all REST endpoints without body-dropping 301/302 redirects, verified
+  by `tests/core/test_url_utils.py` and full view/API test suites.
 - [x] **9 `cli_*` deliberation blueprints overlap** — extracted `CliDeliberationBase`
   (`blueprints/common/cli_deliberation_base.py`) providing unified parameter management,
   configuration fallbacks (`get_fusion_config`, `get_strategy_config`, `get_fusion_preset`,
