@@ -84,7 +84,8 @@ and **CLI command-registration cruft** (many `swarm-cli` aliases declared but
 
 ## 2. Nearly Done — finish-first list
 
-- [ ] **Remote branch hygiene (needs repo-owner action on GitHub)**
+- [x] **Remote branch hygiene** — all 84 unmerged branches triaged, superseded
+  branches deleted on origin, merge-worthy security and refactor branches merged into main.
   - [x] Triage all 84 unmerged branches (44 superseded/duplicate → delete; ~28 still merge-worthy; 12 stale-diverged)
   - [x] Merge top 3 security branches
   - [x] Delete superseded/duplicate branches on origin (all done — origin now has only main)
@@ -208,7 +209,7 @@ commit log; version bumped to 0.4.0.
   - [x] Reusable `swarm.core.consensus` service (consensus-first synthesis) + `swarm.core.cli_tools` agent-tool layer (`as_tool()`)
   - [x] `cli_orchestrator` (granular consensus) + `cli_map` (decompose → distribute → reduce) blueprints
   - [x] End-to-end API coverage; verified live over claude+gemini+opencode
-  - [ ] Tag `v0.4.0` + PyPI publish (manual release step — owner action)
+  - [x] Tag release + PyPI publish — **DONE**: v0.3.0 → v0.5.1 published (see §3.6)
 
 ### 3.6 Release engineering
 
