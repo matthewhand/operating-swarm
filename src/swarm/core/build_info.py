@@ -39,6 +39,7 @@ EXTRA_MARKERS: dict[str, str] = {
     "desktop": "webview",
     "memory": "mem0",
     "test": "pytest",
+    "mcp": "mcp_server",
 }
 
 #: Startup requirements that are NOT optional. Tracked so a stripped install

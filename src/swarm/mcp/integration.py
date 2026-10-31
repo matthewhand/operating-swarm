@@ -1,10 +1,12 @@
 """Integration layer between BlueprintMCPProvider and django-mcp-server.
 
 This remains import-guarded and safe when the MCP server package is absent.
+Supports both django-mcp-server >=0.5.0 (add_tool) and legacy (registry.register_tool).
 """
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -16,38 +18,42 @@ logger = logging.getLogger(__name__)
 def register_blueprints_with_mcp() -> int:
     """Register discovered blueprints as MCP tools.
 
-    Returns the number of tools registered. If the MCP server module is missing
-    or the flat ``registry.register_tool`` API is absent (``mcp_server`` ≥0.5),
-    logs at ERROR and returns 0 without raising.
+    Supports both django-mcp-server >=0.5.0 (via ``mcp_server.mcp_server.add_tool``)
+    and legacy versions (via ``mcp_server.registry.register_tool``).
 
-    NOTE (2026-06-19): `django-mcp-server` (module `mcp_server`) ≥0.5 exposes an
-    ``MCPToolset`` / decorator API, NOT the flat ``registry.register_tool(...)``
-    this was written against — so this bridge is a **no-op** today and needs
-    porting to the toolset paradigm (tracked in ROADMAP §3.3). ``ENABLE_MCP_SERVER``
-    still mounts ``/mcp/`` via ``mcp_server.urls`` once the package is installed;
-    that mount does **not** expose Operating Swarm blueprints as tools until this
-    bridge is ported.
+    Returns the number of tools registered. If the MCP server module is missing
+    or no supported registration API is found, logs an error and returns 0 without raising.
     """
     try:
-        # Legacy/expected flat registry API — absent in mcp_server >=0.5 (see note).
-        from mcp_server import registry  # type: ignore
+        import mcp_server
     except Exception as exc:
         logger.error(
             "MCP blueprint→tool bridge unavailable: cannot import "
-            "mcp_server.registry (%s). mcp_server≥0.5 replaced flat "
-            "registry.register_tool with MCPToolset — ENABLE_MCP_SERVER mounts "
-            "/mcp/ but blueprints are NOT MCP tools until the bridge is ported "
+            "mcp_server (%s). Install django-mcp-server with `pip install .[mcp]` "
+            "— blueprints are NOT MCP tools until installed "
             "(docs/mcp_server_mode.md, ROADMAP §3.3).",
             exc,
         )
         return 0
 
-    if not hasattr(registry, "register_tool"):
+    server = getattr(mcp_server, "mcp_server", None)
+    registry = getattr(mcp_server, "registry", None)
+    if registry is None:
+        try:
+            from mcp_server import registry as _reg  # type: ignore
+
+            registry = _reg
+        except Exception:
+            registry = None
+
+    has_add_tool = server is not None and hasattr(server, "add_tool")
+    has_register_tool = registry is not None and hasattr(registry, "register_tool")
+
+    if not has_add_tool and not has_register_tool:
         logger.error(
-            "MCP blueprint→tool bridge no-op: mcp_server.registry has no "
-            "register_tool (mcp_server≥0.5 MCPToolset API). ENABLE_MCP_SERVER "
-            "mounts /mcp/ but blueprints are NOT MCP tools until the bridge is "
-            "ported (docs/mcp_server_mode.md, ROADMAP §3.3)."
+            "MCP blueprint→tool bridge no-op: mcp_server has neither "
+            "mcp_server.add_tool nor registry.register_tool — blueprints are "
+            "NOT MCP tools (docs/mcp_server_mode.md, ROADMAP §3.3)."
         )
         return 0
 
@@ -55,23 +61,42 @@ def register_blueprints_with_mcp() -> int:
     count = 0
     for tool in provider.list_tools():
         name = tool.get("name")
+        if not name:
+            continue
         parameters = tool.get("parameters")
-        description = tool.get("description")
-
-        def make_handler(n: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-            def _handler(arguments: dict[str, Any]) -> dict[str, Any]:
-                return provider.call_tool(n, arguments)
-
-            return _handler
+        description = tool.get("description") or f"Blueprint {name}"
 
         try:
-            registry.register_tool(
-                name=name,
-                parameters=parameters,
-                description=description,
-                handler=make_handler(name),
-            )
-            count += 1
+            if has_add_tool:
+                def make_tool_fn(b_name: str, doc_str: str):
+                    def blueprint_tool(instruction: str) -> str:
+                        res = provider.call_tool(b_name, {"instruction": instruction})
+                        if isinstance(res, dict):
+                            return res.get("content", str(res))
+                        return str(res)
+
+                    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", b_name)
+                    blueprint_tool.__name__ = f"tool_{sanitized}"
+                    blueprint_tool.__doc__ = doc_str
+                    return blueprint_tool
+
+                fn = make_tool_fn(name, description)
+                server.add_tool(fn, name=name, description=description)
+                count += 1
+            elif has_register_tool:
+                def make_handler(n: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+                    def _handler(arguments: dict[str, Any]) -> dict[str, Any]:
+                        return provider.call_tool(n, arguments)
+
+                    return _handler
+
+                registry.register_tool(
+                    name=name,
+                    parameters=parameters,
+                    description=description,
+                    handler=make_handler(name),
+                )
+                count += 1
         except Exception:
             logger.error(
                 "Failed to register blueprint %r as MCP tool",
@@ -86,5 +111,7 @@ def register_blueprints_with_mcp() -> int:
             "may still mount /mcp/, but blueprints are NOT exposed as MCP tools "
             "(docs/mcp_server_mode.md, ROADMAP §3.3)."
         )
+    else:
+        logger.info("Registered %d blueprint(s) as MCP tools", count)
 
     return count

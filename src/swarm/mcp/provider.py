@@ -135,7 +135,13 @@ class BlueprintMCPProvider:
                 started_servers = self._start_required_mcp_servers(required_servers)
 
             # Create blueprint instance
-            blueprint_instance = blueprint_cls()
+            try:
+                blueprint_instance = blueprint_cls(blueprint_id=name)
+            except TypeError:
+                try:
+                    blueprint_instance = blueprint_cls(name)
+                except TypeError:
+                    blueprint_instance = blueprint_cls()
 
             # Prepare messages for blueprint run
             messages = [{"role": "user", "content": instruction}]
@@ -269,23 +275,36 @@ class BlueprintMCPProvider:
             finally:
                 self._close_process_pipes(proc)
 
+    @staticmethod
+    def _run_coroutine_sync(coro):
+        """Execute a coroutine synchronously, handling active event loops gracefully."""
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+            in_loop = True
+        except RuntimeError:
+            in_loop = False
+
+        if in_loop:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(lambda: asyncio.run(coro)).result()
+        else:
+            return asyncio.run(coro)
+
     def _run_blueprint_sync(self, blueprint_instance, messages: list[dict], mcp_servers: list, blueprint_name: str = "unknown") -> dict[str, Any]:
         """Run blueprint synchronously and collect async output."""
+        import asyncio
+
         # Check if blueprint_instance.run is a mock that should be called directly
         if hasattr(blueprint_instance.run, '__name__') and 'mock' in blueprint_instance.run.__name__.lower():
             # For mock objects, call the mock directly
-            import asyncio
             try:
                 run_method = blueprint_instance.run
                 result = run_method(messages, mcp_servers_override=mcp_servers)
                 # Always check if result is a coroutine and await if necessary
                 if asyncio.iscoroutine(result):
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        results = loop.run_until_complete(result)
-                    finally:
-                        loop.close()
+                    results = self._run_coroutine_sync(result)
                 else:
                     results = result
             except Exception as e:
@@ -315,8 +334,6 @@ class BlueprintMCPProvider:
                     yield chunk
 
             # Run the async generator to completion and collect results
-            import asyncio
-
             async def collect_results():
                 results = []
                 try:
@@ -327,12 +344,9 @@ class BlueprintMCPProvider:
                     return e
                 return results
 
-            # Run the async collection in a new event loop
+            # Run the async collection safely
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                collected_results = loop.run_until_complete(collect_results())
-                loop.close()
+                collected_results = self._run_coroutine_sync(collect_results())
 
                 # Handle case where collected_results is an exception (e.g. when blueprint.run raises an exception)
                 if isinstance(collected_results, Exception):

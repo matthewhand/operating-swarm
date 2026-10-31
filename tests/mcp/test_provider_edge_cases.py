@@ -582,10 +582,11 @@ def test_register_blueprints_missing_mcp_server(monkeypatch, caplog):
     monkeypatch.setattr(prov, "discover_blueprints", lambda _: fake_discovered)
     monkeypatch.setattr(logging.getLogger("swarm"), "propagate", True)
 
-    # Remove mcp_server from modules if present
+    # Mask mcp_server in sys.modules so import raises hermetically
     for mod in list(sys.modules.keys()):
         if mod.startswith("mcp_server"):
             del sys.modules[mod]
+    monkeypatch.setitem(sys.modules, "mcp_server", None)
 
     from swarm.mcp import integration as integ
     importlib.reload(integ)
