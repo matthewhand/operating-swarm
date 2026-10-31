@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fetchAutocomplete } from '../lib/api'
+import { useAutoResizeTextarea } from '../features/chat/useAutoResizeTextarea'
 
 export const AUTOCOMPLETE_DEBOUNCE_MS = 250
 
@@ -74,6 +75,8 @@ export function ChatMessageInput({
   const requestIdRef = useRef(0)
   const requestRef = useRef<AbortController | null>(null)
   const composingRef = useRef(false)
+
+  useAutoResizeTextarea(textareaRef, value)
 
   // Preference changes from Settings propagate live.
   useEffect(() => {

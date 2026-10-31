@@ -4315,6 +4315,14 @@ button.os-agent-row {
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
   background: color-mix(in srgb, var(--color-base-200) 80%, var(--color-base-100));
+  transition: border-radius 0.15s ease-in-out;
+}
+.os-composer:has(.os-composer__input[data-multiline="true"]) {
+  align-items: flex-end;
+  border-radius: 1.25rem;
+}
+.os-composer:has(.os-composer__input[data-multiline="true"]) .os-composer__icon {
+  margin-bottom: 0.15rem;
 }
 .os-composer--drag-over {
   border-color: var(--color-primary);

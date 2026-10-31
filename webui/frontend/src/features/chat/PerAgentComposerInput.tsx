@@ -19,6 +19,7 @@
  */
 import type { ComponentType, RefObject, TextareaHTMLAttributes } from 'react'
 import { normalizeDraftAgentId } from './usePerAgentDraft'
+import { useAutoResizeTextarea } from './useAutoResizeTextarea'
 
 export interface PerAgentComposerInputProps {
   /** Active agent id — its slot supplies `value`; the element never remounts. */
@@ -52,6 +53,8 @@ export function PerAgentComposerInput({
 }: PerAgentComposerInputProps) {
   // Stable fallback for the autocomplete scorer when no blueprint is selected.
   const activeAgentKey = normalizeDraftAgentId(agentId)
+
+  useAutoResizeTextarea(composerRef, value)
 
   if (isApiAgent && ChatMessageInput) {
     return (
