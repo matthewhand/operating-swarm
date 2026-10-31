@@ -342,10 +342,10 @@ USERGUIDE.md accuracy, and the `cli_*` family's test coverage.
   `{% static %}` / relative imports (no CDN). Prod (`DEBUG=False`) sets a minimal
   CSP (`ContentSecurityPolicyMiddleware`; `script-src 'self'`, `style-src 'self'`
   documented in AUTH.md §7 — template `style=""` extracted to `operator.css`).
-  Remaining legacy polish: `profiles.html` DaisyUI-on-Bootstrap mismatch;
-  richer `title`/`head` blocks — decide retire-vs-migrate.
-- [ ] **Django legacy surface polish** — `profiles.html` DaisyUI classes on a
-  Bootstrap base (unstyled); `base.html` head/title block gaps.
+- [x] **Django legacy surface polish** — added `{% block extra_head %}` and
+  `{% block extra_js %}` extension blocks to `base.html`; aligned `profiles.html`
+  with unified Bootstrap 5.3 dark table styling (`table table-dark table-hover mb-0`)
+  and resolved legacy DaisyUI mismatch.
 
 ### 4.7 API + tests
 - [x] **`/v1/responses` trailing-slash twins** — `…/responses/`, detail, and cancel
