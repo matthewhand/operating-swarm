@@ -21,19 +21,25 @@ serves django-mcp-server’s own toolset surface only.
 ## Install
 
 The endpoint is provided by the [`django-mcp-server`](https://pypi.org/project/django-mcp-server/)
-distribution, whose import module is **`mcp_server`** (not `django_mcp_server` —
-that mismatch is what previously made the flag dead on a clean install). Install
-it manually:
+distribution, whose import module is **`mcp_server`**. It is declared as an optional extra `[mcp]` in `pyproject.toml` and locked in `uv.lock`. Install via:
 
 ```bash
+pip install '.[mcp]'
+# or:
 pip install django-mcp-server
 export ENABLE_MCP_SERVER=true
 ```
 
-It is **not** declared as an `open-swarm` extra: its transitive `mcp` SDK
-dependency only resolves with pre-releases enabled, which would break
-`uv lock --check` in CI. Verified working at the Django layer — with the package
-installed and the flag set, `manage.py check` passes and `/mcp/` is mounted.
+Verified working at the Django layer — with the package installed and the flag set, `manage.py check` passes and `/mcp/` is mounted.
+
+## Authentication
+
+MCP clients authenticate using the project's token authentication story:
+- **Bearer Token**: `Authorization: Bearer <token>` where `<token>` matches configured `API_AUTH_TOKEN` or `SWARM_API_KEY(S)`.
+- **API Key Header**: `X-API-Key: <token>`.
+- In local development (`DJANGO_DEBUG=true` without auth tokens configured), auth checks remain permissive to facilitate testing.
+
+See [docs/AUTH.md](./AUTH.md) for details on token principals and multi-key allowlists.
 
 ## Known gap — blueprint→tool bridge
 
