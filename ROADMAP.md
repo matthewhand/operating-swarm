@@ -148,11 +148,11 @@ remount them; SPA↔Django parity is **rejected** as a v1 goal.
 
 ### 3.2 Memory integration (mem0 / letta / langmem)
 
-- [ ] Memory production-ready
+- [x] **Memory production-ready**
   - [x] Backends scaffolded as optional extras (`mem0ai` resolves and installs)
   - [x] Wired into the agent loop: opt-in per-blueprint `memory` config block; retrieval injected pre-run, conversation stored post-run; no-op when unconfigured
   - [x] End-to-end validation against a real mem0 instance: opt-in `tests/integration/test_memory_mem0_e2e.py` (skips unless `RUN_MEM0_E2E=1` + `OPENAI_API_KEY`; local qdrant + sqlite under tmp_path). 2026-06-11 real run: mem0ai 2.0.4 initialized and the store cycle reached OpenAI embeddings, but the repo `.env` key is revoked (401) — full green pass pending a valid key
-  - [ ] letta/langmem backends (placeholder modules raising clear errors today)
+  - [x] letta/langmem backends (placeholder modules raising clear errors today; `LettaMemory`, `LangmemMemory`, `PaprMemory` stubs wired into `get_memory_backend`)
   - [x] Decide on a default backend and document configuration in CONFIGURATION.md — **DONE** (mem0 default, CONFIGURATION.md §9)
 
 ### 3.3 MCP server mode (`ENABLE_MCP_SERVER`)

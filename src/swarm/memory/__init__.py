@@ -3,6 +3,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .base import BaseMemory
 from .langmem_memory import LangmemMemory
+from .letta_memory import LettaMemory
 from .mem0_memory import Mem0Memory
 from .papr_memory import PaprMemory
 
@@ -32,6 +33,8 @@ def get_memory_backend(config: dict | str | None = None, options: dict | None = 
             return Mem0Memory(config if isinstance(config, dict) else {})
         elif name == 'langmem':
             return LangmemMemory(config if isinstance(config, dict) else {})
+        elif name == 'letta':
+            return LettaMemory(config if isinstance(config, dict) else {})
         elif name == 'papr':
             return PaprMemory(config if isinstance(config, dict) else {})
     except ImportError as e:
@@ -46,6 +49,7 @@ def get_memory_backend(config: dict | str | None = None, options: dict | None = 
 __all__ = [
     "BaseMemory",
     "LangmemMemory",
+    "LettaMemory",
     "Mem0Memory",
     "MemoryBackend",
     "PaprMemory",
