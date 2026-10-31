@@ -135,7 +135,7 @@ remount them; SPA↔Django parity is **rejected** as a v1 goal.
   - [x] Bare `/teams` `/blueprints` `/settings` `/agent-creator` redirect to Django
   - [x] **JSON Teams API** — `/v1/teams/` LLM-profile aliases (see GLOSSARY) — Django UI owns CRUD chrome
   - [x] Resolved npm audit advisories: vite 5 → 8 (PR #84), 0 vulnerabilities
-  - [ ] ChatPage polish (reconnect, markdown composer) — see §4.6
+  - [x] ChatPage polish (reconnect, multiline auto-expanding composer) — see §4.6
   - [x] **REQ-163 Phase 0** — virtualized chat ADR ([ADR-004](./docs/adr/004-virtualized-chat-history.md)): pick `@tanstack/react-virtual` ≥ 3.14; fallback MIT Virtuoso; Query stays the data layer
   - [ ] **REQ-163 Phase 1** — virtualize ChatPage `displayItems` (no API pagination)
   - [ ] **REQ-163 Phase 2** — cursor-paginate `GET /chat/thread/` + `useInfiniteQuery` load-older
