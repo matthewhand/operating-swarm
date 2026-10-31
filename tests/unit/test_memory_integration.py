@@ -193,12 +193,16 @@ def test_factory_returns_none_when_disabled_or_unknown():
 
 def test_placeholder_backends_disabled_and_raise():
     from swarm.memory.langmem_memory import LangmemMemory
+    from swarm.memory.letta_memory import LettaMemory
     from swarm.memory.papr_memory import PaprMemory
 
     assert get_memory_backend({"backend": "langmem"}) is None
+    assert get_memory_backend({"backend": "letta"}) is None
     assert get_memory_backend({"backend": "papr"}) is None
     with pytest.raises(NotImplementedError):
         LangmemMemory({})
+    with pytest.raises(NotImplementedError):
+        LettaMemory({})
     with pytest.raises(NotImplementedError):
         PaprMemory({})
 
