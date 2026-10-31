@@ -20,6 +20,7 @@
     <script defer src="{% static 'contrib/prism/prism-python.min.js' %}"></script>
     <script src="{% static 'js/chrome_theme.js' %}"></script>
     <meta name="csrf-token" content="{{ csrf_token }}">
+    {% block extra_head %}{% endblock %}
 </head>
 <body class="os-app">
     {% csrf_token %}
@@ -179,5 +180,6 @@
     {% endwith %}
     <script src="{% static 'js/agent_sidebar.js' %}"></script>
     <script src="{% static 'js/agent_pin_grid.js' %}"></script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
