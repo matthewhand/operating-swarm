@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ReactNode, MouseEvent, SyntheticEvent } from 'react';
+import { useState, useRef, useEffect, ReactNode, MouseEvent, SyntheticEvent, forwardRef, HTMLAttributes, DetailsHTMLAttributes } from 'react';
 
 /**
  * Tab interface
@@ -13,7 +13,7 @@ export interface Tab {
 /**
  * Tabs component props
  */
-export interface TabsProps {
+export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
   tabs: Tab[];
   activeTab: string;
   onChange: (tabKey: string) => void;
@@ -26,14 +26,15 @@ export interface TabsProps {
  * Tabs component
  * Docs: https://daisyui.com/components/tabs/
  */
-export const Tabs = ({
+export const Tabs = forwardRef<HTMLDivElement, TabsProps>(({
   tabs,
   activeTab,
   onChange,
   variant = 'boxed',
   size = 'md',
   className = '',
-}: TabsProps) => {
+  ...props
+}, ref) => {
   const variantClasses = {
     // daisyUI v5 renamed: boxed→tabs-box, lifted→tabs-lift, bordered→tabs-border.
     boxed: 'tabs-box',
@@ -89,9 +90,11 @@ export const Tabs = ({
 
   return (
     <div
-      className={`tabs ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
+      ref={ref}
+      className={`tabs ${variantClasses[variant]} ${sizeClasses[size]} ${className}`.trim()}
       role="tablist"
       aria-orientation="horizontal"
+      {...props}
     >
       {tabs.map((tab, index) => {
         const isSelected = activeTab === tab.key;
@@ -100,6 +103,7 @@ export const Tabs = ({
             ref={(el) => (tabRefs.current[index] = el)}
             id={`tab-${tab.key}`}
             key={tab.key}
+            type="button"
             role="tab"
             aria-selected={isSelected}
             aria-controls={`panel-${tab.key}`}
@@ -116,31 +120,43 @@ export const Tabs = ({
       })}
     </div>
   );
-};
+});
+
+Tabs.displayName = 'Tabs';
 
 /**
  * Tab Panel component
  */
-export interface TabPanelProps {
+export interface TabPanelProps extends HTMLAttributes<HTMLDivElement> {
   activeTab: string;
   tabKey: string;
   children: ReactNode;
 }
 
-export const TabPanel = ({ activeTab, tabKey, children }: TabPanelProps) => {
+export const TabPanel = forwardRef<HTMLDivElement, TabPanelProps>(({
+  activeTab,
+  tabKey,
+  children,
+  className = '',
+  ...props
+}, ref) => {
   if (activeTab !== tabKey) return null;
   return (
     <div
+      ref={ref}
       id={`panel-${tabKey}`}
       role="tabpanel"
       aria-labelledby={`tab-${tabKey}`}
       tabIndex={0}
-      className="tab-content p-4"
+      className={`tab-content p-4 ${className}`.trim()}
+      {...props}
     >
       {children}
     </div>
   );
-};
+});
+
+TabPanel.displayName = 'TabPanel';
 
 /**
  * Simple Tabs component with built-in state management
@@ -187,17 +203,18 @@ export interface AccordionItemType {
   icon?: ReactNode;
 }
 
-export interface AccordionProps {
+export interface AccordionProps extends HTMLAttributes<HTMLDivElement> {
   items: AccordionItemType[];
   allowMultiple?: boolean;
   className?: string;
 }
 
-export const Accordion = ({
+export const Accordion = forwardRef<HTMLDivElement, AccordionProps>(({
   items,
   allowMultiple = false,
   className = '',
-}: AccordionProps) => {
+  ...props
+}, ref) => {
   const [activeItems, setActiveItems] = useState<string[]>([]);
 
   const toggleItem = (key: string, disabled: boolean, event: MouseEvent<HTMLElement>) => {
@@ -214,7 +231,7 @@ export const Accordion = ({
   };
 
   return (
-    <div className={`join join-vertical w-full ${className}`}>
+    <div ref={ref} className={`join join-vertical w-full ${className}`.trim()} {...props}>
       {items.map((item) => {
         const isOpen = activeItems.includes(item.key);
         return (
@@ -240,12 +257,14 @@ export const Accordion = ({
       })}
     </div>
   );
-};
+});
+
+Accordion.displayName = 'Accordion';
 
 /**
  * Accordion Item component (for uncontrolled usage)
  */
-export interface AccordionItemProps {
+export interface AccordionItemProps extends Omit<DetailsHTMLAttributes<HTMLDetailsElement>, 'title'> {
   title: ReactNode;
   children: ReactNode;
   open?: boolean;
@@ -254,14 +273,15 @@ export interface AccordionItemProps {
   className?: string;
 }
 
-export const AccordionItem = ({
+export const AccordionItem = forwardRef<HTMLDetailsElement, AccordionItemProps>(({
   title,
   children,
   open = false,
   disabled = false,
   icon,
   className = '',
-}: AccordionItemProps) => {
+  ...props
+}, ref) => {
   const [isOpen, setIsOpen] = useState(open);
 
   useEffect(() => {
@@ -278,9 +298,11 @@ export const AccordionItem = ({
 
   return (
     <details
-      className={`collapse collapse-arrow join-item border border-base-300 ${disabled ? 'opacity-50 pointer-events-none' : ''} ${className}`}
+      ref={ref}
+      className={`collapse collapse-arrow join-item border border-base-300 ${disabled ? 'opacity-50 pointer-events-none' : ''} ${className}`.trim()}
       open={isOpen}
       onToggle={handleToggle}
+      {...props}
     >
       <summary className="collapse-title font-medium flex items-center gap-2 cursor-pointer">
         {icon && <span>{icon}</span>}
@@ -293,30 +315,34 @@ export const AccordionItem = ({
       </div>
     </details>
   );
-};
+});
+
+AccordionItem.displayName = 'AccordionItem';
 
 /**
  * Stepper/Tabs combination for multi-step forms
  */
-export interface StepperProps {
+export interface StepperProps extends HTMLAttributes<HTMLDivElement> {
   steps: Tab[];
   activeStep: number;
   onStepChange: (stepIndex: number) => void;
   className?: string;
 }
 
-export const Stepper = ({
+export const Stepper = forwardRef<HTMLDivElement, StepperProps>(({
   steps,
   activeStep,
   onStepChange,
   className = '',
-}: StepperProps) => {
+  ...props
+}, ref) => {
   return (
-    <div className={`flex items-center justify-between mb-8 ${className}`}>
+    <div ref={ref} className={`flex items-center justify-between mb-8 ${className}`.trim()} {...props}>
       <div className="flex items-center gap-4">
         {steps.map((step, index) => (
           <button
             key={step.key}
+            type="button"
             className={`btn btn-sm ${activeStep === index ? 'btn-primary' : 'btn-ghost'} ${activeStep > index ? 'btn-success' : ''}`}
             onClick={() => onStepChange(index)}
             disabled={activeStep < index}
@@ -331,17 +357,34 @@ export const Stepper = ({
       </div>
     </div>
   );
-};
+});
+
+Stepper.displayName = 'Stepper';
+
+/**
+ * Enhanced Tabs with content
+ */
+export interface ContentTab extends Tab {
+  content: ReactNode;
+}
 
 /**
  * Vertical Tabs component
  */
-export const VerticalTabs = ({
+export interface VerticalTabsProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
+  tabs: ContentTab[];
+  activeTab: string;
+  onChange: (tabKey: string) => void;
+  className?: string;
+}
+
+export const VerticalTabs = forwardRef<HTMLDivElement, VerticalTabsProps>(({
   tabs,
   activeTab,
   onChange,
   className = '',
-}: Omit<TabsProps, 'tabs'> & { tabs: ContentTab[] }) => {
+  ...props
+}, ref) => {
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -380,7 +423,7 @@ export const VerticalTabs = ({
   };
 
   return (
-    <div className={`flex gap-4 ${className}`}>
+    <div ref={ref} className={`flex gap-4 ${className}`.trim()} {...props}>
       <div
         className="flex flex-col gap-1 min-w-[120px]"
         role="tablist"
@@ -418,32 +461,30 @@ export const VerticalTabs = ({
       </div>
     </div>
   );
-};
+});
 
-/**
- * Enhanced Tabs with content
- */
-export interface ContentTab extends Tab {
-  content: ReactNode;
-}
+VerticalTabs.displayName = 'VerticalTabs';
 
-export const ContentTabs = ({
-  tabs,
-  activeTab,
-  onChange,
-  variant = 'boxed',
-  size = 'md',
-  className = '',
-}: {
+export interface ContentTabsProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> {
   tabs: ContentTab[];
   activeTab: string;
   onChange: (tabKey: string) => void;
   variant?: 'boxed' | 'lifted' | 'bordered';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
-}) => {
+}
+
+export const ContentTabs = forwardRef<HTMLDivElement, ContentTabsProps>(({
+  tabs,
+  activeTab,
+  onChange,
+  variant = 'boxed',
+  size = 'md',
+  className = '',
+  ...props
+}, ref) => {
   return (
-    <div className={className}>
+    <div ref={ref} className={className} {...props}>
       <Tabs
         tabs={tabs}
         activeTab={activeTab}
@@ -460,7 +501,9 @@ export const ContentTabs = ({
       </div>
     </div>
   );
-};
+});
+
+ContentTabs.displayName = 'ContentTabs';
 
 const TabsComponents = {
   Tabs,

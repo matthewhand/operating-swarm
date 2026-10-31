@@ -1,30 +1,38 @@
-import { TextareaHTMLAttributes, forwardRef, useId } from 'react';
+import { TextareaHTMLAttributes, forwardRef, useId, ReactNode } from 'react';
 
 /**
  * Textarea component using DaisyUI classes
  * Docs: https://daisyui.com/components/textarea/
  */
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label?: string;
+  label?: ReactNode;
+  helperText?: ReactNode;
   error?: string;
   bordered?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   color?: 'primary' | 'secondary' | 'accent' | 'info' | 'success' | 'warning' | 'error';
+  containerClassName?: string;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(({
   label,
+  helperText,
   error,
   bordered = true,
   size = 'md',
   color,
+  containerClassName = '',
   className = '',
   id: propId,
+  'aria-describedby': propAriaDescribedBy,
   ...props
 }, ref) => {
   const generatedId = useId();
   const textareaId = propId || generatedId;
   const errorId = error ? `${textareaId}-error` : undefined;
+  const helperId = helperText ? `${textareaId}-helper` : undefined;
+
+  const describedBy = [propAriaDescribedBy, errorId, helperId].filter(Boolean).join(' ') || undefined;
 
   const textareaClasses = [
     'textarea',
@@ -39,7 +47,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(({
   ].filter(Boolean);
 
   return (
-    <div className="w-full flex flex-col gap-1">
+    <div className={`w-full flex flex-col gap-1 ${containerClassName}`.trim()}>
       {label && (
         <label htmlFor={textareaId} className="text-sm font-medium">
           {label}
@@ -50,12 +58,14 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(({
         ref={ref}
         className={textareaClasses.join(' ')}
         aria-invalid={!!error}
-        aria-describedby={errorId}
+        aria-describedby={describedBy}
         {...props}
       />
-      {error && (
+      {error ? (
         <span id={errorId} role="alert" className="text-xs text-error">{error}</span>
-      )}
+      ) : helperText ? (
+        <span id={helperId} className="text-xs text-base-content/70">{helperText}</span>
+      ) : null}
     </div>
   );
 });

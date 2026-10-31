@@ -1,27 +1,36 @@
-import { ReactNode } from 'react';
+import { forwardRef, HTMLAttributes, ReactNode } from 'react';
 
 /**
- * Badge component using DaisyUI classes
+ * Badge component using DaisyUI 5 classes
  * Docs: https://daisyui.com/components/badge/
  */
-export interface BadgeProps {
-  children: ReactNode;
-  type?: 'neutral' | 'primary' | 'secondary' | 'accent' | 'ghost' | 'info' | 'success' | 'warning' | 'error';
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+export type BadgeColor = 'neutral' | 'primary' | 'secondary' | 'accent' | 'ghost' | 'info' | 'success' | 'warning' | 'error';
+export type BadgeSize = 'xs' | 'sm' | 'md' | 'lg';
+
+export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
+  children?: ReactNode;
+  /** Primary color variant; `color` or `type` are accepted */
+  type?: BadgeColor;
+  color?: BadgeColor;
+  size?: BadgeSize;
   outline?: boolean;
   className?: string;
 }
 
-export const Badge = ({
+export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(({
   children,
-  type = 'neutral',
+  type,
+  color,
   size = 'md',
   outline = false,
   className = '',
-}: BadgeProps) => {
+  ...props
+}, ref) => {
+  const resolvedColor = color ?? type ?? 'neutral';
+
   const badgeClasses = [
     'badge',
-    outline ? 'badge-outline' : `badge-${type}`,
+    outline ? 'badge-outline' : `badge-${resolvedColor}`,
     size === 'xs' ? 'badge-xs' :
     size === 'sm' ? 'badge-sm' :
     size === 'lg' ? 'badge-lg' :
@@ -30,45 +39,50 @@ export const Badge = ({
   ].filter(Boolean);
 
   return (
-    <span className={badgeClasses.join(' ')}>
+    <span ref={ref} className={badgeClasses.join(' ')} {...props}>
       {children}
     </span>
   );
-};
+});
+
+Badge.displayName = 'Badge';
 
 /**
- * Primary Badge
+ * Specialized Badge helpers with ref forwarding
  */
-export const PrimaryBadge = (props: Omit<BadgeProps, 'type'>) => (
-  <Badge type="primary" {...props} />
-);
+export const PrimaryBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="primary" {...props} />
+));
+PrimaryBadge.displayName = 'PrimaryBadge';
 
-/**
- * Success Badge
- */
-export const SuccessBadge = (props: Omit<BadgeProps, 'type'>) => (
-  <Badge type="success" {...props} />
-);
+export const SuccessBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="success" {...props} />
+));
+SuccessBadge.displayName = 'SuccessBadge';
 
-/**
- * Warning Badge
- */
-export const WarningBadge = (props: Omit<BadgeProps, 'type'>) => (
-  <Badge type="warning" {...props} />
-);
+export const WarningBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="warning" {...props} />
+));
+WarningBadge.displayName = 'WarningBadge';
 
-/**
- * Error Badge
- */
-export const ErrorBadge = (props: Omit<BadgeProps, 'type'>) => (
-  <Badge type="error" {...props} />
-);
+export const ErrorBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="error" {...props} />
+));
+ErrorBadge.displayName = 'ErrorBadge';
 
-/**
- * Info Badge
- */
-export const InfoBadge = (props: Omit<BadgeProps, 'type'>) => (
-  <Badge type="info" {...props} />
-);
+export const InfoBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="info" {...props} />
+));
+InfoBadge.displayName = 'InfoBadge';
+
+export const NeutralBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="neutral" {...props} />
+));
+NeutralBadge.displayName = 'NeutralBadge';
+
+export const GhostBadge = forwardRef<HTMLSpanElement, Omit<BadgeProps, 'color' | 'type'>>((props, ref) => (
+  <Badge ref={ref} color="ghost" {...props} />
+));
+GhostBadge.displayName = 'GhostBadge';
 
 export default Badge;

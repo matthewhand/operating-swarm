@@ -71,13 +71,14 @@ export const useFormValidation = <T extends Record<string, unknown>>(
   };
 
   // Validate entire form
-  const validateForm = () => {
+  const validateForm = (overrideValues?: T) => {
     const newErrors: FormErrors<T> = {};
     let valid = true;
+    const targetValues = overrideValues ?? values;
 
     Object.keys(validationRules).forEach((key) => {
       const fieldKey = key as keyof T;
-      const error = validateField(fieldKey, values[fieldKey]);
+      const error = validateField(fieldKey, targetValues[fieldKey]);
       if (error) {
         newErrors[fieldKey] = error;
         valid = false;
@@ -101,11 +102,12 @@ export const useFormValidation = <T extends Record<string, unknown>>(
   };
 
   // Handle blur (mark as touched)
-  const handleBlur = (name: keyof T) => {
+  const handleBlur = (name: keyof T, value?: T[keyof T]) => {
     setTouched(prev => ({ ...prev, [name]: true }));
     
     // Validate field when touched
-    const error = validateField(name, values[name]);
+    const val = value !== undefined ? (value as T[typeof name]) : values[name];
+    const error = validateField(name, val);
     setErrors(prev => ({ ...prev, [name]: error }));
   };
 
@@ -150,6 +152,8 @@ export const useFormValidation = <T extends Record<string, unknown>>(
     resetForm,
     setValues,
     setErrors,
+    validateForm,
+    validateField,
   };
 };
 
@@ -169,7 +173,7 @@ export interface ValidatedInputProps {
   inputProps?: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size' | 'color'>;
 }
 
-export const ValidatedInput = ({
+export const ValidatedInput = React.forwardRef<HTMLInputElement, ValidatedInputProps>(({
   name,
   label,
   type = 'text',
@@ -180,9 +184,10 @@ export const ValidatedInput = ({
   onChange,
   onBlur,
   inputProps,
-}: ValidatedInputProps) => {
+}, ref) => {
   return (
     <Input
+      ref={ref}
       label={label}
       type={type}
       placeholder={placeholder}
@@ -193,7 +198,8 @@ export const ValidatedInput = ({
       {...inputProps}
     />
   );
-};
+});
+ValidatedInput.displayName = 'ValidatedInput';
 
 /**
  * Validated Select component
@@ -211,7 +217,7 @@ export interface ValidatedSelectProps {
   selectProps?: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size' | 'color'>;
 }
 
-export const ValidatedSelect = ({
+export const ValidatedSelect = React.forwardRef<HTMLSelectElement, ValidatedSelectProps>(({
   name,
   label,
   placeholder,
@@ -222,9 +228,10 @@ export const ValidatedSelect = ({
   onBlur,
   options,
   selectProps,
-}: ValidatedSelectProps) => {
+}, ref) => {
   return (
     <Select
+      ref={ref}
       label={label}
       value={value}
       error={touched && error ? error : undefined}
@@ -240,7 +247,8 @@ export const ValidatedSelect = ({
       ))}
     </Select>
   );
-};
+});
+ValidatedSelect.displayName = 'ValidatedSelect';
 
 /**
  * Validated Textarea component
@@ -257,7 +265,7 @@ export interface ValidatedTextareaProps {
   textareaProps?: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'color'>;
 }
 
-export const ValidatedTextarea = ({
+export const ValidatedTextarea = React.forwardRef<HTMLTextAreaElement, ValidatedTextareaProps>(({
   name,
   label,
   placeholder,
@@ -267,9 +275,10 @@ export const ValidatedTextarea = ({
   onChange,
   onBlur,
   textareaProps,
-}: ValidatedTextareaProps) => {
+}, ref) => {
   return (
     <Textarea
+      ref={ref}
       label={label}
       placeholder={placeholder}
       value={value}
@@ -279,7 +288,8 @@ export const ValidatedTextarea = ({
       {...textareaProps}
     />
   );
-};
+});
+ValidatedTextarea.displayName = 'ValidatedTextarea';
 
 /**
  * Form component with validation

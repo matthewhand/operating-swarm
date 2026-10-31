@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, forwardRef, HTMLAttributes } from 'react';
 import { Button } from './Button';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 /**
  * Pagination props
  */
-export interface PaginationProps {
+export interface PaginationProps extends HTMLAttributes<HTMLElement> {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
   maxVisiblePages?: number;
+  showEllipsis?: boolean;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -18,47 +19,73 @@ export interface PaginationProps {
  * Pagination component
  * Docs: https://daisyui.com/components/pagination/
  */
-export const Pagination = ({
+export const Pagination = forwardRef<HTMLElement, PaginationProps>(({
   currentPage,
   totalPages,
   onPageChange,
   maxVisiblePages = 5,
+  showEllipsis = false,
   size = 'md',
   className = '',
-}: PaginationProps) => {
+  ...props
+}, ref) => {
   if (totalPages <= 1) return null;
 
   // daisyUI v5: size is expressed on the buttons; the join wrapper is uniform.
-
   const buttonSize = {
     sm: 'btn-sm',
     md: 'btn-md',
     lg: 'btn-lg',
   };
 
-  // Calculate visible page range
-  const getVisiblePages = () => {
-    const half = Math.floor(maxVisiblePages / 2);
-    let start = Math.max(1, currentPage - half);
-    let end = Math.min(totalPages, start + maxVisiblePages - 1);
+  // Calculate visible page range or ellipsis items
+  const getPageItems = (): (number | 'ellipsis-start' | 'ellipsis-end')[] => {
+    if (!showEllipsis || totalPages <= maxVisiblePages) {
+      const half = Math.floor(maxVisiblePages / 2);
+      let start = Math.max(1, currentPage - half);
+      let end = Math.min(totalPages, start + maxVisiblePages - 1);
 
-    // Adjust if we're at the end
-    if (end - start + 1 < maxVisiblePages) {
-      start = Math.max(1, end - maxVisiblePages + 1);
+      // Adjust if we're at the end
+      if (end - start + 1 < maxVisiblePages) {
+        start = Math.max(1, end - maxVisiblePages + 1);
+      }
+
+      // Adjust if we're at the beginning
+      if (end - start + 1 < maxVisiblePages) {
+        end = Math.min(totalPages, start + maxVisiblePages - 1);
+      }
+
+      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
     }
 
-    // Adjust if we're at the beginning
-    if (end - start + 1 < maxVisiblePages) {
-      end = Math.min(totalPages, start + maxVisiblePages - 1);
-    }
+    const items: (number | 'ellipsis-start' | 'ellipsis-end')[] = [];
+    const windowStart = Math.max(2, currentPage - 1);
+    const windowEnd = Math.min(totalPages - 1, currentPage + 1);
 
-    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    items.push(1);
+    if (windowStart > 2) {
+      items.push('ellipsis-start');
+    }
+    for (let p = windowStart; p <= windowEnd; p++) {
+      items.push(p);
+    }
+    if (windowEnd < totalPages - 1) {
+      items.push('ellipsis-end');
+    }
+    items.push(totalPages);
+
+    return items;
   };
 
-  const visiblePages = getVisiblePages();
+  const pageItems = getPageItems();
 
   return (
-    <nav aria-label="Pagination" className={`flex items-center justify-center gap-2 ${className}`}>
+    <nav
+      ref={ref}
+      aria-label="Pagination"
+      className={`flex items-center justify-center gap-2 ${className}`.trim()}
+      {...props}
+    >
       {/* First page button */}
       <Button
         variant="outline"
@@ -85,18 +112,33 @@ export const Pagination = ({
 
       {/* Page numbers */}
       <div className="join">
-        {visiblePages.map((page) => (
-          <button
-            type="button"
-            key={page}
-            className={`btn ${buttonSize[size]} ${currentPage === page ? 'btn-active' : ''}`}
-            onClick={() => onPageChange(page)}
-            aria-current={currentPage === page ? 'page' : undefined}
-            aria-label={`Page ${page}`}
-          >
-            {page}
-          </button>
-        ))}
+        {pageItems.map((item) => {
+          if (typeof item === 'string') {
+            return (
+              <button
+                type="button"
+                key={item}
+                disabled
+                className={`btn btn-disabled ${buttonSize[size]}`}
+                aria-hidden="true"
+              >
+                ...
+              </button>
+            );
+          }
+          return (
+            <button
+              type="button"
+              key={item}
+              className={`btn ${buttonSize[size]} ${currentPage === item ? 'btn-active' : ''}`}
+              onClick={() => onPageChange(item)}
+              aria-current={currentPage === item ? 'page' : undefined}
+              aria-label={`Page ${item}`}
+            >
+              {item}
+            </button>
+          );
+        })}
       </div>
 
       {/* Next page button */}
@@ -124,18 +166,29 @@ export const Pagination = ({
       </Button>
     </nav>
   );
-};
+});
+
+Pagination.displayName = 'Pagination';
 
 /**
  * Simple Pagination with just previous/next buttons
  */
-export const SimplePagination = ({
+export interface SimplePaginationProps extends HTMLAttributes<HTMLElement> {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}
+
+export const SimplePagination = forwardRef<HTMLElement, SimplePaginationProps>(({
   currentPage,
   totalPages,
   onPageChange,
   size = 'md',
   className = '',
-}: Omit<PaginationProps, 'maxVisiblePages'>) => {
+  ...props
+}, ref) => {
   if (totalPages <= 1) return null;
 
   const buttonSize = {
@@ -145,7 +198,12 @@ export const SimplePagination = ({
   };
 
   return (
-    <nav aria-label="Pagination" className={`flex items-center justify-center gap-2 ${className}`}>
+    <nav
+      ref={ref}
+      aria-label="Pagination"
+      className={`flex items-center justify-center gap-2 ${className}`.trim()}
+      {...props}
+    >
       <Button
         variant="outline"
         size={size}
@@ -175,12 +233,26 @@ export const SimplePagination = ({
       </Button>
     </nav>
   );
-};
+});
+
+SimplePagination.displayName = 'SimplePagination';
 
 /**
  * Pagination with item count and page size selector
  */
-export const AdvancedPagination = ({
+export interface AdvancedPaginationProps extends HTMLAttributes<HTMLDivElement> {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  totalItems: number;
+  itemsPerPage: number;
+  onItemsPerPageChange: (itemsPerPage: number) => void;
+  itemsPerPageOptions?: number[];
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}
+
+export const AdvancedPagination = forwardRef<HTMLDivElement, AdvancedPaginationProps>(({
   currentPage,
   totalPages,
   onPageChange,
@@ -190,16 +262,16 @@ export const AdvancedPagination = ({
   itemsPerPageOptions = [10, 25, 50, 100],
   size = 'md',
   className = '',
-}: PaginationProps & {
-  totalItems: number;
-  itemsPerPage: number;
-  onItemsPerPageChange: (itemsPerPage: number) => void;
-  itemsPerPageOptions?: number[];
-}) => {
+  ...props
+}, ref) => {
   if (totalPages <= 1) return null;
 
   return (
-    <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 ${className}`}>
+    <div
+      ref={ref}
+      className={`flex flex-col sm:flex-row items-center justify-between gap-4 ${className}`.trim()}
+      {...props}
+    >
       <div className="text-sm text-base-content/70" aria-live="polite">
         Showing {(currentPage - 1) * itemsPerPage + 1} to{' '}
         {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} items
@@ -229,7 +301,9 @@ export const AdvancedPagination = ({
       />
     </div>
   );
-};
+});
+
+AdvancedPagination.displayName = 'AdvancedPagination';
 
 /**
  * Pagination hook for managing pagination state

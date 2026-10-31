@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { Accordion, AccordionItem, Tabs, VerticalTabs } from '../Tabs';
+import { createRef } from 'react';
+import { Accordion, AccordionItem, Tabs, TabPanel, Stepper, VerticalTabs, ContentTabs } from '../Tabs';
 
 describe('Tabs Keyboard Navigation', () => {
   const tabs = [
@@ -115,3 +116,122 @@ describe('Accordion semantic details/summary', () => {
     expect(screen.getByText('Item body')).toBeInTheDocument();
   });
 });
+
+describe('Tabs variants, sizes, and ref forwarding', () => {
+  const tabs = [
+    { key: 't1', label: 'Tab One' },
+    { key: 't2', label: 'Tab Two' },
+  ];
+
+  it('forwards ref and applies variant/size classes', () => {
+    const ref = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <Tabs
+        ref={ref}
+        data-testid="tabs-el"
+        tabs={tabs}
+        activeTab="t1"
+        onChange={vi.fn()}
+        variant="lifted"
+        size="lg"
+      />
+    );
+
+    const el = screen.getByTestId('tabs-el');
+    expect(ref.current).toBe(el);
+    expect(el).toHaveClass('tabs', 'tabs-lift', 'tabs-lg');
+
+    rerender(
+      <Tabs
+        ref={ref}
+        data-testid="tabs-el"
+        tabs={tabs}
+        activeTab="t1"
+        onChange={vi.fn()}
+        variant="bordered"
+        size="sm"
+      />
+    );
+    expect(el).toHaveClass('tabs-border', 'tabs-sm');
+  });
+
+  it('renders TabPanel with ref and conditional rendering', () => {
+    const ref = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <div>
+        <TabPanel ref={ref} activeTab="t1" tabKey="t1" data-testid="panel">
+          Panel Content 1
+        </TabPanel>
+      </div>
+    );
+
+    expect(screen.getByTestId('panel')).toBeInTheDocument();
+    expect(ref.current).toBe(screen.getByTestId('panel'));
+
+    rerender(
+      <div>
+        <TabPanel ref={ref} activeTab="t2" tabKey="t1" data-testid="panel">
+          Panel Content 1
+        </TabPanel>
+      </div>
+    );
+    expect(screen.queryByTestId('panel')).not.toBeInTheDocument();
+  });
+
+  it('renders Stepper and handles step transitions', () => {
+    const ref = createRef<HTMLDivElement>();
+    const onStepChange = vi.fn();
+    const steps = [
+      { key: 's1', label: 'Setup' },
+      { key: 's2', label: 'Configure' },
+      { key: 's3', label: 'Review' },
+    ];
+
+    render(
+      <Stepper
+        ref={ref}
+        data-testid="stepper"
+        steps={steps}
+        activeStep={1}
+        onStepChange={onStepChange}
+      />
+    );
+
+    expect(ref.current).toBe(screen.getByTestId('stepper'));
+    expect(screen.getByText('Step 2 of 3')).toBeInTheDocument();
+
+    const setupBtn = screen.getByRole('button', { name: 'Setup' });
+    const configureBtn = screen.getByRole('button', { name: 'Configure' });
+    const reviewBtn = screen.getByRole('button', { name: 'Review' });
+
+    expect(setupBtn).toHaveClass('btn-success');
+    expect(configureBtn).toHaveClass('btn-primary');
+    expect(reviewBtn).toBeDisabled();
+
+    fireEvent.click(setupBtn);
+    expect(onStepChange).toHaveBeenCalledWith(0);
+  });
+
+  it('renders ContentTabs with panels and responds to tab change', () => {
+    const onChange = vi.fn();
+    const contentTabs = [
+      { key: 'c1', label: 'Tab 1', content: <p>Panel 1</p> },
+      { key: 'c2', label: 'Tab 2', content: <p>Panel 2</p> },
+    ];
+
+    render(
+      <ContentTabs
+        tabs={contentTabs}
+        activeTab="c1"
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByText('Panel 1')).toBeInTheDocument();
+    expect(screen.queryByText('Panel 2')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Tab 2' }));
+    expect(onChange).toHaveBeenCalledWith('c2');
+  });
+});
+

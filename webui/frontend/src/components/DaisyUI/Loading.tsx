@@ -1,290 +1,144 @@
-import React from 'react';
+import { forwardRef, HTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
 
 /**
- * Loading Spinner component
+ * Loading & Skeleton components using DaisyUI classes
  * Docs: https://daisyui.com/components/loading/
  */
-export interface LoadingSpinnerProps {
-  size?: 'xs' | 'sm' | 'md' | 'lg';
-  color?: 'primary' | 'secondary' | 'accent' | 'info' | 'success' | 'warning' | 'error';
+
+export type LoadingType = 'spinner' | 'dots' | 'ring' | 'ball' | 'bars' | 'infinity';
+export type LoadingSize = 'xs' | 'sm' | 'md' | 'lg';
+export type LoadingColor = 'primary' | 'secondary' | 'accent' | 'neutral' | 'info' | 'success' | 'warning' | 'error' | 'current';
+
+export interface LoadingProps extends HTMLAttributes<HTMLSpanElement> {
+  size?: LoadingSize;
+  color?: LoadingColor;
   className?: string;
   'aria-label'?: string;
 }
 
-export const LoadingSpinner = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
-
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
-
-  return (
-    <span 
-      className={`loading loading-spinner ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
+const SIZE_CLASSES: Record<LoadingSize, string> = {
+  xs: 'loading-xs',
+  sm: 'loading-sm',
+  md: 'loading-md',
+  lg: 'loading-lg',
 };
 
-/**
- * Loading Dots component
- */
-export const LoadingDots = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
-
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
-
-  return (
-    <span 
-      className={`loading loading-dots ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
+const COLOR_CLASSES: Record<LoadingColor, string> = {
+  primary: 'text-primary',
+  secondary: 'text-secondary',
+  accent: 'text-accent',
+  neutral: 'text-neutral',
+  info: 'text-info',
+  success: 'text-success',
+  warning: 'text-warning',
+  error: 'text-error',
+  current: 'text-current',
 };
 
-/**
- * Loading Ring component
- */
-export const LoadingRing = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
+function createLoadingComponent(type: LoadingType, displayName: string) {
+  const Component = forwardRef<HTMLSpanElement, LoadingProps>(({
+    size = 'md',
+    color = 'primary',
+    className = '',
+    'aria-label': ariaLabel = 'Loading',
+    ...props
+  }, ref) => {
+    const sizeClass = SIZE_CLASSES[size] || 'loading-md';
+    const colorClass = COLOR_CLASSES[color] || 'text-primary';
 
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
+    return (
+      <span
+        ref={ref}
+        className={`loading loading-${type} ${sizeClass} ${colorClass} ${className}`.trim()}
+        role="status"
+        aria-label={ariaLabel}
+        aria-live="polite"
+        aria-busy="true"
+        {...props}
+      />
+    );
+  });
 
-  return (
-    <span 
-      className={`loading loading-ring ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
-};
+  Component.displayName = displayName;
+  return Component;
+}
 
-/**
- * Loading Ball component
- */
-export const LoadingBall = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
+export const LoadingSpinner = createLoadingComponent('spinner', 'LoadingSpinner');
+export const LoadingDots = createLoadingComponent('dots', 'LoadingDots');
+export const LoadingRing = createLoadingComponent('ring', 'LoadingRing');
+export const LoadingBall = createLoadingComponent('ball', 'LoadingBall');
+export const LoadingBars = createLoadingComponent('bars', 'LoadingBars');
+export const LoadingInfinity = createLoadingComponent('infinity', 'LoadingInfinity');
 
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
-
-  return (
-    <span 
-      className={`loading loading-ball ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
-};
-
-/**
- * Loading Bars component
- */
-export const LoadingBars = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
-
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
-
-  return (
-    <span 
-      className={`loading loading-bars ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
-};
-
-/**
- * Loading Infinity component
- */
-export const LoadingInfinity = ({
-  size = 'md',
-  color = 'primary',
-  className = '',
-  'aria-label': ariaLabel = 'Loading',
-}: LoadingSpinnerProps) => {
-  const sizeClasses = {
-    xs: 'loading-xs',
-    sm: 'loading-sm',
-    md: 'loading-md',
-    lg: 'loading-lg',
-  };
-
-  const colorClasses = {
-    primary: 'text-primary',
-    secondary: 'text-secondary',
-    accent: 'text-accent',
-    info: 'text-info',
-    success: 'text-success',
-    warning: 'text-warning',
-    error: 'text-error',
-  };
-
-  return (
-    <span 
-      className={`loading loading-infinity ${sizeClasses[size]} ${colorClasses[color]} ${className}`}
-      role="status"
-      aria-label={ariaLabel}
-      aria-live="polite"
-      aria-busy="true"
-    />
-  );
-};
+export type LoadingSpinnerProps = LoadingProps;
 
 /**
  * Skeleton Loading component
  */
-export interface SkeletonProps {
+export interface SkeletonProps extends HTMLAttributes<HTMLDivElement> {
   width?: string | number;
   height?: string | number;
   className?: string;
   rounded?: boolean;
 }
 
-export const Skeleton = ({
+export const Skeleton = forwardRef<HTMLDivElement, SkeletonProps>(({
   width = '100%',
   height = '20px',
   className = '',
   rounded = true,
-}: SkeletonProps) => {
+  style,
+  ...props
+}, ref) => {
   return (
     <div
-      className={`skeleton ${rounded ? 'rounded' : ''} ${className}`}
-      style={{ width, height }}
+      ref={ref}
+      className={`skeleton ${rounded ? 'rounded' : ''} ${className}`.trim()}
+      style={{ width, height, ...style }}
+      {...props}
     />
   );
-};
+});
+Skeleton.displayName = 'Skeleton';
 
 /**
  * Skeleton Text component
  */
-export const SkeletonText = ({
-  lines = 3,
-  width = '100%',
-  className = '',
-}: {
+export interface SkeletonTextProps extends HTMLAttributes<HTMLDivElement> {
   lines?: number;
   width?: string | number;
   className?: string;
-}) => {
+}
+
+export const SkeletonText = forwardRef<HTMLDivElement, SkeletonTextProps>(({
+  lines = 3,
+  width = '100%',
+  className = '',
+  ...props
+}, ref) => {
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div ref={ref} className={`space-y-2 ${className}`.trim()} {...props}>
       {Array.from({ length: lines }).map((_, index) => (
         <Skeleton key={index} width={width} height="16px" />
       ))}
     </div>
   );
-};
+});
+SkeletonText.displayName = 'SkeletonText';
 
 /**
  * Skeleton Card component
  */
-export const SkeletonCard = ({
-  className = '',
-}: {
+export interface SkeletonCardProps extends HTMLAttributes<HTMLDivElement> {
   className?: string;
-}) => {
+}
+
+export const SkeletonCard = forwardRef<HTMLDivElement, SkeletonCardProps>(({
+  className = '',
+  ...props
+}, ref) => {
   return (
-    <div className={`card bg-base-200 ${className}`}>
+    <div ref={ref} className={`card bg-base-200 ${className}`.trim()} {...props}>
       <div className="card-body">
         <Skeleton width="60%" height="24px" className="mb-4" />
         <SkeletonText lines={3} className="mb-4" />
@@ -295,22 +149,26 @@ export const SkeletonCard = ({
       </div>
     </div>
   );
-};
+});
+SkeletonCard.displayName = 'SkeletonCard';
 
 /**
  * Skeleton Table component
  */
-export const SkeletonTable = ({
-  rows = 5,
-  columns = 4,
-  className = '',
-}: {
+export interface SkeletonTableProps extends HTMLAttributes<HTMLDivElement> {
   rows?: number;
   columns?: number;
   className?: string;
-}) => {
+}
+
+export const SkeletonTable = forwardRef<HTMLDivElement, SkeletonTableProps>(({
+  rows = 5,
+  columns = 4,
+  className = '',
+  ...props
+}, ref) => {
   return (
-    <div className={`overflow-x-auto ${className}`}>
+    <div ref={ref} className={`overflow-x-auto ${className}`.trim()} {...props}>
       <table className="table w-full">
         <thead>
           <tr>
@@ -335,30 +193,35 @@ export const SkeletonTable = ({
       </table>
     </div>
   );
-};
+});
+SkeletonTable.displayName = 'SkeletonTable';
 
 /**
  * Loading Overlay component
  */
-export const LoadingOverlay = ({
-  isLoading = true,
-  message = 'Loading...',
-  className = '',
-}: {
+export interface LoadingOverlayProps extends HTMLAttributes<HTMLDivElement> {
   isLoading?: boolean;
   message?: string;
   className?: string;
-}) => {
+}
+
+export const LoadingOverlay = forwardRef<HTMLDivElement, LoadingOverlayProps>(({
+  isLoading = true,
+  message = 'Loading...',
+  className = '',
+  ...props
+}, ref) => {
   if (!isLoading) return null;
 
-  // Non-blocking status region: do not use role="dialog"/aria-modal without a focus trap.
   return (
     <div
-      className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`}
+      ref={ref}
+      className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${className}`.trim()}
       role="status"
       aria-live="polite"
       aria-busy="true"
       aria-label={message}
+      {...props}
     >
       <div className="bg-base-100 p-6 rounded-lg shadow-xl text-center">
         <div className="flex justify-center mb-4" aria-hidden="true">
@@ -368,26 +231,34 @@ export const LoadingOverlay = ({
       </div>
     </div>
   );
-};
+});
+LoadingOverlay.displayName = 'LoadingOverlay';
 
 /**
  * Button with Loading state
  */
-export const LoadingButton = ({
+export interface LoadingButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  loading?: boolean;
+  children?: ReactNode;
+}
+
+export const LoadingButton = forwardRef<HTMLButtonElement, LoadingButtonProps>(({
   loading = false,
   children,
+  disabled,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean }) => {
+}, ref) => {
   return (
     <button
+      ref={ref}
       {...props}
-      disabled={loading || props.disabled}
-      aria-disabled={loading || props.disabled}
+      disabled={loading || disabled}
+      aria-disabled={loading || disabled}
       aria-busy={loading}
     >
       {loading ? (
         <>
-          <LoadingSpinner size="sm" className="mr-2" />
+          <LoadingSpinner size="sm" color="current" className="mr-2" />
           <span className="sr-only">Loading</span>
           {children}
         </>
@@ -396,9 +267,9 @@ export const LoadingButton = ({
       )}
     </button>
   );
-};
+});
+LoadingButton.displayName = 'LoadingButton';
 
-// Export individual components as well as the default object
 const LoadingComponents = {
   LoadingSpinner,
   LoadingDots,
