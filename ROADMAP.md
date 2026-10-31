@@ -236,10 +236,10 @@ Provides tool-level sandboxed execution (Python REPL, Bash subprocesses, workspa
   - [x] Bare-metal host execution within designated workspace directories with automatic environment sanitization (scrubs API keys, secrets, DB credentials).
   - [x] Direct bridge to OpenAI Agents via `SandboxManager.as_function_tools()`.
   - [x] Unit test suite covering backends, env scrubbing, timeout handling, and fallback behavior (`tests/core/test_langchain_sandbox.py`).
-- [ ] **Phase 2: Containerized & MicroVM Sandboxes (Roadmap)**
-  - [ ] `DockerSandbox`: Ephemeral container per session (`docker run --rm -v ...`) with CPU/memory limits and optional network egress restriction (`--network none`).
-  - [ ] `E2BSandbox`: Integration with E2B cloud sandboxes (Firecracker microVMs) for multi-tenant and cloud deployments.
-  - [ ] LangChain Docker/Container tool harmonization via `LangChainSandboxHarness`.
+- [x] **Phase 2: Containerized & MicroVM Sandboxes (Roadmap)**
+  - [x] `DockerSandbox`: Ephemeral container per session (`docker run --rm -v ...`) with CPU/memory limits and optional network egress restriction (`--network none`) (`src/swarm/core/sandbox/docker_sandbox.py`).
+  - [x] `E2BSandbox`: Integration with E2B cloud sandboxes (Firecracker microVMs) for multi-tenant and cloud deployments (`src/swarm/core/sandbox/e2b_sandbox.py`).
+  - [x] LangChain Docker/Container tool harmonization via `LangChainSandboxHarness` (`src/swarm/core/sandbox/langchain_sandbox.py`), verified by `tests/core/test_container_sandboxes.py`.
 
 
 ---
