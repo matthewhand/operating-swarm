@@ -247,6 +247,37 @@ export default function AddAgentWizard({
     }
   }
 
+  const KINDS: AgentKind[] = ['cli', 'api', 'blueprint', 'remote']
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, kind: AgentKind) => {
+    const currentIndex = KINDS.indexOf(kind)
+    let nextIndex = currentIndex
+
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      nextIndex = (currentIndex + 1) % KINDS.length
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      nextIndex = (currentIndex - 1 + KINDS.length) % KINDS.length
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      nextIndex = 0
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      nextIndex = KINDS.length - 1
+    }
+
+    if (nextIndex !== currentIndex) {
+      const nextKind = KINDS[nextIndex]
+      handleSelectKind(nextKind)
+      // The browser focus will follow standard roving tabindex rules if we focus the new tab
+      setTimeout(() => {
+        const nextTab = document.getElementById(`tab-kind-${nextKind}`)
+        nextTab?.focus()
+      }, 0)
+    }
+  }
+
   // Aggregate CLI agents
   const cliAgents = useMemo<ManageAgentItem[]>(() => {
     const list: ManageAgentItem[] = []
@@ -819,13 +850,17 @@ ${folderComment}`
           aria-label="Agent kinds"
         >
           <button
+            id="tab-kind-cli"
             type="button"
             role="tab"
             aria-selected={selectedKind === 'cli'}
+            aria-controls="panel-kind-content"
+            tabIndex={selectedKind === 'cli' ? 0 : -1}
             className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
               selectedKind === 'cli' ? 'tab-active' : ''
             }`}
             onClick={() => handleSelectKind('cli')}
+            onKeyDown={(e) => handleTabKeyDown(e, 'cli')}
             data-testid="kind-option-cli"
           >
             <Terminal className="h-4 w-4" aria-hidden="true" />
@@ -833,13 +868,17 @@ ${folderComment}`
           </button>
 
           <button
+            id="tab-kind-api"
             type="button"
             role="tab"
             aria-selected={selectedKind === 'api'}
+            aria-controls="panel-kind-content"
+            tabIndex={selectedKind === 'api' ? 0 : -1}
             className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
               selectedKind === 'api' ? 'tab-active' : ''
             }`}
             onClick={() => handleSelectKind('api')}
+            onKeyDown={(e) => handleTabKeyDown(e, 'api')}
             data-testid="kind-option-api"
           >
             <Bot className="h-4 w-4" aria-hidden="true" />
@@ -847,13 +886,17 @@ ${folderComment}`
           </button>
 
           <button
+            id="tab-kind-blueprint"
             type="button"
             role="tab"
             aria-selected={selectedKind === 'blueprint'}
+            aria-controls="panel-kind-content"
+            tabIndex={selectedKind === 'blueprint' ? 0 : -1}
             className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
               selectedKind === 'blueprint' ? 'tab-active' : ''
             }`}
             onClick={() => handleSelectKind('blueprint')}
+            onKeyDown={(e) => handleTabKeyDown(e, 'blueprint')}
             data-testid="kind-option-blueprint"
           >
             <Layers className="h-4 w-4" aria-hidden="true" />
@@ -861,13 +904,17 @@ ${folderComment}`
           </button>
 
           <button
+            id="tab-kind-remote"
             type="button"
             role="tab"
             aria-selected={selectedKind === 'remote'}
+            aria-controls="panel-kind-content"
+            tabIndex={selectedKind === 'remote' ? 0 : -1}
             className={`tab gap-2 flex-1 font-semibold text-xs sm:text-sm transition ${
               selectedKind === 'remote' ? 'tab-active' : ''
             }`}
             onClick={() => handleSelectKind('remote')}
+            onKeyDown={(e) => handleTabKeyDown(e, 'remote')}
             data-testid="kind-option-remote"
           >
             <Globe className="h-4 w-4" aria-hidden="true" />
@@ -881,6 +928,7 @@ ${folderComment}`
           </Alert>
         ) : null}
 
+        <div id="panel-kind-content" role="tabpanel" aria-labelledby={`tab-kind-${selectedKind}`}>
         {/* Tab content: 1. Existing List (Manage) */}
         <hr className="border-base-300" data-testid="manage-surface-divider" />
         <div className="space-y-3" data-testid="manage-agent-surface">
@@ -1588,6 +1636,7 @@ ${folderComment}`
               </Button>
             </div>
           </form>
+        </div>
         </div>
         </div>
       </div>
