@@ -428,12 +428,22 @@ export const ChatBottomDock = function ChatBottomDock(props: ChatBottomDockProps
                     textareaProps={{
                       onChange: handleInputChange,
                       onInput: props.onInput,
-                      onKeyDown: handleComposerKeyDown,
+                      onKeyDown: (event) => {
+                        handleComposerKeyDown(event)
+                        if (!event.defaultPrevented && props.onKeyDown) {
+                          props.onKeyDown(event)
+                        }
+                      },
                       onKeyUp: props.onKeyUp,
                       onKeyPress: props.onKeyPress,
                       onFocus: props.onFocus,
                       onBlur: props.onBlur,
-                      onPaste: handleComposerPaste,
+                      onPaste: (event) => {
+                        handleComposerPaste(event)
+                        if (!event.defaultPrevented && props.onPaste) {
+                          props.onPaste(event)
+                        }
+                      },
                       onCompositionStart: props.onCompositionStart,
                       onCompositionEnd: props.onCompositionEnd,
                       'aria-label': 'Chat message',
