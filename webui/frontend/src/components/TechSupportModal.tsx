@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Check, Copy, X } from 'lucide-react'
 import { Modal } from './DaisyUI/Modal'
+import { LoadingSpinner } from './DaisyUI/Loading'
 import { apiGet } from '../lib/api'
 
 interface LogLine {
@@ -155,7 +156,7 @@ export default function TechSupportModal({
 
         {!payload && error === null && (
           <div className="py-8 text-center text-sm text-base-content/60" data-testid="tech-support-loading">
-            <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+            <LoadingSpinner size="sm" aria-hidden="true" />
             <span className="ml-2">Collecting diagnostics…</span>
           </div>
         )}
