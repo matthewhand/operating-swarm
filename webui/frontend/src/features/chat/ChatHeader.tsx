@@ -434,6 +434,9 @@ export const ChatHeader = function ChatHeader(props: ChatHeaderProps) {
                         e.preventDefault()
                         e.stopPropagation()
                         cancelNameEdit()
+                      } else {
+                        // Allow normal typing to pass through without bubbling up and triggering other things
+                        e.stopPropagation()
                       }
                     }}
                     onFocus={(e) => e.stopPropagation()}
