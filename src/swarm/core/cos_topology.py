@@ -314,6 +314,12 @@ class TopologyContext:
                     sections.append(updated)
                 else:
                     sections.append(row)
+            if updated is None:
+                raise TopologyError(ERROR_UNKNOWN_SECTION, f"Unknown section {ident!r}.")
+            if updated.get("archived") is True:
+                raise TopologyError(
+                    ERROR_ALREADY_ARCHIVED, f"Section {ident!r} is already archived."
+                )
             save_sections(
                 {"schema": 1, "sections": sections, "membership": payload.get("membership") or {}},
                 self.stores.sections,
@@ -371,6 +377,16 @@ class TopologyContext:
             aid = self.require_agent(agent_id)
             target = self.require_section(section_id, allow_unassigned=True)
             payload = self.payload()
+            if not is_unassigned_section(target):
+                current = find_section(target, payload)
+                if current is None:
+                    raise TopologyError(
+                        ERROR_UNKNOWN_SECTION, f"Unknown section {target!r}."
+                    )
+                if current.get("archived") is True:
+                    raise TopologyError(
+                        ERROR_ALREADY_ARCHIVED, f"Section {target!r} is already archived."
+                    )
             membership = dict(payload.get("membership") or {})
             if is_unassigned_section(target):
                 membership.pop(aid, None)
