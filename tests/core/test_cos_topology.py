@@ -264,3 +264,59 @@ def test_section_change_emits_one_activity_event(tmp_path, monkeypatch):
     assert rows[0]["action"] == "topology.changed"
     assert rows[0]["actor_id"] == "user:ada"
     assert "Review" in rows[0]["detail"]["message"] or rows[0]["detail"]["message"]
+
+
+def _inject_section_snapshot_change_after_validation(ctx, section_id, mode):
+    """Simulate a changed persisted snapshot between validation and mutation."""
+    original_require = ctx.require_section
+    original_payload = ctx.payload
+
+    def require_then_change(*args, **kwargs):
+        valid = original_require(*args, **kwargs)
+
+        def changed_payload():
+            payload = original_payload()
+            sections = []
+            for row in payload.get("sections") or []:
+                if row.get("id") != section_id:
+                    sections.append(row)
+                elif mode == "archived":
+                    sections.append({**row, "archived": True})
+                elif mode != "missing":
+                    raise AssertionError("invalid synthetic mode")
+            return {**payload, "sections": sections}
+
+        ctx.payload = changed_payload
+        return valid
+
+    ctx.require_section = require_then_change
+
+
+def test_section_rename_rejects_archived_write_snapshot():
+    ctx = _ctx()
+    sid = ctx.create_section("Work")["section"]["id"]
+    _inject_section_snapshot_change_after_validation(ctx, sid, "archived")
+    result = ctx.rename_section(sid, "Renamed")
+    assert result["ok"] is False
+    assert result["error"] == ERROR_ALREADY_ARCHIVED
+    assert ctx.stores.sections.payload["sections"][0]["name"] == "Work"
+
+
+def test_move_agent_rejects_disappeared_write_snapshot():
+    ctx = _ctx()
+    sid = ctx.create_section("Work")["section"]["id"]
+    _inject_section_snapshot_change_after_validation(ctx, sid, "missing")
+    result = ctx.move_agent_to_section("pat", sid)
+    assert result["ok"] is False
+    assert result["error"] == ERROR_UNKNOWN_SECTION
+    assert sid not in (ctx.stores.sections.payload.get("membership") or {}).values()
+
+
+def test_move_agent_rejects_archived_write_snapshot():
+    ctx = _ctx()
+    sid = ctx.create_section("Work")["section"]["id"]
+    _inject_section_snapshot_change_after_validation(ctx, sid, "archived")
+    result = ctx.move_agent_to_section("pat", sid)
+    assert result["ok"] is False
+    assert result["error"] == ERROR_ALREADY_ARCHIVED
+    assert sid not in (ctx.stores.sections.payload.get("membership") or {}).values()
