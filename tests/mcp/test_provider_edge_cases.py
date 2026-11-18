@@ -584,8 +584,8 @@ def test_register_blueprints_missing_mcp_server(monkeypatch, caplog):
 
     # Mask mcp_server in sys.modules so import raises hermetically
     for mod in list(sys.modules.keys()):
-        if mod.startswith("mcp_server"):
-            del sys.modules[mod]
+        if mod == "mcp_server" or mod.startswith("mcp_server."):
+            monkeypatch.delitem(sys.modules, mod)
     monkeypatch.setitem(sys.modules, "mcp_server", None)
 
     from swarm.mcp import integration as integ
@@ -618,8 +618,8 @@ def test_register_blueprints_no_register_tool_api(monkeypatch, caplog):
     reg_mod = ModuleType("mcp_server.registry")
     # Intentionally no register_tool — MCPToolset-era API gap
     reg_pkg.registry = reg_mod
-    sys.modules["mcp_server"] = reg_pkg
-    sys.modules["mcp_server.registry"] = reg_mod
+    monkeypatch.setitem(sys.modules, "mcp_server", reg_pkg)
+    monkeypatch.setitem(sys.modules, "mcp_server.registry", reg_mod)
 
     from swarm.mcp import integration as integ
     importlib.reload(integ)
@@ -663,8 +663,8 @@ def test_register_blueprints_registration_error(monkeypatch, caplog):
 
     reg_mod.register_tool = register_tool
     reg_pkg.registry = reg_mod
-    sys.modules["mcp_server"] = reg_pkg
-    sys.modules["mcp_server.registry"] = reg_mod
+    monkeypatch.setitem(sys.modules, "mcp_server", reg_pkg)
+    monkeypatch.setitem(sys.modules, "mcp_server.registry", reg_mod)
 
     from swarm.mcp import integration as integ
     importlib.reload(integ)
@@ -709,8 +709,8 @@ def test_register_blueprints_handler_execution(monkeypatch):
 
     reg_mod.register_tool = register_tool
     reg_pkg.registry = reg_mod
-    sys.modules["mcp_server"] = reg_pkg
-    sys.modules["mcp_server.registry"] = reg_mod
+    monkeypatch.setitem(sys.modules, "mcp_server", reg_pkg)
+    monkeypatch.setitem(sys.modules, "mcp_server.registry", reg_mod)
 
     from swarm.mcp import integration as integ
     importlib.reload(integ)

@@ -6,6 +6,8 @@ or a :8001 webhook. No secrets. GitHub PR-merged trigger only.
 
 from pathlib import Path
 
+from django.urls import resolve
+
 from helpers.source_surface import chat_surface
 
 REPO = Path(__file__).resolve().parents[2]
@@ -14,7 +16,6 @@ PANE = REPO / "webui" / "frontend" / "src" / "components" / "ComputerRoutinesPan
 CHROME = REPO / "webui" / "frontend" / "src" / "components" / "RoutineBuilderChrome.tsx"
 ROUTINES = REPO / "src" / "swarm" / "core" / "routines.py"
 API = REPO / "src" / "swarm" / "views" / "routines_api.py"
-URLS = REPO / "src" / "swarm" / "urls.py"
 APP = REPO / "webui" / "frontend" / "src" / "App.tsx"
 CI = REPO / ".github" / "workflows" / "req80-routines.yml"
 
@@ -77,11 +78,15 @@ def test_editor_has_active_delete_test_run_and_pr_merge():
 
 
 def test_api_is_agent_scoped_and_merge_delivery_is_github_only():
-    urls = URLS.read_text(encoding="utf-8")
-    assert "v1/agents/<str:agent_id>/routines/" in urls
-    assert "v1/routines/github-merge/" in urls
-    assert "v1/routines/mailbox-message/" in urls
-    assert "v1/test-schedules/" in urls
+    for path, name in (
+        ("/v1/agents/demo/routines", "agent-routines-api"),
+        ("/v1/routines/github-merge", "routines-github-merge-api"),
+        ("/v1/routines/mailbox-message", "routines-mailbox-message-api"),
+        ("/v1/test-schedules", "test-schedules-api"),
+    ):
+        slashed = resolve(f"{path}/")
+        assert slashed.url_name == name
+        assert resolve(path).func is slashed.func
     api = API.read_text(encoding="utf-8")
     assert "test-run" in api
     assert "run-now" in api

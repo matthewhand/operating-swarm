@@ -34,7 +34,8 @@ class ChucksAngelsBlueprint(TeamKindBase): # Inherit from BlueprintBase
         Accepts **kwargs (e.g. ``stream=``) for compatibility with the
         OpenAI-compatible API layer, which always passes ``stream``.
         """
-        self.console.print(f"[bold green]{self.metadata.get('name', 'Chucks Angels Blueprint')} ({self.blueprint_id}) activated![/bold green]")
+        title = self.metadata["title"]
+        self.console.print(f"[bold green]{title} ({self.blueprint_id}) activated![/bold green]")
         self.console.print(f"Received messages: {messages}")
 
         last_user_message = next((m['content'] for m in reversed(messages) if m['role'] == 'user'), "No user message found.")
@@ -42,7 +43,7 @@ class ChucksAngelsBlueprint(TeamKindBase): # Inherit from BlueprintBase
         yield {
             "type": "message",
             "role": "assistant",
-            "content": f"{self.metadata.get('name', 'Chucks Angels')} reporting for duty! Your last message was: '{last_user_message}'"
+            "content": f"{title} reporting for duty! Your last message was: '{last_user_message}'"
         }
 
         yield {

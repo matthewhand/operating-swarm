@@ -23,6 +23,30 @@ APP_NAME = "operating-swarm"
 HEALTH_PATH = "/health"
 VERSION_PATH = "/v1/models"
 
+CATALOG_DEFAULT = {
+    "title": "OS-peer",
+    "host_label": "os-peer",
+    # RFC 863 discard port: a placeholder that can never be a service.
+    # Reported as "not configured" (never "down") until an operator points
+    # it at a real instance.
+    "base_url": "http://127.0.0.1:9",
+    "ui_url": "",
+    "api_key": "${SWARM_REMOTE_API_KEY}",
+    "health_path": "/health",
+    "version_path": "/v1/models",
+    "notes": (
+        "Another Operating Swarm instance (OS-peer: own process, own local DB). "
+        "GET /health (version), GET /v1/blueprints/ (agents), GET /api/sessions/, "
+        "GET /v1/agent-team/, POST /v1/chat/completions/ (chat turns). Auth is "
+        "Bearer via remotes.swarm.api_key or SWARM_REMOTE_API_KEY — env var "
+        "name only. Named instances (swarm-2, swarm_gpu) share this impl and "
+        "use per-instance env slugs. Catalog default http://127.0.0.1:9 is an "
+        "unreachable stub, not this server. v1 refuses a base URL that matches "
+        "this process listen URL. Do not auto-add this instance as its own "
+        "remote; a child is not required to nest the parent."
+    ),
+}
+
 LIST_AGENT_PATHS: tuple[str, ...] = (
     "/v1/blueprints/",
     "/v1/blueprints",

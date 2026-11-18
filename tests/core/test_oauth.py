@@ -113,10 +113,10 @@ def test_restrict_step_halts_for_unapproved_email(monkeypatch):
     """Must RAISE. Returning None means "continue" to python-social-auth, which
     would let create_user provision an account for a rejected login. The
     end-to-end test in test_oauth_callback.py is what caught this."""
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
     monkeypatch.setenv("SWARM_OAUTH_ALLOWED_EMAILS", "me@example.com")
-    with pytest.raises(AuthForbidden):
+    with pytest.raises(AuthPolicyError):
         oauth_pipeline.restrict_to_approved_email(
             BACKEND, {"email": "stranger@evil.net"}, {}
         )
@@ -149,10 +149,10 @@ def test_google_refuses_unverified_email(monkeypatch):
     allowlist on Google admitted unverified Workspace/alias/collaborator
     accounts. Strictest case: the key absent entirely.
     """
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
     for payload in ({"email_verified": False}, {"email_verified": None}, {}):
-        with pytest.raises(AuthForbidden):
+        with pytest.raises(AuthPolicyError):
             oauth_pipeline.require_verified_email(
                 _GoogleBackend(), {"email": "a@example.com"}, payload
             )
@@ -178,9 +178,9 @@ def test_github_skips_the_verified_email_requirement():
 
 def test_no_email_at_all_is_refused():
     """Nothing to allowlist against, so it cannot be admitted."""
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
-    with pytest.raises(AuthForbidden):
+    with pytest.raises(AuthPolicyError):
         oauth_pipeline.require_verified_email(BACKEND, {}, {})
 
 
@@ -195,11 +195,11 @@ def test_relogin_of_unapproved_existing_user_is_refused(monkeypatch):
     the presented provider uid to that account -- under anonymous preview that
     account is the shared swarm-anon-preview user.
     """
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
     monkeypatch.setenv("SWARM_OAUTH_ALLOWED_EMAILS", "me@example.com")
     user = User(email="stranger@evil.net", username="stranger")
-    with pytest.raises(AuthForbidden):
+    with pytest.raises(AuthPolicyError):
         oauth_pipeline.restrict_to_approved_email(
             BACKEND, {"email": "stranger@evil.net"}, {}, user=user
         )

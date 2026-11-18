@@ -18,7 +18,8 @@ on:
 
 jobs:
   tsc-ratchet:
-    runs-on: ubuntu-latest
+    # Playwright's Chromium dependencies require a supported runner image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 

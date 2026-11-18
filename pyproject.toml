@@ -50,6 +50,10 @@ dependencies = [
     # startup requirement, so it cannot move to an extra. Conditionalising the
     # INSTALLED_APPS entry would reclaim that, at the cost of `runserver`.
     "daphne>=4.0.0",
+    # Security floors for the ASGI runtime and the JWT dependency of MCP.
+    "autobahn>=26.10.1",
+    "Twisted>=26.10.0",
+    "PyJWT>=2.15.0",
     "whitenoise>=6.6.0",  # #423: serve /static/ in production (DEBUG=false, no proxy)
     "tiktoken>=0.5.0",
     "platformdirs>=4.0.0",
@@ -112,6 +116,9 @@ google = [
     "google-api-python-client>=2.100.0",
     "google-auth-httplib2>=0.1.0",
     "google-auth-oauthlib>=1.2.1",
+    "oauthlib>=4.0.1",
+    "opentelemetry-api>=1.45.2",
+    "pyasn1>=0.6.5",
 ]
 vector = [
     # Pulls numpy (~60MB). Only env-var names like QDRANT_URL are referenced in
@@ -144,7 +151,10 @@ oauth = [
     #   SWARM_OAUTH_ALLOWED_DOMAINS  email domains, comma-separated
     #   SWARM_OAUTH_ALLOW_ANY=true   disable the check (dev only)
     # With none set, every social login is refused (fail closed).
-    "social-auth-app-django>=5.4",
+    # 7.2 implements the one-time nonce storage required by social-auth-core 6.2.
+    "social-auth-app-django>=7.2.0",
+    "social-auth-core>=6.2.0",
+    "oauthlib>=4.0.1",
 ]
 deploy = [
     # What a container deployment wants: a WSGI option plus human sign-in.
@@ -152,14 +162,18 @@ deploy = [
     # the whole server story. Add new server-only deps here, not to the base
     # list, so local checkouts stay light.
     "gunicorn>=21.0.0",
-    "social-auth-app-django>=5.4",
+    "social-auth-app-django>=7.2.0",
+    "social-auth-core>=6.2.0",
+    "oauthlib>=4.0.1",
 ]
 scraping = [
     "beautifulsoup4>=4.12.0",
+    "soupsieve>=4.0.0",
 ]
 build = [
     # Only `swarm.core.swarm_cli` / `swarm.cli.launcher` (host packaging).
     "pyinstaller>=5.13.0",
+    "setuptools>=84.1.0",
 ]
 tui = [
     # REQ-111 Wave 1a: interactive Herdr-like TUI chrome. Kept optional so a
@@ -172,6 +186,7 @@ sandbox = [
     # #890: the httpx pin is lifted, so the SDK's httpx>=0.28 requirement now
     # resolves without conflict.
     "daytona>=0.5.0",
+    "opentelemetry-api>=1.45.2",
 ]
 desktop = [
     # REQ-883B: pywebview window. Not required for `swarm-desktop --print-plan`.

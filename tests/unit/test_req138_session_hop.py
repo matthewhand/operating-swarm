@@ -35,6 +35,8 @@ cross-kind consumption helper, and that the hop never resumes.
 import ast
 from pathlib import Path
 
+from django.urls import resolve
+
 from helpers.py_ast import (
     calls_within_body,
     defined_names,
@@ -45,7 +47,6 @@ from helpers.py_ast import (
 REPO = Path(__file__).resolve().parents[2]
 CORE = REPO / "src" / "swarm" / "core" / "cli_session_hop.py"
 API = REPO / "src" / "swarm" / "views" / "cli_session_hop_api.py"
-URLS = REPO / "src" / "swarm" / "urls.py"
 DOCS = REPO / "docs" / "CLI_FUSION.md"
 CHAT = REPO / "webui" / "frontend" / "src" / "pages" / "ChatPage.tsx"
 CHAT_ROUTING = REPO / "webui" / "frontend" / "src" / "features" / "chat" / "useChatRouting.ts"
@@ -91,8 +92,10 @@ def test_hop_is_a_new_session_and_never_a_resume():
 
 def test_api_and_urls_are_github_only():
     """The hop endpoint is routed, and it never points at a private host."""
-    urls = URLS.read_text(encoding="utf-8")
-    assert "v1/cli-sessions/hop/" in urls
+    path = "/v1/cli-sessions/hop"
+    slashed = resolve(f"{path}/")
+    assert slashed.url_name == "cli-sessions-hop"
+    assert resolve(path).func is slashed.func
 
     api = API.read_text(encoding="utf-8")
     assert "CliSessionHopAPIView" in defined_names(parse_module(API))

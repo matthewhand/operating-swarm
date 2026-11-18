@@ -118,6 +118,7 @@ def test_register_blueprints_no_registration_api(monkeypatch, caplog):
     """When mcp_server is present but lacks add_tool or register_tool, return 0."""
     empty_pkg = ModuleType("mcp_server")
     monkeypatch.setitem(sys.modules, "mcp_server", empty_pkg)
+    monkeypatch.delitem(sys.modules, "mcp_server.registry", raising=False)
 
     from swarm.mcp import integration as integ
     importlib.reload(integ)

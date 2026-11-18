@@ -126,8 +126,6 @@ class CliRoundtableBlueprint(CliDeliberationBase):
                 final=True,
             )
             return
-            yield support.message_chunk(str(e), final=True)
-            return
         rounds = self._rounds(params)
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
         yield support.progress_chunk(
