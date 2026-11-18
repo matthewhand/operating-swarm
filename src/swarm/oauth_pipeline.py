@@ -104,7 +104,7 @@ def require_verified_email(backend, details, response, user=None, *args, **kwarg
     external-collaborator accounts, so a domain allowlist is materially weaker
     on Google than the same allowlist on GitHub. Check it explicitly.
     """
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
     if getattr(backend, "name", "") == "google-oauth2":
         verified = (response or {}).get("email_verified")
@@ -115,14 +115,14 @@ def require_verified_email(backend, details, response, user=None, *args, **kwarg
             logger.warning(
                 "[OAuth] Refused Google sign-in: email_verified=%r.", verified
             )
-            raise AuthForbidden(backend.name)
+            raise AuthPolicyError(backend, stage="pipeline")
 
     if not str(details.get("email") or "").strip():
         # Belt-and-braces: no address at all means there is nothing to
         # allowlist against. The allowlist step already refuses this, but a
         # provider that changes shape should not turn into a bypass.
         logger.warning("[OAuth] Refused sign-in via %s: no email returned.", getattr(backend, "name", "?"))
-        raise AuthForbidden(getattr(backend, "name", "?"))
+        raise AuthPolicyError(backend, stage="pipeline")
 
     return None
 
@@ -133,7 +133,7 @@ def restrict_to_approved_email(backend, details, response, user=None, *args, **k
     Halting means RAISING, not returning None. In python-social-auth a step
     that returns None simply means "no change, carry on" -- returning None
     here would let social_user/create_user run and provision an account for a
-    rejected login. ``AuthForbidden`` is what social-django turns into a
+    rejected login. ``AuthPolicyError`` is what social-django turns into a
     redirect to SOCIAL_AUTH_LOGIN_ERROR_URL, so a refusal lands on the login
     page instead of creating a row.
 
@@ -148,7 +148,7 @@ def restrict_to_approved_email(backend, details, response, user=None, *args, **k
     the shared swarm-anon-preview account, so the old code would attach any
     GitHub identity to it and sign the clicker in as it.
     """
-    from social_core.exceptions import AuthForbidden
+    from social_core.exceptions import AuthPolicyError
 
     if user and user.is_authenticated:
         if not email_allowed(getattr(user, "email", None)):
@@ -158,7 +158,7 @@ def restrict_to_approved_email(backend, details, response, user=None, *args, **k
                 getattr(backend, "name", "?"),
                 getattr(user, "email", None),
             )
-            raise AuthForbidden(getattr(backend, "name", "social"))
+            raise AuthPolicyError(backend, stage="pipeline")
         return None
 
     email = details.get("email")
@@ -169,7 +169,7 @@ def restrict_to_approved_email(backend, details, response, user=None, *args, **k
             getattr(backend, "name", "?"),
             email,
         )
-        raise AuthForbidden(getattr(backend, "name", "social"))
+        raise AuthPolicyError(backend, stage="pipeline")
 
     logger.info("[OAuth] Approved sign-in via %s.", getattr(backend, "name", "?"))
     return None
