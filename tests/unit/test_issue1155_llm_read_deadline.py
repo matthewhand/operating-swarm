@@ -12,7 +12,7 @@ Contract:
   ``total is None`` — a healthy slow generation still completes; a stalled
   stream fails honestly within the deadline.
 - ``SWARM_LLM_READ_TIMEOUT_S`` overrides the read bound (ops escape hatch).
-- Both AsyncOpenAI construction sites in blueprint_base receive it.
+- Both the default and per-profile AsyncOpenAI clients receive it.
 """
 
 from __future__ import annotations
@@ -25,11 +25,6 @@ from swarm.utils.env_utils import (
     llm_http_timeout,
     openai_client_kwargs,
 )
-
-REPO = None  # set by conftest-free import below
-from pathlib import Path
-
-BASE = Path(__file__).resolve().parents[2] / "src" / "swarm" / "core" / "blueprint_base.py"
 
 
 def test_kwargs_carry_read_phase_deadline_without_total_cap():
@@ -77,14 +72,29 @@ def test_shared_default_client_receives_the_deadline(monkeypatch):
     )
 
 
-def test_per_profile_client_site_uses_the_same_helper():
-    text = BASE.read_text(encoding="utf-8")
-    # The per-profile cache builds AsyncOpenAI from client_kwargs; the
-    # deadline helper must be applied at that site (not just the default).
-    assert "llm_http_timeout" in text, (
-        "#1155: blueprint_base must import the deadline helper"
+def test_per_profile_client_receives_the_read_deadline(monkeypatch):
+    import openai
+
+    from swarm.core.config_resolver import ConfigResolver
+
+    resolver = ConfigResolver()
+    resolver._config = {}
+    monkeypatch.setattr(
+        resolver,
+        "get_llm_profile",
+        lambda _profile: {"model": "test-model", "api_key": "sk-test"},
     )
-    site = text.split("def _get_model_instance", 1)[-1].split("def ", 1)[0]
-    assert "llm_http_timeout" in site or "timeout" in site.split("AsyncOpenAI(")[0], (
-        "#1155: the per-profile client_kwargs must include the timeout"
-    )
+    monkeypatch.setenv("SWARM_LLM_READ_TIMEOUT_S", "12.5")
+    captured = {}
+    real = openai.AsyncOpenAI
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return real(**kwargs)
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", spy)
+    resolver._get_model_instance("test")
+
+    timeout = captured["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.read == 12.5

@@ -121,6 +121,7 @@ for the common ones are above; the rest are one-liners.
 | Hook | One-line contract |
 |---|---|
 | `config` (property) | merged per-blueprint config dict |
+| `abbreviation` (property) | short identifier from metadata, or `None` when omitted |
 | `llm_profile` (property) | the resolved profile dict |
 | `llm_profile_name` (property, settable) | which profile models resolve through |
 | `get_llm_profile(profile_name)` | profile dict by name |

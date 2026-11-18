@@ -86,7 +86,8 @@ class TestChucksAngelsBlueprint:
         )
         blueprint = ChucksAngelsBlueprint(blueprint_id="test_angels")
         assert blueprint.blueprint_id == "test_angels"
-        assert blueprint.metadata["name"] == "Chuck's Angels"
+        assert blueprint.metadata["name"] == "chucks_angels"
+        assert blueprint.metadata["title"] == "Chuck's Angels"
         assert blueprint.metadata["version"] == "0.1.1"
         assert "Chuck Norris" in blueprint.metadata["description"]
 

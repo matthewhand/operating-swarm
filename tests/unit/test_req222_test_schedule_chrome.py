@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from django.urls import resolve
+
 REPO = Path(__file__).resolve().parents[2]
 STUB = REPO / "webui" / "frontend" / "src" / "components" / "ComputerControlStub.tsx"
 PANE = REPO / "webui" / "frontend" / "src" / "components" / "TestSchedulePane.tsx"
@@ -10,7 +12,6 @@ TRIGGERS = REPO / "src" / "swarm" / "core" / "schedule_triggers.py"
 SCHEDULES = REPO / "src" / "swarm" / "core" / "test_schedules.py"
 ENGINE = REPO / "src" / "swarm" / "core" / "schedule_engine.py"
 API = REPO / "src" / "swarm" / "views" / "test_schedules_api.py"
-URLS = REPO / "src" / "swarm" / "urls.py"
 APPS = REPO / "src" / "swarm" / "apps.py"
 
 
@@ -49,10 +50,14 @@ def test_store_seeds_fleet_proofs_and_engine_is_single_process():
 
 
 def test_api_paths_exist():
-    urls = URLS.read_text(encoding="utf-8")
-    assert "v1/test-schedules/" in urls
-    assert "v1/test-schedules/status/" in urls
-    assert "run-now" in urls
+    for path, name in (
+        ("/v1/test-schedules", "test-schedules-api"),
+        ("/v1/test-schedules/status", "test-schedules-status"),
+        ("/v1/test-schedules/demo/run-now", "test-schedule-run-now-api"),
+    ):
+        slashed = resolve(f"{path}/")
+        assert slashed.url_name == name
+        assert resolve(path).func is slashed.func
     api = API.read_text(encoding="utf-8")
     assert "run-now" in api
     assert ":8001" not in api
